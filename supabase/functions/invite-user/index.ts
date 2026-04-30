@@ -1,0 +1,151 @@
+// supabase/functions/invite-user/index.ts
+//
+// SETUP INSTRUCTIONS:
+// 1. Install Supabase CLI:  winget install Supabase.CLI
+// 2. Login:                 supabase login
+// 3. Link your project:     supabase link --project-ref YOUR_PROJECT_REF
+// 4. Deploy this function:  supabase functions deploy invite-user
+// 5. In Supabase dashboard → Edge Functions → invite-user → add secret:
+//      SUPABASE_SERVICE_ROLE_KEY = your service role key (from Project Settings → API)
+//
+// Your project ref is in your Supabase URL:
+// https://YOUR_PROJECT_REF.supabase.co
+
+import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
+
+const supabaseUrl = Deno.env.get("SUPABASE_URL")!
+const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY")!
+const supabaseServiceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
+const siteUrl = Deno.env.get("SITE_URL") ?? "http://localhost:5173"
+
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+}
+
+serve(async (req: Request) => {
+  if (req.method === "OPTIONS") {
+    return new Response("ok", { headers: corsHeaders })
+  }
+
+  try {
+    const authHeader = req.headers.get("Authorization")
+    if (!authHeader) {
+      return new Response(JSON.stringify({ error: "Unauthorized" }), {
+        status: 401,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      })
+    }
+
+    const callerClient = createClient(
+      supabaseUrl,
+      supabaseAnonKey,
+      { global: { headers: { Authorization: authHeader } } }
+    )
+
+    const { data: { user: caller }, error: callerError } = await callerClient.auth.getUser()
+    if (callerError || !caller) {
+      return new Response(JSON.stringify({ error: "Unauthorized" }), {
+        status: 401,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      })
+    }
+
+    const { data: callerData, error: callerDataError } = await callerClient
+      .from("users")
+      .select("role, business_id")
+      .eq("id", caller.id)
+      .single()
+
+    if (callerDataError || !callerData || !["owner", "manager"].includes(callerData.role)) {
+      return new Response(JSON.stringify({ error: "Only owners and managers can invite employees" }), {
+        status: 403,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      })
+    }
+
+    const { email, fullName, role } = await req.json()
+
+    if (!email || !fullName || !role) {
+      return new Response(JSON.stringify({ error: "email, fullName, and role are required" }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      })
+    }
+
+    if (!["cashier", "manager"].includes(role)) {
+      return new Response(JSON.stringify({ error: "Role must be cashier or manager" }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      })
+    }
+
+    const adminClient = createClient(
+      supabaseUrl,
+      supabaseServiceRoleKey,
+      { auth: { autoRefreshToken: false, persistSession: false } }
+    )
+
+    const { data: existingUser } = await adminClient
+      .from("users")
+      .select("id")
+      .eq("email", email)
+      .eq("business_id", callerData.business_id)
+      .single()
+
+    if (existingUser) {
+      return new Response(JSON.stringify({ error: "This email has already been invited to your business" }), {
+        status: 409,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      })
+    }
+
+    const { data: inviteData, error: inviteError } = await adminClient.auth.admin.inviteUserByEmail(
+      email,
+      {
+        redirectTo: `${siteUrl}/auth/callback`,
+        data: {
+          full_name: fullName,
+          role,
+          business_id: callerData.business_id,
+        },
+      }
+    )
+
+    if (inviteError || !inviteData?.user) {
+      console.log("Invite error:", JSON.stringify(inviteError))
+      return new Response(JSON.stringify({ error: inviteError?.message || "Unknown invite error" }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      })
+    }
+
+    const { error: insertError } = await adminClient.from("users").insert({
+      id: inviteData.user.id,
+      full_name: fullName,
+      email,
+      role,
+      business_id: callerData.business_id,
+      is_active: false,
+    })
+
+    if (insertError) {
+      return new Response(JSON.stringify({ error: insertError.message }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      })
+    }
+
+    return new Response(
+      JSON.stringify({ success: true, message: `Invite sent to ${email}` }),
+      { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+    )
+
+  } catch (err) {
+    return new Response(JSON.stringify({ error: (err as Error).message || "Internal server error" }), {
+      status: 500,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    })
+  }
+})
