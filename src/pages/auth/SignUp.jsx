@@ -37,11 +37,21 @@ export default function SignUp() {
 
     setLoading(true)
 
+    localStorage.setItem(
+      "pending_signup",
+      JSON.stringify({
+        fullName: fullName.trim(),
+        businessName: businessName.trim(),
+        email: email.trim(),
+      })
+    )
+
     // Step 1: Create auth account
     const { data, error: signUpError } = await supabase.auth.signUp({
       email: email.trim(),
       password,
       options: {
+        emailRedirectTo: `${window.location.origin}/auth/callback`,
         data: {
           full_name: fullName.trim(),
           business_name: businessName.trim(),
@@ -51,13 +61,25 @@ export default function SignUp() {
 
     if (signUpError) {
       setError(signUpError.message)
+      localStorage.removeItem("pending_signup")
       setLoading(false)
       return
     }
 
     if (!data.user) {
       setError("Failed to create account")
+      localStorage.removeItem("pending_signup")
       setLoading(false)
+      return
+    }
+
+    // Email confirmation enabled: callback will complete account setup.
+    if (!data.session) {
+      setLoading(false)
+      navigate("/", {
+        replace: true,
+        state: { message: "Check your email to confirm your account, then continue from the link." },
+      })
       return
     }
 
@@ -101,6 +123,8 @@ export default function SignUp() {
       setLoading(false)
       return
     }
+
+    localStorage.removeItem("pending_signup")
 
     setLoading(false)
     navigate("/onboarding")

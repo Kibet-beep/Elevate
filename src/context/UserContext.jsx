@@ -14,7 +14,7 @@ export function UserProvider({ children }) {
     supabase.auth.getSession().then(({ data: { session } }) => {
       if (session?.user) {
         setUser(session.user)
-        fetchUserRole(session.user.id)
+        fetchUserRole(session.user)
       } else {
         setLoading(false)
       }
@@ -26,7 +26,7 @@ export function UserProvider({ children }) {
     } = supabase.auth.onAuthStateChange((_event, session) => {
       if (session?.user) {
         setUser(session.user)
-        fetchUserRole(session.user.id)
+        fetchUserRole(session.user)
       } else {
         setUser(null)
         setUserRole(null)
@@ -37,16 +37,82 @@ export function UserProvider({ children }) {
     return () => subscription.unsubscribe()
   }, [])
 
-  const fetchUserRole = async (userId) => {
-    try {
-      const { data: userData, error: fetchError } = await supabase
+  const ensureUserProfile = async (authUser) => {
+    const { data: existingById, error: byIdError } = await supabase
+      .from("users")
+      .select("id, role, business_id, full_name")
+      .eq("id", authUser.id)
+      .maybeSingle()
+
+    if (!byIdError && existingById) return existingById
+
+    if (authUser.email) {
+      const { data: existingByEmail } = await supabase
         .from("users")
-        .select("role")
-        .eq("id", userId)
+        .select("id, role, business_id, full_name")
+        .eq("email", authUser.email)
+        .maybeSingle()
+
+      if (existingByEmail) return existingByEmail
+    }
+
+    const metadata = authUser.user_metadata || {}
+    let businessId = metadata.business_id || null
+    let role = metadata.role || null
+    const fullName = metadata.full_name || authUser.email?.split("@")[0] || "User"
+
+    if (!businessId && metadata.business_name) {
+      const { data: createdBusiness, error: businessError } = await supabase
+        .from("businesses")
+        .insert({ name: metadata.business_name, type: "retail" })
+        .select("id")
         .single()
 
-      if (fetchError) {
-        console.error("Error fetching user role:", fetchError)
+      if (!businessError && createdBusiness?.id) {
+        businessId = createdBusiness.id
+      }
+    }
+
+    if (!role) {
+      role = metadata.business_name ? "owner" : "cashier"
+    }
+
+    if (!businessId) return null
+
+    const { data: createdUser, error: insertError } = await supabase
+      .from("users")
+      .insert({
+        id: authUser.id,
+        full_name: fullName,
+        email: authUser.email,
+        role,
+        business_id: businessId,
+        is_active: true,
+      })
+      .select("id, role, business_id, full_name")
+      .single()
+
+    if (!insertError && createdUser) return createdUser
+
+    if (authUser.email) {
+      const { data: fallbackByEmail } = await supabase
+        .from("users")
+        .select("id, role, business_id, full_name")
+        .eq("email", authUser.email)
+        .maybeSingle()
+
+      if (fallbackByEmail) return fallbackByEmail
+    }
+
+    return null
+  }
+
+  const fetchUserRole = async (authUser) => {
+    try {
+      const userData = await ensureUserProfile(authUser)
+
+      if (!userData) {
+        console.error("Unable to resolve user profile for authenticated user")
         setUserRole("cashier")
       } else {
         setUserRole(userData?.role || "cashier")
