@@ -11,6 +11,12 @@ export function useUser() {
   return context
 }
 
+// Hook to get current business_id (resolved from user profile)
+export function useCurrentBusiness() {
+  const { businessId, loading } = useUser()
+  return { businessId, loading }
+}
+
 // Hook to check if user has a specific permission
 export function usePermission(permission) {
   const { userRole } = useUser()

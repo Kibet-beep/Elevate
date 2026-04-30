@@ -2,11 +2,12 @@
 import { useState, useEffect } from "react"
 import { supabase } from "../../lib/supabase"
 import { useNavigate } from "react-router-dom"
+import { useCurrentBusiness } from "../../hooks/useRole"
 import { AppShell, UiButton, UiCard } from "../../components/ui"
 
 export default function Business() {
   const navigate = useNavigate()
-  const [businessId, setBusinessId] = useState(null)
+  const { businessId } = useCurrentBusiness()
   const [name, setName] = useState("")
   const [type, setType] = useState("retail")
   const [phone, setPhone] = useState("")
@@ -19,25 +20,20 @@ export default function Business() {
   const [saved, setSaved] = useState(false)
 
   useEffect(() => {
-    fetchBusiness()
-  }, [])
+    if (businessId) fetchBusiness()
+  }, [businessId])
 
   const fetchBusiness = async () => {
-    const { data: { user } } = await supabase.auth.getUser()
-    const { data: userData } = await supabase
-      .from("users").select("business_id").eq("id", user.id).single()
-
-    setBusinessId(userData.business_id)
-
     const { data } = await supabase
-      .from("businesses").select("*").eq("id", userData.business_id).single()
+      .from("businesses").select("*").eq("id", businessId).single()
 
-    setName(data.name || "")
-    setType(data.type || "retail")
-    setPhone(data.phone || "")
-    setEmail(data.email || "")
-    setLocation(data.location || "")
-    setKraPin(data.kra_pin || "")
+    if (data) {
+      setName(data.name || "")
+      setType(data.type || "retail")
+      setPhone(data.phone || "")
+      setEmail(data.email || "")
+      setLocation(data.location || "")
+      setKraPin(data.kra_pin || "")
     setRegNumber(data.reg_number || "")
   }
 

@@ -2,11 +2,12 @@
 import { useState, useEffect } from "react"
 import { supabase } from "../../lib/supabase"
 import { useNavigate } from "react-router-dom"
+import { useCurrentBusiness } from "../../hooks/useRole"
 import { AppShell, UiButton, UiCard } from "../../components/ui"
 
 export default function Float() {
   const navigate = useNavigate()
-  const [businessId, setBusinessId] = useState(null)
+  const { businessId } = useCurrentBusiness()
   const [userId, setUserId] = useState(null)
   const [cash, setCash] = useState("")
   const [mpesa, setMpesa] = useState("")
@@ -18,24 +19,14 @@ export default function Float() {
   const [error, setError] = useState("")
 
   useEffect(() => {
-    fetchFloat()
-  }, [])
+    if (businessId) fetchFloat()
+  }, [businessId])
 
   const fetchFloat = async () => {
-    const { data: { user } } = await supabase.auth.getUser()
-    const { data: userData } = await supabase
-      .from("users")
-      .select("business_id")
-      .eq("id", user.id)
-      .single()
-
-    setBusinessId(userData.business_id)
-    setUserId(user.id)
-
     const { data } = await supabase
       .from("float_baseline")
       .select("*")
-      .eq("business_id", userData.business_id)
+      .eq("business_id", businessId)
       .maybeSingle()
 
     if (data) {

@@ -2,12 +2,13 @@
 import { useState, useEffect } from "react"
 import { supabase } from "../../lib/supabase"
 import { useNavigate } from "react-router-dom"
+import { useCurrentBusiness } from "../../hooks/useRole"
 import { AppShell, UiButton, UiCard } from "../../components/ui"
 
 export default function Suppliers() {
   const navigate = useNavigate()
   const [suppliers, setSuppliers] = useState([])
-  const [businessId, setBusinessId] = useState(null)
+  const { businessId } = useCurrentBusiness()
   const [adding, setAdding] = useState(false)
   const [name, setName] = useState("")
   const [phone, setPhone] = useState("")
@@ -16,17 +17,12 @@ export default function Suppliers() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
 
-  useEffect(() => { fetchSuppliers() }, [])
+  useEffect(() => { if (businessId) fetchSuppliers() }, [businessId])
 
   const fetchSuppliers = async () => {
-    const { data: { user } } = await supabase.auth.getUser()
-    const { data: userData } = await supabase
-      .from("users").select("business_id").eq("id", user.id).single()
-    setBusinessId(userData.business_id)
-
     const { data } = await supabase
       .from("suppliers").select("*")
-      .eq("business_id", userData.business_id)
+      .eq("business_id", businessId)
       .order("name")
 
     setSuppliers(data || [])

@@ -2,11 +2,14 @@
 import { useState, useEffect } from "react"
 import { supabase } from "../../lib/supabase"
 import { useNavigate } from "react-router-dom"
-import { AppShell, UiButton, UiCard, UiSectionTitle } from "../../components/ui"
+import { useUser, useIsOwnerOrManager, useCurrentBusiness } from "../../hooks/useRole"
+import { AppShell, UiButton, UiCard } from "../../components/ui"
 
 export default function NewStock() {
   const navigate = useNavigate()
-  const [businessId, setBusinessId] = useState(null)
+  const { user: authUser } = useUser()
+  const isOwnerOrManager = useIsOwnerOrManager()
+  const { businessId } = useCurrentBusiness()
   const [userId, setUserId] = useState(null)
   const [suppliers, setSuppliers] = useState([])
   const [loading, setLoading] = useState(false)
@@ -36,24 +39,18 @@ export default function NewStock() {
   const [composerStep, setComposerStep] = useState(1)
 
   useEffect(() => {
-    fetchInitialData()
-  }, [])
+    if (businessId && authUser) {
+      fetchInitialData()
+    }
+  }, [businessId, authUser])
 
   const fetchInitialData = async () => {
-    const { data: { user } } = await supabase.auth.getUser()
-    const { data: userData } = await supabase
-      .from("users")
-      .select("business_id")
-      .eq("id", user.id)
-      .single()
-
-    setBusinessId(userData.business_id)
-    setUserId(user.id)
+    setUserId(authUser.id)
 
     const { data: suppliersData } = await supabase
       .from("suppliers")
       .select("id, name")
-      .eq("business_id", userData.business_id)
+      .eq("business_id", businessId)
       .eq("is_active", true)
 
     setSuppliers(suppliersData || [])
@@ -61,7 +58,7 @@ export default function NewStock() {
     const { data: productsData } = await supabase
       .from("products")
       .select("id, name, sku_id, selling_price, unit_of_measure")
-      .eq("business_id", userData.business_id)
+      .eq("business_id", businessId)
       .eq("is_active", true)
       .order("name")
 

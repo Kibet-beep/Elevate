@@ -2,6 +2,7 @@
 import { useState, useEffect } from "react"
 import { supabase } from "../../lib/supabase"
 import { useNavigate } from "react-router-dom"
+import { useUser, useCurrentBusiness } from "../../hooks/useRole"
 import { AppShell, UiButton, UiCard, UiSectionTitle } from "../../components/ui"
 
 const ACCOUNTS = ["cash", "mpesa", "bank"]
@@ -17,7 +18,8 @@ const TRANSFER_COSTS = {
 
 export default function AddTransfer() {
   const navigate = useNavigate()
-  const [businessId, setBusinessId] = useState(null)
+  const { user: authUser } = useUser()
+  const { businessId } = useCurrentBusiness()
   const [userId, setUserId] = useState(null)
   const [fromAccount, setFromAccount] = useState("cash")
   const [toAccount, setToAccount] = useState("mpesa")
@@ -31,22 +33,11 @@ export default function AddTransfer() {
   const [balances, setBalances] = useState({ cash: 0, mpesa: 0, bank: 0 })
 
   useEffect(() => {
-    fetchUser()
-    fetchBalances()
-  }, [])
-
-  const fetchUser = async () => {
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
-    const { data: userData } = await supabase
-      .from("users")
-      .select("business_id")
-      .eq("id", user.id)
-      .single()
-    setBusinessId(userData.business_id)
-    setUserId(user.id)
-  }
+    if (businessId && authUser) {
+      setUserId(authUser.id)
+      fetchBalances()
+    }
+  }, [businessId, authUser])
 
   const fetchBalances = async () => {
     const { data: userData } = await supabase

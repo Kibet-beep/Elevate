@@ -2,11 +2,12 @@
 import { useState, useEffect } from "react"
 import { supabase } from "../../lib/supabase"
 import { useNavigate } from "react-router-dom"
+import { useCurrentBusiness } from "../../hooks/useRole"
 import { AppShell, UiButton, UiCard } from "../../components/ui"
 
 export default function General() {
   const navigate = useNavigate()
-  const [businessId, setBusinessId] = useState(null)
+  const { businessId } = useCurrentBusiness()
   const [vatRate, setVatRate] = useState(16)
   const [lowStockThreshold, setLowStockThreshold] = useState(10)
   const [financialYearStart, setFinancialYearStart] = useState(1)
@@ -18,18 +19,13 @@ export default function General() {
     "July","August","September","October","November","December"]
 
   useEffect(() => {
-    fetchData()
-  }, [])
+    if (businessId) fetchData()
+  }, [businessId])
 
   const fetchData = async () => {
-    const { data: { user } } = await supabase.auth.getUser()
-    const { data: userData } = await supabase
-      .from("users").select("business_id").eq("id", user.id).single()
-    setBusinessId(userData.business_id)
-
     const { data } = await supabase
       .from("businesses").select("vat_rate, low_stock_threshold, financial_year_start")
-      .eq("id", userData.business_id).single()
+      .eq("id", businessId).single()
 
     setVatRate(data.vat_rate || 16)
     setLowStockThreshold(data.low_stock_threshold || 10)

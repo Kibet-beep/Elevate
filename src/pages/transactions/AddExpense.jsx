@@ -2,6 +2,7 @@
 import { useState, useEffect } from "react"
 import { supabase } from "../../lib/supabase"
 import { useNavigate } from "react-router-dom"
+import { useUser, useIsOwnerOrManager, useCurrentBusiness } from "../../hooks/useRole"
 import { AppShell, UiButton, UiCard, UiSectionTitle } from "../../components/ui"
 
 const EXPENSE_CATEGORIES = [
@@ -22,7 +23,9 @@ const ACCOUNT_MAP = {
 
 export default function AddExpense() {
   const navigate = useNavigate()
-  const [businessId, setBusinessId] = useState(null)
+  const { user: authUser } = useUser()
+  const isOwnerOrManager = useIsOwnerOrManager()
+  const { businessId } = useCurrentBusiness()
   const [userId, setUserId] = useState(null)
   const [category, setCategory] = useState("")
   const [amount, setAmount] = useState("")
@@ -34,19 +37,10 @@ export default function AddExpense() {
   const [success, setSuccess] = useState(false)
 
   useEffect(() => {
-    fetchUser()
-  }, [])
-
-  const fetchUser = async () => {
-    const { data: { user } } = await supabase.auth.getUser()
-    const { data: userData } = await supabase
-      .from("users")
-      .select("business_id")
-      .eq("id", user.id)
-      .single()
-    setBusinessId(userData.business_id)
-    setUserId(user.id)
-  }
+    if (businessId && authUser) {
+      setUserId(authUser.id)
+    }
+  }, [businessId, authUser])
 
   const handleSubmit = async () => {
     if (!category || !amount) {

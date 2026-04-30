@@ -2,6 +2,7 @@
 import { useState, useEffect } from "react"
 import { supabase } from "../../lib/supabase"
 import { useNavigate } from "react-router-dom"
+import { useUser, useCurrentBusiness } from "../../hooks/useRole"
 
 function classifyABC(products) {
   if (!products.length) return {}
@@ -138,7 +139,6 @@ function PrimaryBtn({ onClick, disabled, loading, children }) {
 
 export default function StockTake() {
   const navigate = useNavigate()
-  const [businessId, setBusinessId] = useState(null)
   const [userId, setUserId] = useState(null)
   const [allProducts, setAllProducts] = useState([])
   const [products, setProducts] = useState([])
@@ -154,19 +154,19 @@ export default function StockTake() {
   const [error, setError] = useState("")
   const [pastStockTakes, setPastStockTakes] = useState([])
   const [selectedVarianceId, setSelectedVarianceId] = useState(null)
+  const { user } = useUser()
+  const { businessId } = useCurrentBusiness()
 
-  useEffect(() => { fetchInitialData() }, [])
+  useEffect(() => { if (businessId) fetchInitialData() }, [businessId])
 
   const fetchInitialData = async () => {
-    const { data: { user } } = await supabase.auth.getUser()
-    const { data: userData } = await supabase.from("users").select("business_id").eq("id", user.id).single()
-    setBusinessId(userData.business_id)
+    if (!businessId) return
     setUserId(user.id)
 
     const { data: productsData } = await supabase
       .from("products")
       .select("id, name, sku_id, current_quantity, unit_of_measure, category, buying_price")
-      .eq("business_id", userData.business_id)
+      .eq("business_id", businessId)
       .eq("is_active", true)
       .order("name")
 

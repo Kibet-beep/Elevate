@@ -2,12 +2,14 @@
 import { useState, useEffect } from "react"
 import { supabase } from "../../lib/supabase"
 import { useNavigate } from "react-router-dom"
+import { useUser, useCurrentBusiness } from "../../hooks/useRole"
 import { AppShell, UiButton, UiCard, UiSectionTitle } from "../../components/ui"
 import PaymentIcon from "../../components/ui/PaymentIcon"
 
 export default function AddSale() {
   const navigate = useNavigate()
-  const [businessId, setBusinessId] = useState(null)
+  const { user: authUser } = useUser()
+  const { businessId } = useCurrentBusiness()
   const [userId, setUserId] = useState(null)
   const [products, setProducts] = useState([])
   const [cartItems, setCartItems] = useState([])
@@ -25,27 +27,20 @@ export default function AddSale() {
 
   useEffect(() => {
     fetchData()
-  }, [])
+  }, [businessId])
 
   const fetchData = async () => {
-    const { data: { user } } = await supabase.auth.getUser()
-    const { data: userData } = await supabase
-      .from("users")
-      .select("business_id, businesses(vat_rate)")
-      .eq("id", user.id)
-      .single()
-
-    setBusinessId(userData.business_id)
-    setUserId(user.id)
+    if (!businessId || !authUser) return
 
     const { data } = await supabase
       .from("products")
       .select("id, name, sku_id, selling_price, current_quantity, unit_of_measure, vat_type")
-      .eq("business_id", userData.business_id)
+      .eq("business_id", businessId)
       .eq("is_active", true)
       .order("name")
 
     setProducts(data || [])
+    setUserId(authUser.id)
   }
 
   const addToCart = (product) => {

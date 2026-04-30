@@ -6,6 +6,7 @@ export const UserContext = createContext()
 export function UserProvider({ children }) {
   const [user, setUser] = useState(null)
   const [userRole, setUserRole] = useState(null)
+  const [businessId, setBusinessId] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
 
@@ -132,12 +133,15 @@ export function UserProvider({ children }) {
       if (!userData) {
         console.error("Unable to resolve user profile for authenticated user")
         setUserRole("cashier")
+        setBusinessId(null)
       } else {
         setUserRole(userData?.role || "cashier")
+        setBusinessId(userData?.business_id || null)
       }
     } catch (err) {
       console.error("Error fetching user role:", err)
       setUserRole("cashier")
+      setBusinessId(null)
     } finally {
       setLoading(false)
     }
@@ -151,6 +155,7 @@ export function UserProvider({ children }) {
     await supabase.auth.signOut()
     setUser(null)
     setUserRole(null)
+    setBusinessId(null)
   }
 
   return (
@@ -158,6 +163,7 @@ export function UserProvider({ children }) {
       value={{
         user,
         userRole,
+        businessId,
         loading,
         error,
         updateUserRole,

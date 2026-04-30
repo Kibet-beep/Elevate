@@ -2,13 +2,14 @@
 import { useState, useEffect } from "react"
 import { supabase } from "../../lib/supabase"
 import { useNavigate } from "react-router-dom"
+import { useUser, useCurrentBusiness } from "../../hooks/useRole"
 import { AppShell, UiButton, UiCard } from "../../components/ui"
 
 export default function Employees() {
   const navigate = useNavigate()
+  const { user: authUser } = useUser()
   const [employees, setEmployees] = useState([])
-  const [businessId, setBusinessId] = useState(null)
-  const [currentUserId, setCurrentUserId] = useState(null)
+  const { businessId } = useCurrentBusiness()
   const [adding, setAdding] = useState(false)
   const [fullName, setFullName] = useState("")
   const [email, setEmail] = useState("")
@@ -17,18 +18,12 @@ export default function Employees() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
 
-  useEffect(() => { fetchEmployees() }, [])
+  useEffect(() => { if (businessId) fetchEmployees() }, [businessId])
 
   const fetchEmployees = async () => {
-    const { data: { user } } = await supabase.auth.getUser()
-    setCurrentUserId(user.id)
-    const { data: userData } = await supabase
-      .from("users").select("business_id").eq("id", user.id).single()
-    setBusinessId(userData.business_id)
-
     const { data } = await supabase
       .from("users").select("*")
-      .eq("business_id", userData.business_id)
+      .eq("business_id", businessId)
       .order("created_at")
 
     setEmployees(data || [])
@@ -156,7 +151,7 @@ export default function Employees() {
                 </div>
                 <div>
                   <p className="text-white text-sm font-medium">{emp.full_name}
-                    {emp.id === currentUserId && <span className="text-zinc-500 text-xs ml-1">(you)</span>}
+                    {emp.id === authUser.id && <span className="text-zinc-500 text-xs ml-1">(you)</span>}
                   </p>
                   <p className="text-zinc-500 text-xs capitalize">{emp.role} · {emp.email}</p>
                 </div>
@@ -167,7 +162,7 @@ export default function Employees() {
                 }`}>
                   {emp.is_active ? "Active" : "Inactive"}
                 </span>
-                {emp.id !== currentUserId && (
+                {emp.id !== authUser.id && (
                   <button 
                     onClick={(e) => {
                       e.stopPropagation()
