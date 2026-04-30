@@ -3,11 +3,13 @@ import { useState, useEffect } from "react"
 import { supabase } from "../../lib/supabase"
 import { useNavigate } from "react-router-dom"
 import FloatingBottomNav from "../../components/layout/FloatingBottomNav"
+import { useUser, useIsOwnerOrManager } from "../../hooks/useRole"
 
 export default function Inventory() {
   const navigate = useNavigate()
+  const { user: authUser } = useUser()
+  const isOwnerOrManager = useIsOwnerOrManager()
   const [businessId, setBusinessId] = useState(null)
-  const [userRole, setUserRole] = useState(null)
   const [products, setProducts] = useState([])
   const [filtered, setFiltered] = useState([])
   const [search, setSearch] = useState("")
@@ -20,7 +22,7 @@ export default function Inventory() {
 
   useEffect(() => {
     fetchProducts()
-  }, [])
+  }, [authUser])
 
   useEffect(() => {
     let result = products
@@ -50,18 +52,15 @@ export default function Inventory() {
   }, [search, categoryFilter, riskFilter, products])
 
   const fetchProducts = async () => {
-    const {
-      data: { user },
-    } = await supabase.auth.getUser()
+    if (!authUser) return
 
     const { data: userData } = await supabase
       .from("users")
-      .select("business_id, role")
-      .eq("id", user.id)
+      .select("business_id")
+      .eq("id", authUser.id)
       .single()
 
     setBusinessId(userData.business_id)
-    setUserRole(userData.role)
 
     const { data } = await supabase
       .from("products")
@@ -80,7 +79,6 @@ export default function Inventory() {
   const isLowStock = (p) => Number(p.current_quantity || 0) <= Number(p.reorder_point || 0)
 
   const fmt = (n) => `KES ${Number(n).toLocaleString("en-KE", { minimumFractionDigits: 2 })}`
-  const isOwner = userRole === "owner"
 
   const totalUnits = products.reduce((sum, p) => sum + Number(p.current_quantity || 0), 0)
   const activeProducts = products.filter((p) => Number(p.current_quantity || 0) > 0).length
@@ -106,28 +104,32 @@ export default function Inventory() {
           <p className="text-zinc-500 text-xs">Live inventory balances</p>
         </div>
         <div className="flex items-center gap-2">
-          <button
-            onClick={() => navigate("/inventory/stocktake")}
-            className="bg-zinc-800 hover:bg-zinc-700 text-white text-xs font-medium px-3 py-2 rounded-xl transition-colors"
-          >
-            Stock take
-          </button>
-          <button
-            onClick={() => navigate("/inventory/new-stock")}
-            className="bg-emerald-500 hover:bg-emerald-400 text-black text-xs font-semibold px-3 py-2 rounded-xl transition-colors"
-          >
-            + New stock
-          </button>
+          {isOwnerOrManager && (
+            <>
+              <button
+                onClick={() => navigate("/inventory/stocktake")}
+                className="bg-zinc-800 hover:bg-zinc-700 text-white text-xs font-medium px-3 py-2 rounded-xl transition-colors"
+              >
+                Stock take
+              </button>
+              <button
+                onClick={() => navigate("/inventory/new-stock")}
+                className="bg-emerald-500 hover:bg-emerald-400 text-black text-xs font-semibold px-3 py-2 rounded-xl transition-colors"
+              >
+                + New stock
+              </button>
+            </>
+          )}
         </div>
       </div>
 
       <div className="px-6 py-4 space-y-4">
         {/* Metrics */}
-        <div className={`grid gap-3 ${isOwner ? "grid-cols-2 md:grid-cols-4" : "grid-cols-2 md:grid-cols-3"}`}>
+        <div className={`grid gap-3 ${isOwnerOrManager ? "grid-cols-2 md:grid-cols-4" : "grid-cols-2 md:grid-cols-3"}`}>
           <MetricCard label="Total units" value={totalUnits} tone="emerald" />
           <MetricCard label="Active products" value={activeProducts} tone="sky" />
           <MetricCard label="Units at risk" value={unitsAtRisk} sub={`${lowStockProducts} low stock`} tone="red" />
-          {isOwner && <MetricCard label="Inventory value" value={fmt(totalValue)} tone="amber" monoSmall />}
+          {isOwnerOrManager && <MetricCard label="Inventory value" value={fmt(totalValue)} tone="amber" monoSmall />}
         </div>
 
         <div className="bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden">

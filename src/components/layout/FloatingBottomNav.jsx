@@ -1,5 +1,7 @@
 import { useNavigate } from "react-router-dom"
 import { ArrowUpDown, Boxes, LayoutGrid, Settings2 } from "lucide-react"
+import { useUser } from "../../hooks/useRole"
+import { getNavigationItems } from "../../lib/roles"
 
 const DEFAULT_ITEMS = [
   { label: "Dashboard", path: "/dashboard" },
@@ -22,11 +24,22 @@ export default function FloatingBottomNav({
   itemClassName = "px-4 py-2.5",
 }) {
   const navigate = useNavigate()
+  const { userRole } = useUser()
+
+  // Get accessible items based on user role
+  const accessibleItems = userRole ? getNavigationItems(userRole) : []
+
+  // Use accessible items if user role is available, otherwise use default items (filtered)
+  const displayItems = userRole
+    ? accessibleItems
+    : items.filter((item) =>
+        DEFAULT_ITEMS.find((defaultItem) => defaultItem.path === item.path)
+      )
 
   return (
     <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50">
       <div className="flex items-center gap-1 bg-zinc-900/80 backdrop-blur-xl border border-zinc-700/50 rounded-full px-2 py-2 shadow-2xl shadow-black/60">
-        {items.map((item, i) => {
+        {displayItems.map((item, i) => {
           const isActive = activePath
             ? item.path === activePath
             : active === item.label.toLowerCase()

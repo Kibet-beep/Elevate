@@ -5,11 +5,14 @@ import { useNavigate } from "react-router-dom"
 import FloatingBottomNav from "../../components/layout/FloatingBottomNav"
 import { AppShell, UiButton } from "../../components/ui"
 import PaymentIcon from "../../components/ui/PaymentIcon"
+import { useUser, useIsOwnerOrManager } from "../../hooks/useRole"
 
 const today = () => new Date().toISOString().split("T")[0]
 
 export default function Transactions() {
   const navigate = useNavigate()
+  const { user: authUser } = useUser()
+  const isOwnerOrManager = useIsOwnerOrManager()
   const [transactions, setTransactions] = useState([])
   const [filtered, setFiltered] = useState([])
   const [filter, setFilter] = useState("all")
@@ -21,7 +24,7 @@ export default function Transactions() {
   const [selectedTx, setSelectedTx] = useState(null)
   const [loading, setLoading] = useState(true)
 
-  useEffect(() => { fetchTransactions() }, [])
+  useEffect(() => { fetchTransactions() }, [authUser])
 
   useEffect(() => {
     let result = transactions
@@ -45,11 +48,11 @@ export default function Transactions() {
   }, [filter, search, dateFrom, dateTo, paymentFilter, transactions])
 
   const fetchTransactions = async () => {
-    const { data: { user } } = await supabase.auth.getUser()
+    if (!authUser) return
     const { data: userData } = await supabase
       .from("users")
       .select("business_id")
-      .eq("id", user.id)
+      .eq("id", authUser.id)
       .single()
 
     const { data } = await supabase
@@ -118,9 +121,13 @@ export default function Transactions() {
       subtitle={`${filtered.length} transactions · ${periodLabel()}`}
       right={(
         <>
-          <UiButton variant="secondary" size="sm" onClick={() => navigate("/transactions/add-expense")}>+ Expense</UiButton>
-          <UiButton variant="secondary" size="sm" onClick={() => navigate("/transactions/transfer")}>⇄ Transfer</UiButton>
           <UiButton variant="primary" size="sm" onClick={() => navigate("/transactions/add-sale")}>+ Sale</UiButton>
+          {isOwnerOrManager && (
+            <>
+              <UiButton variant="secondary" size="sm" onClick={() => navigate("/transactions/add-expense")}>+ Expense</UiButton>
+              <UiButton variant="secondary" size="sm" onClick={() => navigate("/transactions/transfer")}>⇄ Transfer</UiButton>
+            </>
+          )}
         </>
       )}
     >

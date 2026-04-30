@@ -5,32 +5,37 @@ import { useNavigate } from "react-router-dom"
 import FloatingBottomNav from "../../components/layout/FloatingBottomNav"
 import { AppShell, UiButton, UiCard } from "../../components/ui"
 import { BarChart2, Building2, ChevronRight, LifeBuoy, LockKeyhole, Package, Settings2, Shield, TrendingUp, Users, Wallet } from "lucide-react"
+import { useUser, useIsOwner, useIsOwnerOrManager } from "../../hooks/useRole"
+import { getRoleDisplayName } from "../../lib/roles"
  
 export function Settings() {
   const navigate = useNavigate()
-  const [user, setUser] = useState(null)
+  const { user: authUser, userRole, logout } = useUser()
+  const [userData, setUserData] = useState(null)
   const [business, setBusiness] = useState(null)
   const [loading, setLoading] = useState(true)
+  const isOwner = useIsOwner()
+  const isOwnerOrManager = useIsOwnerOrManager()
  
   useEffect(() => {
     fetchData()
-  }, [])
+  }, [authUser])
  
   const fetchData = async () => {
-    const { data: { user: authUser } } = await supabase.auth.getUser()
-    const { data: userData } = await supabase
+    if (!authUser) return
+    const { data: userDataResponse } = await supabase
       .from("users")
       .select("*, businesses(*)")
       .eq("id", authUser.id)
       .single()
  
-    setUser(userData)
-    setBusiness(userData.businesses)
+    setUserData(userDataResponse)
+    setBusiness(userDataResponse?.businesses)
     setLoading(false)
   }
  
   const handleSignOut = async () => {
-    await supabase.auth.signOut()
+    await logout()
     navigate("/")
   }
  
@@ -40,52 +45,84 @@ export function Settings() {
     </div>
   )
  
-  const menuSections = [
-    {
-      title: "Admin",
-      items: [
-        { label: "Employees", desc: "Manage your team", path: "/settings/employees", icon: Users },
-        { label: "Suppliers", desc: "Manage suppliers", path: "/settings/suppliers", icon: Package },
-      ]
-    },
-    {
-      title: "Business",
-      items: [
-        { label: "Business details", desc: "Name, location, KRA PIN", path: "/settings/business", icon: Building2 },
-      ]
-    },
-    {
-      title: "Accounts",
-      items: [
-        { label: "Float", desc: "Set your opening cash, M-Pesa and bank balances", path: "/settings/float", icon: Wallet },
-      ]
-    },
-    {
-      title: "Reports",
-      items: [
-        { label: "Sales Records", desc: "Daily, weekly, monthly and quarterly sales breakdown", path: "/settings/reports/sales", icon: BarChart2 },
-        { label: "Profit & Loss", desc: "Revenue, COGS, gross profit and net profit by period", path: "/settings/reports/pl", icon: TrendingUp },
-      ]
-    },
-    {
-      title: "Preferences",
-      items: [
-        { label: "General", desc: "VAT rate, low stock threshold", path: "/settings/general", icon: Settings2 },
-      ]
-    },
-    {
+  // Dynamically build menu sections based on role
+  const getMenuSections = () => {
+    const sections = []
+
+    // Admin section - Owner and Manager
+    if (isOwnerOrManager) {
+      sections.push({
+        title: "Admin",
+        items: [
+          { label: "Employees", desc: "Manage your team", path: "/settings/employees", icon: Users },
+          { label: "Suppliers", desc: "Manage suppliers", path: "/settings/suppliers", icon: Package },
+        ]
+      })
+    }
+
+    // Business section - Owner only
+    if (isOwner) {
+      sections.push({
+        title: "Business",
+        items: [
+          { label: "Business details", desc: "Name, location, KRA PIN", path: "/settings/business", icon: Building2 },
+        ]
+      })
+    }
+
+    // Accounts section - Owner only
+    if (isOwner) {
+      sections.push({
+        title: "Accounts",
+        items: [
+          { label: "Float", desc: "Set your opening cash, M-Pesa and bank balances", path: "/settings/float", icon: Wallet },
+        ]
+      })
+    }
+
+    // Reports section - Owner and Manager
+    if (isOwnerOrManager) {
+      sections.push({
+        title: "Reports",
+        items: [
+          { label: "Sales Records", desc: "Daily, weekly, monthly and quarterly sales breakdown", path: "/settings/reports/sales", icon: BarChart2 },
+          { label: "Profit & Loss", desc: "Revenue, COGS, gross profit and net profit by period", path: "/settings/reports/pl", icon: TrendingUp },
+        ]
+      })
+    }
+
+    // Preferences section - Owner only
+    if (isOwner) {
+      sections.push({
+        title: "Preferences",
+        items: [
+          { label: "General", desc: "VAT rate, low stock threshold", path: "/settings/general", icon: Settings2 },
+        ]
+      })
+    }
+
+    // Security section - All roles
+    sections.push({
       title: "Security",
       items: [
         { label: "Change password", desc: "Update your password", path: "/settings/password", icon: LockKeyhole },
       ]
-    },
-    {
-      title: "Help",
-      items: [
-        { label: "Contact support", desc: "Get help from the team", path: "/settings/support", icon: LifeBuoy },
-      ]
-    },
-  ]
+    })
+
+    // Help section - Owner only
+    if (isOwner) {
+      sections.push({
+        title: "Help",
+        items: [
+          { label: "Contact support", desc: "Get help from the team", path: "/settings/support", icon: LifeBuoy },
+        ]
+      })
+    }
+
+    return sections
+  }
+
+  const menuSections = getMenuSections()
  
   return (
     <AppShell
@@ -102,23 +139,25 @@ export function Settings() {
                 Control center
               </div>
               <div>
-                <p className="text-sm text-zinc-400">Signed in as {user?.full_name}</p>
+                <p className="text-sm text-zinc-400">Signed in as {userData?.full_name}</p>
                 <h2 className="mt-1 text-2xl font-semibold tracking-tight text-white sm:text-3xl">Keep the business profile, team, and policies in one place.</h2>
               </div>
             </div>
             <div className="grid gap-2 sm:min-w-56">
-              <UiButton variant="secondary" className="justify-between rounded-2xl px-4 py-3" onClick={() => navigate("/settings/business")}>Business details <ChevronRight className="h-4 w-4" /></UiButton>
+              {isOwner && (
+                <UiButton variant="secondary" className="justify-between rounded-2xl px-4 py-3" onClick={() => navigate("/settings/business")}>Business details <ChevronRight className="h-4 w-4" /></UiButton>
+              )}
               <UiButton variant="primary" className="justify-between rounded-2xl px-4 py-3" onClick={handleSignOut}>Sign out <ChevronRight className="h-4 w-4" /></UiButton>
             </div>
           </div>
         </UiCard>
  
         <UiCard className="p-4 flex items-center gap-4">
-          <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 flex items-center justify-center flex-shrink-0 text-emerald-300 font-bold text-lg">{user?.full_name?.charAt(0).toUpperCase()}</div>
+          <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 flex items-center justify-center flex-shrink-0 text-emerald-300 font-bold text-lg">{userData?.full_name?.charAt(0).toUpperCase()}</div>
           <div className="min-w-0">
-            <p className="truncate text-white font-semibold text-sm">{user?.full_name}</p>
-            <p className="truncate text-zinc-500 text-xs">{user?.email}</p>
-            <span className="mt-1 inline-flex rounded-full bg-emerald-500/10 px-2 py-0.5 text-xs capitalize text-emerald-300">{user?.role}</span>
+            <p className="truncate text-white font-semibold text-sm">{userData?.full_name}</p>
+            <p className="truncate text-zinc-500 text-xs">{userData?.email}</p>
+            <span className="mt-1 inline-flex rounded-full bg-emerald-500/10 px-2 py-0.5 text-xs capitalize text-emerald-300">{getRoleDisplayName(userRole)}</span>
           </div>
         </UiCard>
  

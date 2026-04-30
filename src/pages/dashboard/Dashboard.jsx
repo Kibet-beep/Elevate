@@ -4,6 +4,7 @@ import { supabase } from "../../lib/supabase"
 import { useNavigate } from "react-router-dom"
 import FloatingBottomNav from "../../components/layout/FloatingBottomNav"
 import { AppShell, UiButton } from "../../components/ui"
+import { useUser, useIsOwnerOrManager, useIsCashier } from "../../hooks/useRole"
 
 const WEEK_DAYS = ["All", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 const OWNER_PERIODS = ["Week", "Month"]
@@ -11,8 +12,10 @@ const EAT_OFFSET_MS = 3 * 60 * 60 * 1000
 
 export default function Dashboard() {
   const navigate = useNavigate()
+  const { user: authUser } = useUser()
+  const isOwnerOrManager = useIsOwnerOrManager()
+  const isCashier = useIsCashier()
   const [business, setBusiness] = useState(null)
-  const [userRole, setUserRole] = useState(null)
   const [stats, setStats] = useState({
     todaySales: 0,
     totalRevenue: 0,
@@ -33,7 +36,7 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true)
   const [periodLoading, setPeriodLoading] = useState(false)
 
-  useEffect(() => { fetchDashboardData() }, [])
+  useEffect(() => { fetchDashboardData() }, [authUser])
   useEffect(() => { if (business) fetchPeriodData() }, [period, selectedDay, business])
   useEffect(() => { if (business) fetchTodayData() }, [business])
 
@@ -90,18 +93,15 @@ export default function Dashboard() {
   }
 
   const fetchDashboardData = async () => {
-    const { data: { user } } = await supabase.auth.getUser()
-    if (!user) { navigate("/"); return }
+    if (!authUser) { navigate("/"); return }
 
     const { data: userData } = await supabase
       .from("users")
-      .select("business_id, full_name, role")
-      .eq("id", user.id)
+      .select("business_id, full_name")
+      .eq("id", authUser.id)
       .single()
 
     if (!userData) { navigate("/"); return }
-
-    setUserRole(userData.role)
 
     const { data: businessData } = await supabase
       .from("businesses")
@@ -109,7 +109,7 @@ export default function Dashboard() {
       .eq("id", userData.business_id)
       .single()
 
-    setBusiness({ ...businessData, userName: userData.full_name, userRole: userData.role })
+    setBusiness({ ...businessData, userName: userData.full_name })
 
     const todayStart = getTodayStartUtcIsoEAT()
 
@@ -393,7 +393,7 @@ export default function Dashboard() {
   )
 
   // ── CASHIER VIEW ──
-  if (userRole === "cashier") {
+  if (isCashier) {
     return (
       <AppShell
         title="Elevate"

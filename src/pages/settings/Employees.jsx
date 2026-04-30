@@ -145,7 +145,11 @@ export default function Employees() {
 
         <div className="space-y-2">
           {employees.map((emp, i) => (
-            <div key={i} className="bg-zinc-900 border border-zinc-800 rounded-2xl px-4 py-4 flex items-center justify-between">
+            <div 
+              key={i} 
+              className="bg-zinc-900 border border-zinc-800 rounded-2xl px-4 py-4 flex items-center justify-between hover:border-emerald-500/30 transition-colors cursor-pointer"
+              onClick={() => navigate(`/settings/employees/${emp.id}`)}
+            >
               <div className="flex items-center gap-3">
                 <div className="w-9 h-9 bg-zinc-800 rounded-full flex items-center justify-center">
                   <span className="text-white text-sm font-bold">{emp.full_name?.charAt(0)}</span>
@@ -157,14 +161,26 @@ export default function Employees() {
                   <p className="text-zinc-500 text-xs capitalize">{emp.role} · {emp.email}</p>
                 </div>
               </div>
-              {emp.id !== currentUserId && (
-                <button onClick={() => toggleActive(emp)}
-                  className={`text-xs px-3 py-1.5 rounded-xl transition-colors ${
-                    emp.is_active ? "bg-zinc-800 text-zinc-400 hover:text-red-400" : "bg-emerald-500/10 text-emerald-400"
-                  }`}>
-                  {emp.is_active ? "Deactivate" : "Activate"}
-                </button>
-              )}
+              <div className="flex items-center gap-2">
+                <span className={`text-xs px-2.5 py-1 rounded-full font-medium ${
+                  emp.is_active ? "bg-emerald-500/10 text-emerald-400" : "bg-red-500/10 text-red-400"
+                }`}>
+                  {emp.is_active ? "Active" : "Inactive"}
+                </span>
+                {emp.id !== currentUserId && (
+                  <button 
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      toggleActive(emp)
+                    }}
+                    className={`text-xs px-3 py-1.5 rounded-xl transition-colors ${
+                      emp.is_active ? "bg-zinc-800 text-zinc-400 hover:text-red-400" : "bg-emerald-500/10 text-emerald-400"
+                    }`}
+                  >
+                    {emp.is_active ? "Deactivate" : "Activate"}
+                  </button>
+                )}
+              </div>
             </div>
           ))}
         </div>
