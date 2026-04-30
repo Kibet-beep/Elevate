@@ -3,11 +3,12 @@ import { useState, useEffect } from "react"
 import { supabase } from "../../lib/supabase"
 import { useNavigate } from "react-router-dom"
 import FloatingBottomNav from "../../components/layout/FloatingBottomNav"
-import { useUser, useIsOwnerOrManager } from "../../hooks/useRole"
+import { useUser, useIsOwner, useIsOwnerOrManager } from "../../hooks/useRole"
 
 export default function Inventory() {
   const navigate = useNavigate()
   const { user: authUser } = useUser()
+  const isOwner = useIsOwner()
   const isOwnerOrManager = useIsOwnerOrManager()
   const [businessId, setBusinessId] = useState(null)
   const [products, setProducts] = useState([])
@@ -28,8 +29,8 @@ export default function Inventory() {
     let result = products
     if (search) {
       result = result.filter(p =>
-        p.name.toLowerCase().includes(search.toLowerCase()) ||
-        p.sku_id.toLowerCase().includes(search.toLowerCase())
+        (p.name || "").toLowerCase().includes(search.toLowerCase()) ||
+        (p.sku_id || "").toLowerCase().includes(search.toLowerCase())
       )
     }
     if (categoryFilter !== "all") {
@@ -52,13 +53,24 @@ export default function Inventory() {
   }, [search, categoryFilter, riskFilter, products])
 
   const fetchProducts = async () => {
-    if (!authUser) return
+    if (!authUser) {
+      setLoading(false)
+      return
+    }
 
     const { data: userData } = await supabase
       .from("users")
       .select("business_id")
       .eq("id", authUser.id)
       .single()
+
+    if (!userData?.business_id) {
+      setProducts([])
+      setFiltered([])
+      setCategories([])
+      setLoading(false)
+      return
+    }
 
     setBusinessId(userData.business_id)
 
