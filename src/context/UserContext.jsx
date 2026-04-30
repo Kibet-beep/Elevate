@@ -77,7 +77,25 @@ export function UserProvider({ children }) {
       role = metadata.business_name ? "owner" : "cashier"
     }
 
+    if (!businessId) {
+      const fallbackBusinessName = metadata.business_name || `${fullName}'s Business`
+      const { data: createdBusiness, error: fallbackBusinessError } = await supabase
+        .from("businesses")
+        .insert({ name: fallbackBusinessName, type: "retail" })
+        .select("id")
+        .single()
+
+      if (!fallbackBusinessError && createdBusiness?.id) {
+        businessId = createdBusiness.id
+        role = role || "owner"
+      }
+    }
+
     if (!businessId) return null
+
+    if (!metadata.role && !metadata.business_id) {
+      role = "owner"
+    }
 
     const { data: createdUser, error: insertError } = await supabase
       .from("users")
