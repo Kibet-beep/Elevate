@@ -3,19 +3,21 @@ import { supabase } from "../../lib/supabase"
 import { useNavigate, Link } from "react-router-dom"
 import { ArrowRight, BarChart3, Boxes, LineChart, Sparkles } from "lucide-react"
 import { SessionShell, UiButton } from "../../components/ui"
+import { useUser } from "../../hooks/useRole"
 
 export default function SignIn() {
   const navigate = useNavigate()
+  const { user, loading: userLoading } = useUser()
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session) navigate("/dashboard")
-    })
-  }, [])
+    if (!userLoading && user) {
+      navigate("/dashboard", { replace: true })
+    }
+  }, [user, userLoading, navigate])
 
   const handleCreateAccount = async () => {
     await supabase.auth.signOut()
@@ -34,9 +36,6 @@ export default function SignIn() {
     const { error } = await supabase.auth.signInWithPassword({ email, password })
     if (error) {
       setError(error.message)
-    } else {
-      await supabase.auth.getSession()
-      navigate("/dashboard")
     }
     setLoading(false)
   }

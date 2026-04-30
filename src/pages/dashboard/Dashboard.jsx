@@ -35,6 +35,7 @@ export default function Dashboard() {
   const [lowStockItems, setLowStockItems] = useState([])
   const [loading, setLoading] = useState(true)
   const [periodLoading, setPeriodLoading] = useState(false)
+  const [accessIssue, setAccessIssue] = useState("")
 
   useEffect(() => { fetchDashboardData() }, [authUser])
   useEffect(() => { if (business) fetchPeriodData() }, [period, selectedDay, business])
@@ -93,7 +94,12 @@ export default function Dashboard() {
   }
 
   const fetchDashboardData = async () => {
-    if (!authUser) { navigate("/"); return }
+    if (!authUser) {
+      setLoading(false)
+      return
+    }
+
+    setAccessIssue("")
 
     const { data: userData } = await supabase
       .from("users")
@@ -101,13 +107,23 @@ export default function Dashboard() {
       .eq("id", authUser.id)
       .single()
 
-    if (!userData) { navigate("/"); return }
+    if (!userData) {
+      setAccessIssue("Your account is signed in, but profile setup is incomplete. Please sign out and sign in again.")
+      setLoading(false)
+      return
+    }
 
     const { data: businessData } = await supabase
       .from("businesses")
       .select("*")
       .eq("id", userData.business_id)
       .single()
+
+    if (!businessData) {
+      setAccessIssue("Your business profile is missing. Please contact support or complete onboarding.")
+      setLoading(false)
+      return
+    }
 
     setBusiness({ ...businessData, userName: userData.full_name })
 
@@ -319,6 +335,22 @@ export default function Dashboard() {
       <p className="text-zinc-500 text-sm">Loading...</p>
     </div>
   )
+
+  if (accessIssue) {
+    return (
+      <div className="min-h-screen bg-zinc-950 flex items-center justify-center px-5">
+        <div className="w-full max-w-md bg-zinc-900 border border-zinc-800 rounded-2xl p-6 space-y-5">
+          <div>
+            <h2 className="text-white text-xl font-semibold">Account setup required</h2>
+            <p className="text-zinc-400 text-sm mt-2">{accessIssue}</p>
+          </div>
+          <UiButton variant="primary" className="w-full" onClick={handleSignOut}>
+            Sign out
+          </UiButton>
+        </div>
+      </div>
+    )
+  }
 
   // ── SHARED TODAY COMPONENT ──
   const TodayReport = () => (
