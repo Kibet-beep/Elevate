@@ -3,6 +3,7 @@ import { UserProvider } from "../context/UserContext"
 import SignIn from "../pages/auth/SignIn"
 import SignUp from "../pages/auth/SignUp"
 import ForgotPassword from "../pages/auth/ForgotPassword"
+import ResetPassword from "../pages/auth/ResetPassword"
 import AuthCallback from "../pages/auth/AuthCallback"
 import AddEmployees from "../pages/onboarding/AddEmployees"
 import Done from "../pages/onboarding/Done"
@@ -28,6 +29,7 @@ import ProfitLossReport from "../pages/settings/profitlossreport"
 import AddTransfer from "../pages/transactions/AddTransfer"
 import AuthGuard from "./AuthGuard"
 import RoleGuard from "./RoleGuard"
+import OnboardingGuard from "../components/OnboardingGuard"
 import { ROLES } from "../lib/roles"
 
 export default function AppRouter() {
@@ -39,6 +41,7 @@ export default function AppRouter() {
           <Route path="/" element={<SignIn />} />
           <Route path="/signup" element={<SignUp />} />
           <Route path="/forgot-password" element={<ForgotPassword />} />
+          <Route path="/reset-password" element={<ResetPassword />} />
           <Route path="/auth/callback" element={<AuthCallback />} />
 
           {/* Protected routes */}
@@ -69,7 +72,9 @@ export default function AppRouter() {
             path="/dashboard"
             element={
               <AuthGuard>
-                <Dashboard />
+                <OnboardingGuard>
+                  <Dashboard />
+                </OnboardingGuard>
               </AuthGuard>
             }
           />

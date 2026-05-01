@@ -39,14 +39,19 @@ export function UserProvider({ children }) {
   }, [])
 
   const ensureUserProfile = async (authUser) => {
+    // First, try to find existing user by ID (this should find users created during signup)
     const { data: existingById, error: byIdError } = await supabase
       .from("users")
       .select("id, role, business_id, full_name")
       .eq("id", authUser.id)
       .maybeSingle()
 
-    if (!byIdError && existingById) return existingById
+    if (!byIdError && existingById) {
+      console.log("Found existing user by ID:", existingById)
+      return existingById
+    }
 
+    // If not found by ID, try by email
     if (authUser.email) {
       const { data: existingByEmail } = await supabase
         .from("users")
@@ -54,14 +59,23 @@ export function UserProvider({ children }) {
         .eq("email", authUser.email)
         .maybeSingle()
 
-      if (existingByEmail) return existingByEmail
+      if (existingByEmail) {
+        console.log("Found existing user by email:", existingByEmail)
+        return existingByEmail
+      }
     }
 
+    // Only create new user if none exists (this should rarely happen now)
+    console.log("Creating new user for:", authUser.email)
+    
     const metadata = authUser.user_metadata || {}
-    let businessId = metadata.business_id || null
-    let role = metadata.role || null
     const fullName = metadata.full_name || authUser.email?.split("@")[0] || "User"
+    
+    // For signup flow, use the role from metadata if available
+    let role = metadata.role || (metadata.business_name ? "owner" : "cashier")
+    let businessId = metadata.business_id || null
 
+    // Create business if needed
     if (!businessId && metadata.business_name) {
       const { data: createdBusiness, error: businessError } = await supabase
         .from("businesses")
@@ -74,30 +88,12 @@ export function UserProvider({ children }) {
       }
     }
 
-    if (!role) {
-      role = metadata.business_name ? "owner" : "cashier"
-    }
-
     if (!businessId) {
-      const fallbackBusinessName = metadata.business_name || `${fullName}'s Business`
-      const { data: createdBusiness, error: fallbackBusinessError } = await supabase
-        .from("businesses")
-        .insert({ name: fallbackBusinessName, type: "retail" })
-        .select("id")
-        .single()
-
-      if (!fallbackBusinessError && createdBusiness?.id) {
-        businessId = createdBusiness.id
-        role = role || "owner"
-      }
+      console.error("No business ID available for user creation")
+      return null
     }
 
-    if (!businessId) return null
-
-    if (!metadata.role && !metadata.business_id) {
-      role = "owner"
-    }
-
+    // Create the user row
     const { data: createdUser, error: insertError } = await supabase
       .from("users")
       .insert({
@@ -111,19 +107,45 @@ export function UserProvider({ children }) {
       .select("id, role, business_id, full_name")
       .single()
 
-    if (!insertError && createdUser) return createdUser
-
-    if (authUser.email) {
-      const { data: fallbackByEmail } = await supabase
-        .from("users")
-        .select("id, role, business_id, full_name")
-        .eq("email", authUser.email)
-        .maybeSingle()
-
-      if (fallbackByEmail) return fallbackByEmail
+    if (insertError) {
+      console.error("Error creating user:", insertError)
+      
+      // If it's a 409 conflict (user already exists), try to fetch them again
+      if (insertError.code === '23505' || insertError.message?.includes('duplicate key')) {
+        console.log("User already exists, trying to fetch existing user...")
+        
+        // Try one more time to find the user by ID
+        const { data: retryUser } = await supabase
+          .from("users")
+          .select("id, role, business_id, full_name")
+          .eq("id", authUser.id)
+          .maybeSingle()
+          
+        if (retryUser) {
+          console.log("Found existing user on retry:", retryUser)
+          return retryUser
+        }
+        
+        // Try by email if ID lookup failed
+        if (authUser.email) {
+          const { data: retryByEmail } = await supabase
+            .from("users")
+            .select("id, role, business_id, full_name")
+            .eq("email", authUser.email)
+            .maybeSingle()
+            
+          if (retryByEmail) {
+            console.log("Found existing user by email on retry:", retryByEmail)
+            return retryByEmail
+          }
+        }
+      }
+      
+      return null
     }
 
-    return null
+    console.log("Created new user:", createdUser)
+    return createdUser
   }
 
   const fetchUserRole = async (authUser) => {
@@ -132,15 +154,22 @@ export function UserProvider({ children }) {
 
       if (!userData) {
         console.error("Unable to resolve user profile for authenticated user")
-        setUserRole("cashier")
+        // Don't default to cashier - try to determine from metadata
+        const metadata = authUser.user_metadata || {}
+        const fallbackRole = metadata.business_name ? "owner" : "cashier"
+        setUserRole(fallbackRole)
         setBusinessId(null)
       } else {
+        console.log("Setting user role from database:", userData.role)
         setUserRole(userData?.role || "cashier")
         setBusinessId(userData?.business_id || null)
       }
     } catch (err) {
       console.error("Error fetching user role:", err)
-      setUserRole("cashier")
+      // Don't default to cashier on error - try metadata
+      const metadata = authUser.user_metadata || {}
+      const fallbackRole = metadata.business_name ? "owner" : "cashier"
+      setUserRole(fallbackRole)
       setBusinessId(null)
     } finally {
       setLoading(false)

@@ -41,6 +41,14 @@ export default function AddEmployees() {
         return
       }
 
+      console.log("=== INVITE REQUEST DEBUG ===")
+      console.log("Session exists:", !!session)
+      console.log("Session user:", session.user?.email)
+      console.log("Access token length:", session.access_token?.length)
+      console.log("Invite payload:", { email: email.trim(), fullName: fullName.trim(), role })
+      console.log("EDGE_FUNCTION_URL:", EDGE_FUNCTION_URL)
+      console.log("==========================")
+
       const res = await fetch(EDGE_FUNCTION_URL, {
         method: "POST",
         headers: {
@@ -56,25 +64,37 @@ export default function AddEmployees() {
       })
 
       const result = await res.json()
+      console.log("=== INVITE RESPONSE DEBUG ===")
       console.log("Response status:", res.status)
-      console.log("Response body:", JSON.stringify(result))
+      console.log("Response headers:", Object.fromEntries(res.headers.entries()))
+      console.log("Response body:", JSON.stringify(result, null, 2))
+      console.log("=============================")
 
       if (!res.ok) {
-        setFieldError(result.error || "Failed to send invite")
+        setFieldError(result.error || "Failed to create user")
         setInviting(false)
         return
       }
 
-      setEmployees([...employees, {
+      // Handle the new response format with temporary password
+      const newUser = {
         fullName: fullName.trim(),
         email: email.trim(),
         role,
-        status: "invited",
-      }])
+        status: "created",
+        tempPassword: result.user?.tempPassword,
+      }
+
+      setEmployees([...employees, newUser])
 
       setFullName("")
       setEmail("")
       setRole("cashier")
+
+      // Show success message with temp password if available
+      if (result.user?.tempPassword) {
+        console.log(`✅ User created! Temporary password: ${result.user.tempPassword}`)
+      }
 
     } catch (err) {
       console.log("Catch error:", err)
@@ -135,6 +155,11 @@ export default function AddEmployees() {
                   <div className="min-w-0 flex-1">
                     <p className="text-white text-sm font-medium truncate">{e.fullName}</p>
                     <p className="text-zinc-500 text-xs font-mono mt-0.5 truncate">{e.email}</p>
+                    {e.tempPassword && (
+                      <p className="text-emerald-400 text-xs font-mono mt-1">
+                        Password: {e.tempPassword}
+                      </p>
+                    )}
                   </div>
                   <div className="flex items-center gap-3 ml-3 shrink-0">
                     <span className={`text-[10px] font-mono px-2.5 py-1 rounded-full ${
@@ -145,7 +170,7 @@ export default function AddEmployees() {
                       {roleLabel(e.role)}
                     </span>
                     <span className="text-[10px] font-mono px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-400">
-                      Invited ✓
+                      Created ✓
                     </span>
                     <button
                       onClick={() => removeEmployee(i)}

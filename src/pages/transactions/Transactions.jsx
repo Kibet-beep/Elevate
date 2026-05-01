@@ -120,15 +120,15 @@ export default function Transactions() {
       title="Transactions"
       subtitle={`${filtered.length} transactions · ${periodLabel()}`}
       right={(
-        <>
-          <UiButton variant="primary" size="sm" onClick={() => navigate("/transactions/add-sale")}>+ Sale</UiButton>
+        <div className="flex items-center gap-1.5 sm:gap-3 max-w-[calc(100vw-2rem)] sm:max-w-none flex-wrap">
+          <UiButton variant="primary" size="sm" onClick={() => navigate("/transactions/add-sale")} className="flex-shrink-0 text-xs px-2 sm:px-3">+ Sale</UiButton>
           {isOwnerOrManager && (
             <>
-              <UiButton variant="secondary" size="sm" onClick={() => navigate("/transactions/add-expense")}>+ Expense</UiButton>
-              <UiButton variant="secondary" size="sm" onClick={() => navigate("/transactions/transfer")}>⇄ Transfer</UiButton>
+              <UiButton variant="secondary" size="sm" onClick={() => navigate("/transactions/add-expense")} className="flex-shrink-0 text-xs px-2 sm:px-3">+ Expense</UiButton>
+              <UiButton variant="secondary" size="sm" onClick={() => navigate("/transactions/transfer")} className="flex-shrink-0 text-xs px-2 sm:px-3">⇄ Transfer</UiButton>
             </>
           )}
-        </>
+        </div>
       )}
     >
       <div className="space-y-4">

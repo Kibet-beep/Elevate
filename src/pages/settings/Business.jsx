@@ -34,7 +34,8 @@ export default function Business() {
       setEmail(data.email || "")
       setLocation(data.location || "")
       setKraPin(data.kra_pin || "")
-    setRegNumber(data.reg_number || "")
+      setRegNumber(data.reg_number || "")
+    }
   }
 
   const handleSave = async () => {

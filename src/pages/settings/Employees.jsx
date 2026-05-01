@@ -37,6 +37,11 @@ export default function Employees() {
       return
     }
 
+    if (!businessId) {
+      setError("Business ID not loaded. Please refresh the page.")
+      return
+    }
+
     setLoading(true)
 
     const { data: { session } } = await supabase.auth.getSession()
@@ -47,6 +52,15 @@ export default function Employees() {
       return
     }
 
+    const requestBody = {
+      email,
+      password,
+      fullName,
+      role,
+      businessId,
+    }
+    console.log("Sending create-employee request with:", requestBody)
+
     const response = await fetch(
       `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/create-employee`,
       {
@@ -55,17 +69,30 @@ export default function Employees() {
           "Content-Type": "application/json",
           "Authorization": `Bearer ${session.access_token}`,
         },
-        body: JSON.stringify({
-          email,
-          password,
-          fullName,
-          role,
-          businessId,
-        }),
+        body: JSON.stringify(requestBody),
       }
     )
 
-    const result = await response.json()
+    let result
+    try {
+      result = await response.json()
+    } catch (e) {
+      setError(`Server error: ${response.status} ${response.statusText}`)
+      setLoading(false)
+      return
+    }
+
+    if (!response.ok) {
+      const errorMessage = result.error || `Request failed with status ${response.status}`
+      setError(errorMessage)
+      console.error("Employee creation failed:", { 
+        status: response.status, 
+        error: result,
+        sent: requestBody
+      })
+      setLoading(false)
+      return
+    }
 
     if (result.error) {
       setError(result.error)
@@ -91,10 +118,10 @@ export default function Employees() {
       title="Employees"
       subtitle="Manage your team and access roles"
       right={(
-        <>
-          <UiButton variant="secondary" size="sm" onClick={() => navigate("/settings")}>← Back</UiButton>
-          <UiButton variant="primary" size="sm" onClick={() => setAdding(!adding)}>{adding ? "Cancel" : "+ Add"}</UiButton>
-        </>
+        <div className="flex items-center gap-1.5 sm:gap-3 max-w-[calc(100vw-2rem)] sm:max-w-none">
+          <UiButton variant="secondary" size="sm" onClick={() => navigate("/settings")} className="flex-shrink-0 text-xs px-2 sm:px-3">← Back</UiButton>
+          <UiButton variant="primary" size="sm" onClick={() => setAdding(!adding)} className="flex-shrink-0 text-xs px-2 sm:px-3">{adding ? "Cancel" : "+ Add"}</UiButton>
+        </div>
       )}
     >
       <div className="space-y-4">
@@ -157,7 +184,7 @@ export default function Employees() {
                 </div>
               </div>
               <div className="flex items-center gap-2">
-                <span className={`text-xs px-2.5 py-1 rounded-full font-medium ${
+                <span className={`text-xs px-2.5 py-1 rounded-full font-medium flex-shrink-0 ${
                   emp.is_active ? "bg-emerald-500/10 text-emerald-400" : "bg-red-500/10 text-red-400"
                 }`}>
                   {emp.is_active ? "Active" : "Inactive"}
@@ -168,10 +195,9 @@ export default function Employees() {
                       e.stopPropagation()
                       toggleActive(emp)
                     }}
-                    className={`text-xs px-3 py-1.5 rounded-xl transition-colors ${
+                    className={`text-xs px-3 py-1.5 rounded-xl transition-colors flex-shrink-0 ${
                       emp.is_active ? "bg-zinc-800 text-zinc-400 hover:text-red-400" : "bg-emerald-500/10 text-emerald-400"
-                    }`}
-                  >
+                    }`}>
                     {emp.is_active ? "Deactivate" : "Activate"}
                   </button>
                 )}

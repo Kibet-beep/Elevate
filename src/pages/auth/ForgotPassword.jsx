@@ -2,6 +2,7 @@
 import { useState } from "react"
 import { supabase } from "../../lib/supabase"
 import { useNavigate } from "react-router-dom"
+import { SessionShell, UiButton } from "../../components/ui"
 
 export default function ForgotPassword() {
   const navigate = useNavigate()
@@ -47,94 +48,66 @@ export default function ForgotPassword() {
   // ── SENT SCREEN ──
   if (screen === "sent") {
     return (
-      <div className="min-h-screen bg-zinc-950 flex items-center justify-center px-5">
-        <div className="w-full max-w-sm text-center space-y-6">
-          {/* Icon */}
-          <div className="w-20 h-20 bg-emerald-500/10 border border-emerald-500/20 rounded-full flex items-center justify-center mx-auto">
-            <span className="text-3xl">📬</span>
+      <SessionShell
+        badge="Email sent"
+        title="Check your inbox for the reset link."
+        subtitle={`We sent a password reset link to ${email.trim()}. Open the email and click the link to continue.`}
+        points={[
+          { title: "Open the email", text: "Find the email from Elevate in your inbox" },
+          { title: "Click the link", text: "Tap the reset link inside the email" },
+          { title: "Set new password", text: "Choose a strong password and you're all set" },
+        ]}
+        progress={[]}
+        footer={
+          <div className="flex items-center justify-between gap-4 text-sm">
+            <span className="text-zinc-400">Didn't get it?</span>
+            <button type="button" onClick={() => { setScreen("form"); setError("") }} className="text-emerald-300 hover:text-emerald-200 font-medium">Try again</button>
           </div>
-
-          {/* Copy */}
-          <div>
-            <h2 className="text-white font-bold text-2xl tracking-tight">Check your email</h2>
-            <p className="text-zinc-400 text-sm mt-2 leading-relaxed">
-              We sent a password reset link to
+        }
+      >
+        <div className="space-y-5">
+          <div className="text-center">
+            <div className="w-20 h-20 bg-emerald-500/10 border border-emerald-500/20 rounded-full flex items-center justify-center mx-auto mb-4">
+              <span className="text-3xl">📬</span>
+            </div>
+            <p className="text-zinc-400 text-sm">
+              Check your spam folder if you don't see it within a few minutes.
             </p>
-            <p className="text-emerald-400 text-sm font-mono mt-1 font-medium">{email.trim()}</p>
           </div>
 
-          {/* Instructions */}
-          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5 text-left space-y-3">
-            {[
-              { step: "1", text: "Open the email from Elevate" },
-              { step: "2", text: "Click the reset link inside" },
-              { step: "3", text: "Choose your new password" },
-            ].map((s) => (
-              <div key={s.step} className="flex items-center gap-3">
-                <span className="w-6 h-6 rounded-full bg-zinc-800 text-zinc-400 text-[11px] font-mono font-bold flex items-center justify-center shrink-0">
-                  {s.step}
-                </span>
-                <p className="text-zinc-300 text-sm">{s.text}</p>
-              </div>
-            ))}
-          </div>
-
-          {/* Didn't get it */}
-          <div className="space-y-3">
-            <p className="text-zinc-600 text-xs">
-              Didn't get it? Check your spam folder, or{" "}
-              <button
-                onClick={() => { setScreen("form"); setError("") }}
-                className="text-zinc-400 hover:text-white underline underline-offset-2 transition-colors"
-              >
-                try a different email
-              </button>
-              .
-            </p>
-
-            <button
-              onClick={() => navigate("/")}
-              className="w-full bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 text-white font-medium rounded-xl py-3.5 text-sm transition-colors"
-            >
-              ← Back to sign in
-            </button>
-          </div>
+          <UiButton variant="secondary" className="w-full rounded-2xl py-3.5" onClick={() => navigate("/")}>
+            ← Back to sign in
+          </UiButton>
         </div>
-      </div>
+      </SessionShell>
     )
   }
 
   // ── FORM SCREEN ──
   return (
-    <div className="min-h-screen bg-zinc-950 flex items-center justify-center px-5">
-      <div className="w-full max-w-sm space-y-6">
-
-        {/* Back */}
-        <button
-          onClick={() => navigate("/")}
-          className="flex items-center gap-2 text-zinc-500 hover:text-white transition-colors text-sm"
-        >
-          ← Back to sign in
-        </button>
-
-        {/* Header */}
-        <div>
-          <h1 className="text-white font-bold text-2xl tracking-tight">Forgot password?</h1>
-          <p className="text-zinc-500 text-sm mt-1.5 leading-relaxed">
-            Enter the email address on your account and we'll send you a reset link.
-          </p>
+    <SessionShell
+      badge="Reset password"
+      title="Forgot your password?"
+      subtitle="Enter the email address on your account and we'll send you a reset link to get back into your business."
+      points={[
+        { title: "Quick reset", text: "Get back into your account in under 2 minutes" },
+        { title: "Secure link", text: "Reset links expire after 1 hour for security" },
+        { title: "Email delivery", text: "Check your spam folder if you don't see the email" },
+      ]}
+      progress={[]}
+      footer={
+        <div className="flex items-center justify-between gap-4 text-sm">
+          <span className="text-zinc-400">Remember your password?</span>
+          <button type="button" onClick={() => navigate("/")} className="text-emerald-300 hover:text-emerald-200 font-medium">Sign in</button>
         </div>
+      }
+    >
+      <div className="space-y-5">
+        {error && <p className="rounded-2xl border border-red-400/20 bg-red-400/10 px-3 py-2 text-sm text-red-300">{error}</p>}
 
-        {/* Form card */}
-        <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5 space-y-4">
-          {error && (
-            <div className="bg-red-400/10 border border-red-400/20 rounded-xl px-4 py-3">
-              <p className="text-red-400 text-sm">{error}</p>
-            </div>
-          )}
-
+        <div className="space-y-4">
           <div>
-            <label className="text-zinc-400 text-xs mb-2 block">Email address</label>
+            <label className="mb-1 block text-xs text-zinc-400">Email address</label>
             <input
               type="email"
               value={email}
@@ -142,23 +115,19 @@ export default function ForgotPassword() {
               onKeyDown={(e) => e.key === "Enter" && handleSendReset()}
               placeholder="you@business.com"
               autoFocus
-              className="w-full bg-zinc-950 border border-zinc-800 text-white rounded-xl px-4 py-3 text-sm outline-none focus:border-emerald-500 transition-colors placeholder:text-zinc-700"
+              className="w-full rounded-2xl border border-white/6 bg-zinc-950 px-4 py-3 text-sm text-white outline-none transition-colors placeholder:text-zinc-600 focus:border-emerald-500"
             />
           </div>
-
-          <button
-            onClick={handleSendReset}
-            disabled={loading}
-            className="w-full bg-emerald-500 hover:bg-emerald-400 disabled:opacity-50 disabled:cursor-not-allowed text-black font-semibold rounded-xl py-3.5 text-sm transition-colors tracking-wide"
-          >
-            {loading ? "Sending link..." : "Send reset link"}
-          </button>
         </div>
 
-        <p className="text-zinc-600 text-xs text-center">
+        <UiButton variant="primary" className="w-full rounded-2xl py-3.5" onClick={handleSendReset} disabled={loading}>
+          {loading ? "Sending link..." : "Send reset link →"}
+        </UiButton>
+
+        <p className="text-zinc-500 text-xs text-center">
           The link expires after 1 hour for security.
         </p>
       </div>
-    </div>
+    </SessionShell>
   )
 }

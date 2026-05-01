@@ -67,7 +67,15 @@ serve(async (req: Request) => {
 
     const { email, password, fullName, role, businessId } = await req.json()
 
+    console.log("=== CREATE-EMPLOYEE REQUEST DEBUG ===")
+    console.log("Request body:", { email, password, fullName, role, businessId })
+    console.log("Caller data:", callerData)
+    console.log("Caller business_id:", callerData.business_id)
+    console.log("Business ID match:", callerData.business_id === businessId)
+    console.log("=====================================")
+
     if (!email || !password || !fullName || !role || !businessId) {
+      console.log("Missing required fields:", { email: !!email, password: !!password, fullName: !!fullName, role: !!role, businessId: !!businessId })
       return new Response(JSON.stringify({ error: "email, password, fullName, role, and businessId are required" }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -94,19 +102,25 @@ serve(async (req: Request) => {
       { auth: { autoRefreshToken: false, persistSession: false } }
     )
 
-    const { data: existingUser } = await adminClient
+    const { data: existingUser, error: existingError } = await adminClient
       .from("users")
       .select("id")
       .eq("email", email)
       .eq("business_id", callerData.business_id)
-      .single()
+      .maybeSingle() // Use maybeSingle() to handle 0 rows gracefully
 
-    if (existingUser) {
+    if (existingError && existingError.code !== "PGRST116") {
+      console.log("Database error checking existing user:", existingError)
+      // Fallback: if we can't check for existing users, proceed with creation
+      console.log("Database error checking existing user, proceeding with user creation anyway")
+    } else if (existingUser) {
       return new Response(JSON.stringify({ error: "This email is already registered in your business" }), {
         status: 409,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       })
     }
+
+    console.log("No existing user found, proceeding with user creation")
 
     const { data: authData, error: authError } = await adminClient.auth.admin.createUser({
       email,

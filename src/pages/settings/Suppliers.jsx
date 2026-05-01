@@ -60,10 +60,10 @@ export default function Suppliers() {
       title="Suppliers"
       subtitle="Keep supplier contacts and status tidy"
       right={(
-        <>
-          <UiButton variant="secondary" size="sm" onClick={() => navigate("/settings")}>← Back</UiButton>
-          <UiButton variant="primary" size="sm" onClick={() => setAdding(!adding)}>{adding ? "Cancel" : "+ Add"}</UiButton>
-        </>
+        <div className="flex items-center gap-1.5 sm:gap-3 max-w-[calc(100vw-2rem)] sm:max-w-none">
+          <UiButton variant="secondary" size="sm" onClick={() => navigate("/settings")} className="flex-shrink-0 text-xs px-2 sm:px-3">← Back</UiButton>
+          <UiButton variant="primary" size="sm" onClick={() => setAdding(!adding)} className="flex-shrink-0 text-xs px-2 sm:px-3">{adding ? "Cancel" : "+ Add"}</UiButton>
+        </div>
       )}
     >
       <div className="space-y-4">

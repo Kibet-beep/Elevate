@@ -82,61 +82,9 @@ export default function AuthCallback() {
   }
 
   const handleOwnerConfirmation = async (user) => {
-    // Retrieve the pending signup data we stored before they confirmed
-    const pending = localStorage.getItem("pending_signup")
-
-    if (!pending) {
-      // Already processed or came from a different device — just go to dashboard
-      navigate("/dashboard")
-      return
-    }
-
-    const { fullName, businessName, userId } = JSON.parse(pending)
-
-    // Check if business row already exists (avoid duplicates on re-click)
-    const { data: existingUser } = await supabase
-      .from("users")
-      .select("id")
-      .eq("id", user.id)
-      .single()
-
-    if (existingUser) {
-      localStorage.removeItem("pending_signup")
-      navigate("/onboarding")
-      return
-    }
-
-    // Create business row
-    const { data: businessData, error: businessError } = await supabase
-      .from("businesses")
-      .insert({ name: businessName, type: "retail" })
-      .select("id")
-      .single()
-
-    if (businessError) {
-      setError("Failed to create business. Please contact support.")
-      setScreen("error")
-      return
-    }
-
-    // Create user row
-    const { error: userError } = await supabase.from("users").insert({
-      id: user.id,
-      full_name: fullName,
-      email: user.email,
-      role: "owner",
-      business_id: businessData.id,
-      is_active: true,
-    })
-
-    if (userError) {
-      setError("Failed to set up your account. Please contact support.")
-      setScreen("error")
-      return
-    }
-
-    localStorage.removeItem("pending_signup")
-    navigate("/onboarding")
+    // Since we removed email confirmation, users should not reach here via signup flow
+    // If they do, just redirect to dashboard
+    navigate("/dashboard")
   }
 
   // ── SET PASSWORD (recovery or invite) ──

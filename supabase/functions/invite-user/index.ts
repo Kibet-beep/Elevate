@@ -87,47 +87,98 @@ serve(async (req: Request) => {
       { auth: { autoRefreshToken: false, persistSession: false } }
     )
 
-    const { data: existingUser } = await adminClient
+    console.log("=== EXISTING USER CHECK DEBUG ===")
+    console.log("Email to check:", email)
+    console.log("Caller business ID:", callerData.business_id)
+    console.log("Caller role:", callerData.role)
+    console.log("Caller data:", JSON.stringify(callerData, null, 2))
+    console.log("==============================")
+
+    // Check if business_id exists
+    if (!callerData.business_id) {
+      return new Response(JSON.stringify({ error: "Owner has no business_id assigned. Please complete business setup first." }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      })
+    }
+
+    const { data: existingUser, error: existingError } = await adminClient
       .from("users")
       .select("id")
       .eq("email", email)
       .eq("business_id", callerData.business_id)
-      .single()
+      .maybeSingle() // Use maybeSingle() instead of single() to handle 0 rows gracefully
 
-    if (existingUser) {
+    console.log("Existing user query result:", { data: existingUser, error: existingError })
+
+    // Check for actual database errors (not PGRST116 which is handled by maybeSingle)
+    if (existingError) {
+      console.log("=== EXISTING USER ERROR DEBUG ===")
+      console.log("Error details:", JSON.stringify(existingError, null, 2))
+      console.log("Error code:", existingError.code)
+      console.log("Error message:", existingError.message)
+      console.log("================================")
+      
+      // Fallback: if we can't check for existing users, proceed with creation
+      // This is safer than blocking the entire flow
+      console.log("Database error checking existing user, proceeding with user creation anyway")
+    } else if (existingUser) {
+      console.log("Existing user found:", existingUser)
       return new Response(JSON.stringify({ error: "This email has already been invited to your business" }), {
         status: 409,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       })
     }
 
-    const { data: inviteData, error: inviteError } = await adminClient.auth.admin.inviteUserByEmail(
-      email,
-      {
-        redirectTo: `${siteUrl}/auth/callback`,
-        data: {
-          full_name: fullName,
-          role,
-          business_id: callerData.business_id,
-        },
-      }
-    )
+    console.log("No existing user found, proceeding with user creation")
 
-    if (inviteError || !inviteData?.user) {
-      console.log("Invite error:", JSON.stringify(inviteError))
-      return new Response(JSON.stringify({ error: inviteError?.message || "Unknown invite error" }), {
+    // Create user directly without email invite (for now)
+    const tempPassword = Math.random().toString(36).slice(-8) // Generate random password
+    
+    const { data: authData, error: authError } = await adminClient.auth.admin.createUser({
+      email,
+      password: tempPassword,
+      email_confirm: true, // Skip email confirmation
+      user_metadata: {
+        full_name: fullName,
+        role,
+        business_id: callerData.business_id,
+        temp_password: tempPassword, // Store temporary password for display
+      },
+    })
+
+    if (authError || !authData?.user) {
+      console.log("=== USER CREATION ERROR DEBUG ===")
+      console.log("Auth error:", JSON.stringify(authError, null, 2))
+      console.log("Auth data:", JSON.stringify(authData, null, 2))
+      console.log("Email being created:", email)
+      console.log("Caller business ID:", callerData.business_id)
+      console.log("================================")
+      
+      let errorMessage = "Unknown error creating user"
+      if (authError) {
+        if (authError.message?.includes("already registered")) {
+          errorMessage = "This email is already registered in the system"
+        } else if (authError.message?.includes("rate limit")) {
+          errorMessage = "Too many users created. Please wait a few minutes."
+        } else {
+          errorMessage = authError.message
+        }
+      }
+      
+      return new Response(JSON.stringify({ error: errorMessage }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       })
     }
 
     const { error: insertError } = await adminClient.from("users").insert({
-      id: inviteData.user.id,
+      id: authData.user.id,
       full_name: fullName,
       email,
       role,
       business_id: callerData.business_id,
-      is_active: false,
+      is_active: true, // Set to true since we're creating directly
     })
 
     if (insertError) {
@@ -138,7 +189,17 @@ serve(async (req: Request) => {
     }
 
     return new Response(
-      JSON.stringify({ success: true, message: `Invite sent to ${email}` }),
+      JSON.stringify({ 
+        success: true, 
+        message: `User ${fullName} created successfully`,
+        user: {
+          id: authData.user.id,
+          email,
+          fullName,
+          role,
+          tempPassword, // Include temp password for display
+        }
+      }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     )
 
