@@ -5,6 +5,9 @@ import { useNavigate } from "react-router-dom"
 import FloatingBottomNav from "../../components/layout/FloatingBottomNav"
 import { AppShell, UiButton } from "../../components/ui"
 import { useUser, useIsOwnerOrManager, useIsCashier } from "../../hooks/useRole"
+import { usePreloadData, useCache } from "../../hooks/useCache"
+import { useInstantNavigation } from "../../hooks/useInstantNavigation"
+import { useInstantAuth } from "../../hooks/useInstantAuth"
 
 const WEEK_DAYS = ["All", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 const OWNER_PERIODS = ["Week", "Month"]
@@ -13,6 +16,10 @@ const EAT_OFFSET_MS = 3 * 60 * 60 * 1000
 export default function Dashboard() {
   const navigate = useNavigate()
   const { user: authUser } = useUser()
+  const { user: instantUser, business: instantBusiness } = useInstantAuth()
+  const { navigateInstant } = useInstantNavigation()
+  const { get, set } = useCache()
+  const { preloadTransactions, preloadProducts, preloadEmployees, preloadBusiness } = usePreloadData()
   const isOwnerOrManager = useIsOwnerOrManager()
   const isCashier = useIsCashier()
   const [business, setBusiness] = useState(null)
@@ -37,7 +44,21 @@ export default function Dashboard() {
   const [periodLoading, setPeriodLoading] = useState(false)
   const [accessIssue, setAccessIssue] = useState("")
 
-  useEffect(() => { fetchDashboardData() }, [authUser])
+  // Use instant auth data if available
+  useEffect(() => {
+    if (instantUser && instantBusiness) {
+      setBusiness({ ...instantBusiness, userName: instantUser.full_name })
+      setLoading(false)
+      
+      // Preload related data
+      preloadTransactions(instantBusiness.id)
+      preloadProducts(instantBusiness.id)
+      preloadEmployees(instantBusiness.id)
+    } else if (authUser) {
+      fetchDashboardData()
+    }
+  }, [instantUser, instantBusiness, authUser])
+
   useEffect(() => { if (business) fetchPeriodData() }, [period, selectedDay, business])
   useEffect(() => { if (business) fetchTodayData() }, [business])
 
@@ -325,7 +346,7 @@ export default function Dashboard() {
 
   const handleSignOut = async () => {
     await supabase.auth.signOut()
-    navigate("/")
+    navigateInstant("/")
   }
 
   const fmt = (n) => `KES ${Number(n).toLocaleString("en-KE", { minimumFractionDigits: 2 })}`
@@ -435,7 +456,7 @@ export default function Dashboard() {
         contentClassName="max-w-lg space-y-4"
         right={(
           <>
-            <UiButton variant="primary" size="sm" onClick={() => navigate("/transactions/sale")}>+ Sale</UiButton>
+            <UiButton variant="primary" size="sm" onClick={() => navigateInstant("/transactions/sale")}>+ Sale</UiButton>
             <UiButton variant="tertiary" size="sm" onClick={handleSignOut} className="text-zinc-500 hover:text-red-400">
               Sign out
             </UiButton>
@@ -472,7 +493,7 @@ export default function Dashboard() {
       contentClassName="max-w-5xl space-y-6"
       right={(
         <>
-          <UiButton variant="primary" size="sm" onClick={() => navigate("/transactions/sale")}>+ Sale</UiButton>
+          <UiButton variant="primary" size="sm" onClick={() => navigateInstant("/transactions/sale")}>+ Sale</UiButton>
           <UiButton variant="tertiary" size="sm" onClick={handleSignOut} className="text-zinc-500 hover:text-red-400">
             Sign out
           </UiButton>
@@ -494,7 +515,7 @@ export default function Dashboard() {
               <p className="text-zinc-400 text-xs mt-0.5">Add your products to start tracking stock and sales</p>
             </div>
             <button
-              onClick={() => navigate("/inventory")}
+              onClick={() => navigateInstant("/inventory")}
               className="bg-emerald-500 hover:bg-emerald-400 text-black text-xs font-semibold px-4 py-2 rounded-xl transition-colors"
             >
               Go to Inventory
@@ -632,7 +653,7 @@ export default function Dashboard() {
         <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4">
           <div className="flex items-center justify-between mb-4">
             <h3 className="text-white font-semibold text-sm">Low stock alerts</h3>
-            <button onClick={() => navigate("/inventory")} className="text-xs text-emerald-500 hover:text-emerald-400">
+            <button onClick={() => navigateInstant("/inventory")} className="text-xs text-emerald-500 hover:text-emerald-400">
               View all
             </button>
           </div>

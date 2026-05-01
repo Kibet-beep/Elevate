@@ -1,5 +1,8 @@
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom"
+import { Suspense, useEffect } from "react"
 import { UserProvider } from "../context/UserContext"
+import { useInstantAuth } from "../hooks/useInstantAuth"
+import { useInstantNavigation } from "../hooks/useInstantNavigation"
 import SignIn from "../pages/auth/SignIn"
 import SignUp from "../pages/auth/SignUp"
 import ForgotPassword from "../pages/auth/ForgotPassword"
@@ -32,262 +35,310 @@ import RoleGuard from "./RoleGuard"
 import OnboardingGuard from "../components/OnboardingGuard"
 import { ROLES } from "../lib/roles"
 
+// Instant loading fallback component
+const InstantLoadingFallback = () => (
+  <div className="min-h-screen bg-zinc-950 flex items-center justify-center">
+    <div className="w-8 h-8 border-2 border-zinc-700 border-t-emerald-500 rounded-full animate-spin" />
+  </div>
+)
+
+function AppRouterContent() {
+  const { user, loading: authLoading, initialized } = useInstantAuth()
+  const { preloadLikelyPages } = useInstantNavigation()
+
+  // Pre-load likely pages based on current route
+  useEffect(() => {
+    if (!authLoading && user) {
+      const currentPath = window.location.pathname
+      preloadLikelyPages(currentPath)
+    }
+  }, [authLoading, user, preloadLikelyPages])
+
+  // Show instant loading or content
+  if (authLoading && !initialized) {
+    return <InstantLoadingFallback />
+  }
+
+  return (
+    <Routes>
+      {/* Public routes */}
+      <Route path="/" element={<SignIn />} />
+      <Route path="/signup" element={<SignUp />} />
+      <Route path="/forgot-password" element={<ForgotPassword />} />
+      <Route path="/reset-password" element={<ResetPassword />} />
+      <Route path="/auth/callback" element={<AuthCallback />} />
+
+      {/* Protected routes */}
+      {/* Onboarding - Owner only */}
+      <Route
+        path="/onboarding"
+        element={
+          <AuthGuard>
+            <RoleGuard roles={[ROLES.OWNER]}>
+              <OnboardingGuard>
+                <Suspense fallback={<InstantLoadingFallback />}>
+                  <AddEmployees />
+                </Suspense>
+              </OnboardingGuard>
+            </RoleGuard>
+          </AuthGuard>
+        }
+      />
+      <Route
+        path="/onboarding/done"
+        element={
+          <AuthGuard>
+            <RoleGuard roles={[ROLES.OWNER]}>
+              <OnboardingGuard>
+                <Suspense fallback={<InstantLoadingFallback />}>
+                  <Done />
+                </Suspense>
+              </OnboardingGuard>
+            </RoleGuard>
+          </AuthGuard>
+        }
+      />
+
+      {/* Main app routes */}
+      <Route
+        path="/dashboard"
+        element={
+          <AuthGuard>
+            <Suspense fallback={<InstantLoadingFallback />}>
+              <Dashboard />
+            </Suspense>
+          </AuthGuard>
+        }
+      />
+      <Route
+        path="/inventory"
+        element={
+          <AuthGuard>
+            <Suspense fallback={<InstantLoadingFallback />}>
+              <Inventory />
+            </Suspense>
+          </AuthGuard>
+        }
+      />
+      <Route
+        path="/inventory/new-stock"
+        element={
+          <AuthGuard>
+            <RoleGuard roles={[ROLES.OWNER, ROLES.MANAGER]}>
+              <Suspense fallback={<InstantLoadingFallback />}>
+                <NewStock />
+              </Suspense>
+            </RoleGuard>
+          </AuthGuard>
+        }
+      />
+      <Route
+        path="/inventory/product/:id"
+        element={
+          <AuthGuard>
+            <Suspense fallback={<InstantLoadingFallback />}>
+              <ProductDetail />
+            </Suspense>
+          </AuthGuard>
+        }
+      />
+      <Route
+        path="/inventory/stock-take"
+        element={
+          <AuthGuard>
+            <RoleGuard roles={[ROLES.OWNER, ROLES.MANAGER]}>
+              <Suspense fallback={<InstantLoadingFallback />}>
+                <StockTake />
+              </Suspense>
+            </RoleGuard>
+          </AuthGuard>
+        }
+      />
+      <Route
+        path="/transactions"
+        element={
+          <AuthGuard>
+            <Suspense fallback={<InstantLoadingFallback />}>
+              <Transactions />
+            </Suspense>
+          </AuthGuard>
+        }
+      />
+      <Route
+        path="/transactions/add-sale"
+        element={
+          <AuthGuard>
+            <Suspense fallback={<InstantLoadingFallback />}>
+              <AddSale />
+            </Suspense>
+          </AuthGuard>
+        }
+      />
+      <Route
+        path="/transactions/add-expense"
+        element={
+          <AuthGuard>
+            <RoleGuard roles={[ROLES.OWNER, ROLES.MANAGER]}>
+              <Suspense fallback={<InstantLoadingFallback />}>
+                <AddExpense />
+              </Suspense>
+            </RoleGuard>
+          </AuthGuard>
+        }
+      />
+      <Route
+        path="/transactions/transfer"
+        element={
+          <AuthGuard>
+            <RoleGuard roles={[ROLES.OWNER, ROLES.MANAGER]}>
+              <Suspense fallback={<InstantLoadingFallback />}>
+                <AddTransfer />
+              </Suspense>
+            </RoleGuard>
+          </AuthGuard>
+        }
+      />
+
+      {/* Settings routes */}
+      <Route
+        path="/settings"
+        element={
+          <AuthGuard>
+            <Suspense fallback={<InstantLoadingFallback />}>
+              <Settings />
+            </Suspense>
+          </AuthGuard>
+        }
+      />
+      <Route
+        path="/settings/business"
+        element={
+          <AuthGuard>
+            <RoleGuard roles={[ROLES.OWNER, ROLES.MANAGER]}>
+              <Suspense fallback={<InstantLoadingFallback />}>
+                <Business />
+              </Suspense>
+            </RoleGuard>
+          </AuthGuard>
+        }
+      />
+      <Route
+        path="/settings/general"
+        element={
+          <AuthGuard>
+            <RoleGuard roles={[ROLES.OWNER, ROLES.MANAGER]}>
+              <Suspense fallback={<InstantLoadingFallback />}>
+                <General />
+              </Suspense>
+            </RoleGuard>
+          </AuthGuard>
+        }
+      />
+      <Route
+        path="/settings/employees"
+        element={
+          <AuthGuard>
+            <RoleGuard roles={[ROLES.OWNER, ROLES.MANAGER]}>
+              <Suspense fallback={<InstantLoadingFallback />}>
+                <Employees />
+              </Suspense>
+            </RoleGuard>
+          </AuthGuard>
+        }
+      />
+      <Route
+        path="/settings/employees/:id"
+        element={
+          <AuthGuard>
+            <RoleGuard roles={[ROLES.OWNER, ROLES.MANAGER]}>
+              <Suspense fallback={<InstantLoadingFallback />}>
+                <EmployeeDetails />
+              </Suspense>
+            </RoleGuard>
+          </AuthGuard>
+        }
+      />
+      <Route
+        path="/settings/suppliers"
+        element={
+          <AuthGuard>
+            <RoleGuard roles={[ROLES.OWNER, ROLES.MANAGER]}>
+              <Suspense fallback={<InstantLoadingFallback />}>
+                <Suppliers />
+              </Suspense>
+            </RoleGuard>
+          </AuthGuard>
+        }
+      />
+      <Route
+        path="/settings/float"
+        element={
+          <AuthGuard>
+            <RoleGuard roles={[ROLES.OWNER, ROLES.MANAGER]}>
+              <Suspense fallback={<InstantLoadingFallback />}>
+                <Float />
+              </Suspense>
+            </RoleGuard>
+          </AuthGuard>
+        }
+      />
+      <Route
+        path="/settings/change-password"
+        element={
+          <AuthGuard>
+            <Suspense fallback={<InstantLoadingFallback />}>
+              <ChangePassword />
+            </Suspense>
+          </AuthGuard>
+        }
+      />
+      <Route
+        path="/settings/support"
+        element={
+          <AuthGuard>
+            <Suspense fallback={<InstantLoadingFallback />}>
+              <Support />
+            </Suspense>
+          </AuthGuard>
+        }
+      />
+      <Route
+        path="/settings/sales-report"
+        element={
+          <AuthGuard>
+            <RoleGuard roles={[ROLES.OWNER, ROLES.MANAGER]}>
+              <Suspense fallback={<InstantLoadingFallback />}>
+                <SalesReport />
+              </Suspense>
+            </RoleGuard>
+          </AuthGuard>
+        }
+      />
+      <Route
+        path="/settings/profit-loss"
+        element={
+          <AuthGuard>
+            <RoleGuard roles={[ROLES.OWNER, ROLES.MANAGER]}>
+              <Suspense fallback={<InstantLoadingFallback />}>
+                <ProfitLossReport />
+              </Suspense>
+            </RoleGuard>
+          </AuthGuard>
+        }
+      />
+
+      {/* Fallback */}
+      <Route path="*" element={<Navigate to="/dashboard" replace />} />
+    </Routes>
+  )
+}
+
 export default function AppRouter() {
   return (
     <BrowserRouter>
       <UserProvider>
-        <Routes>
-          {/* Public routes */}
-          <Route path="/" element={<SignIn />} />
-          <Route path="/signup" element={<SignUp />} />
-          <Route path="/forgot-password" element={<ForgotPassword />} />
-          <Route path="/reset-password" element={<ResetPassword />} />
-          <Route path="/auth/callback" element={<AuthCallback />} />
-
-          {/* Protected routes */}
-          {/* Onboarding - Owner only */}
-          <Route
-            path="/onboarding"
-            element={
-              <AuthGuard>
-                <RoleGuard requiredRoles={[ROLES.OWNER]}>
-                  <AddEmployees />
-                </RoleGuard>
-              </AuthGuard>
-            }
-          />
-          <Route
-            path="/onboarding/done"
-            element={
-              <AuthGuard>
-                <RoleGuard requiredRoles={[ROLES.OWNER]}>
-                  <Done />
-                </RoleGuard>
-              </AuthGuard>
-            }
-          />
-
-          {/* Dashboard - All roles */}
-          <Route
-            path="/dashboard"
-            element={
-              <AuthGuard>
-                <OnboardingGuard>
-                  <Dashboard />
-                </OnboardingGuard>
-              </AuthGuard>
-            }
-          />
-
-          {/* Inventory */}
-          <Route
-            path="/inventory"
-            element={
-              <AuthGuard>
-                <Inventory />
-              </AuthGuard>
-            }
-          />
-          <Route
-            path="/inventory/new-stock"
-            element={
-              <AuthGuard>
-                <RoleGuard requiredRoles={[ROLES.OWNER, ROLES.MANAGER]}>
-                  <NewStock />
-                </RoleGuard>
-              </AuthGuard>
-            }
-          />
-          <Route
-            path="/inventory/product/:id"
-            element={
-              <AuthGuard>
-                <ProductDetail />
-              </AuthGuard>
-            }
-          />
-          <Route
-            path="/inventory/stocktake"
-            element={
-              <AuthGuard>
-                <RoleGuard requiredRoles={[ROLES.OWNER, ROLES.MANAGER]}>
-                  <StockTake />
-                </RoleGuard>
-              </AuthGuard>
-            }
-          />
-
-          {/* Transactions */}
-          <Route
-            path="/transactions"
-            element={
-              <AuthGuard>
-                <Transactions />
-              </AuthGuard>
-            }
-          />
-          <Route
-            path="/transactions/add-sale"
-            element={
-              <AuthGuard>
-                <AddSale />
-              </AuthGuard>
-            }
-          />
-          <Route
-            path="/transactions/add-expense"
-            element={
-              <AuthGuard>
-                <RoleGuard requiredRoles={[ROLES.OWNER, ROLES.MANAGER]}>
-                  <AddExpense />
-                </RoleGuard>
-              </AuthGuard>
-            }
-          />
-          <Route
-            path="/transactions/sale"
-            element={
-              <AuthGuard>
-                <AddSale />
-              </AuthGuard>
-            }
-          />
-          <Route
-            path="/transactions/expense"
-            element={
-              <AuthGuard>
-                <RoleGuard requiredRoles={[ROLES.OWNER, ROLES.MANAGER]}>
-                  <AddExpense />
-                </RoleGuard>
-              </AuthGuard>
-            }
-          />
-          <Route
-            path="/transactions/transfer"
-            element={
-              <AuthGuard>
-                <RoleGuard requiredRoles={[ROLES.OWNER, ROLES.MANAGER]}>
-                  <AddTransfer />
-                </RoleGuard>
-              </AuthGuard>
-            }
-          />
-
-          {/* Settings */}
-          <Route
-            path="/settings"
-            element={
-              <AuthGuard>
-                <Settings />
-              </AuthGuard>
-            }
-          />
-          <Route
-            path="/settings/business"
-            element={
-              <AuthGuard>
-                <RoleGuard requiredRoles={[ROLES.OWNER]}>
-                  <Business />
-                </RoleGuard>
-              </AuthGuard>
-            }
-          />
-          <Route
-            path="/settings/general"
-            element={
-              <AuthGuard>
-                <RoleGuard requiredRoles={[ROLES.OWNER]}>
-                  <General />
-                </RoleGuard>
-              </AuthGuard>
-            }
-          />
-          <Route
-            path="/settings/employees"
-            element={
-              <AuthGuard>
-                <RoleGuard requiredRoles={[ROLES.OWNER, ROLES.MANAGER]}>
-                  <Employees />
-                </RoleGuard>
-              </AuthGuard>
-            }
-          />
-          <Route
-            path="/settings/employees/:id"
-            element={
-              <AuthGuard>
-                <RoleGuard requiredRoles={[ROLES.OWNER, ROLES.MANAGER]}>
-                  <EmployeeDetails />
-                </RoleGuard>
-              </AuthGuard>
-            }
-          />
-          <Route
-            path="/settings/suppliers"
-            element={
-              <AuthGuard>
-                <RoleGuard requiredRoles={[ROLES.OWNER, ROLES.MANAGER]}>
-                  <Suppliers />
-                </RoleGuard>
-              </AuthGuard>
-            }
-          />
-          <Route
-            path="/settings/password"
-            element={
-              <AuthGuard>
-                <ChangePassword />
-              </AuthGuard>
-            }
-          />
-          <Route
-            path="/settings/support"
-            element={
-              <AuthGuard>
-                <RoleGuard requiredRoles={[ROLES.OWNER]}>
-                  <Support />
-                </RoleGuard>
-              </AuthGuard>
-            }
-          />
-          <Route
-            path="/settings/float"
-            element={
-              <AuthGuard>
-                <RoleGuard requiredRoles={[ROLES.OWNER]}>
-                  <Float />
-                </RoleGuard>
-              </AuthGuard>
-            }
-          />
-          <Route
-            path="/settings/reports/sales"
-            element={
-              <AuthGuard>
-                <RoleGuard requiredRoles={[ROLES.OWNER, ROLES.MANAGER]}>
-                  <SalesReport />
-                </RoleGuard>
-              </AuthGuard>
-            }
-          />
-          <Route
-            path="/settings/reports/pl"
-            element={
-              <AuthGuard>
-                <RoleGuard requiredRoles={[ROLES.OWNER, ROLES.MANAGER]}>
-                  <ProfitLossReport />
-                </RoleGuard>
-              </AuthGuard>
-            }
-          />
-
-          {/* Fallback */}
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
+        <AppRouterContent />
       </UserProvider>
     </BrowserRouter>
   )
 }
-
-
-
