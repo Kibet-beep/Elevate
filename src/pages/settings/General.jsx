@@ -50,6 +50,7 @@ export default function General() {
     <AppShell
       title="General Preferences"
       subtitle="VAT rate, stock threshold, and financial year settings"
+      showHeader={false}
       right={<UiButton variant="secondary" size="sm" onClick={() => navigate("/settings")}>← Back</UiButton>}
     >
       <div className="space-y-4">

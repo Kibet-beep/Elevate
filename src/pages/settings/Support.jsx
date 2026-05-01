@@ -8,6 +8,7 @@ export default function Support() {
     <AppShell
       title="Support"
       subtitle="Need help? Reach out through any channel below"
+      showHeader={false}
       right={<UiButton variant="secondary" size="sm" onClick={() => navigate("/settings")}>← Back</UiButton>}
     >
       <div className="space-y-4">

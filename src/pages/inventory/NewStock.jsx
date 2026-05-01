@@ -3,7 +3,7 @@ import { useState, useEffect } from "react"
 import { supabase } from "../../lib/supabase"
 import { useNavigate } from "react-router-dom"
 import { useUser, useIsOwnerOrManager, useCurrentBusiness } from "../../hooks/useRole"
-import { AppShell, UiButton, UiCard } from "../../components/ui"
+import { AppShell, UiButton, UiCard, UiSectionTitle } from "../../components/ui"
 
 export default function NewStock() {
   const navigate = useNavigate()

@@ -119,6 +119,7 @@ export default function Transactions() {
     <AppShell
       title="Transactions"
       subtitle={`${filtered.length} transactions · ${periodLabel()}`}
+      showHeader={false}
       right={(
         <div className="flex items-center gap-1.5 sm:gap-3 max-w-[calc(100vw-2rem)] sm:max-w-none flex-wrap">
           <UiButton variant="primary" size="sm" onClick={() => navigate("/transactions/add-sale")} className="flex-shrink-0 text-xs px-2 sm:px-3">+ Sale</UiButton>
@@ -132,6 +133,22 @@ export default function Transactions() {
       )}
     >
       <div className="space-y-4">
+        {/* Page title and mobile buttons */}
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <h1 className="text-white text-xl font-bold">Transactions</h1>
+            <p className="text-zinc-500 text-sm mt-1">{filtered.length} transactions · {periodLabel()}</p>
+          </div>
+          <div className="flex items-center gap-1.5 sm:gap-3 max-w-[calc(100vw-2rem)] sm:max-w-none flex-wrap">
+            <UiButton variant="primary" size="sm" onClick={() => navigate("/transactions/add-sale")} className="flex-shrink-0 text-xs px-2 sm:px-3">+ Sale</UiButton>
+            {isOwnerOrManager && (
+              <>
+                <UiButton variant="secondary" size="sm" onClick={() => navigate("/transactions/add-expense")} className="flex-shrink-0 text-xs px-2 sm:px-3">+ Expense</UiButton>
+                <UiButton variant="secondary" size="sm" onClick={() => navigate("/transactions/transfer")} className="flex-shrink-0 text-xs px-2 sm:px-3">⇄ Transfer</UiButton>
+              </>
+            )}
+          </div>
+        </div>
 
         {/* Summary cards — scoped to filtered period */}
         <div className="grid grid-cols-3 gap-3">

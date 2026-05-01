@@ -87,7 +87,7 @@ export default function EmployeeDetails() {
 
   if (loading) {
     return (
-      <AppShell title="Employee Details" right={<UiButton variant="secondary" onClick={() => navigate("/settings/employees")}>← Back</UiButton>}>
+      <AppShell title="Employee Details" showHeader={false} right={<UiButton variant="secondary" onClick={() => navigate("/settings/employees")}>← Back</UiButton>}>
         <div className="flex items-center justify-center h-64">
           <div className="w-8 h-8 border-2 border-zinc-700 border-t-emerald-500 rounded-full animate-spin" />
         </div>
@@ -97,7 +97,7 @@ export default function EmployeeDetails() {
 
   if (error || !employee) {
     return (
-      <AppShell title="Employee Details" right={<UiButton variant="secondary" onClick={() => navigate("/settings/employees")}>← Back</UiButton>}>
+      <AppShell title="Employee Details" showHeader={false} right={<UiButton variant="secondary" onClick={() => navigate("/settings/employees")}>← Back</UiButton>}>
         <div className="text-center py-8">
           <p className="text-red-400">{error || "Employee not found"}</p>
         </div>
@@ -108,6 +108,7 @@ export default function EmployeeDetails() {
   return (
     <AppShell
       title="Employee Details"
+      showHeader={false}
       right={(
         <>
           <UiButton variant="secondary" onClick={() => navigate("/settings/employees")}>← Back</UiButton>

@@ -81,6 +81,7 @@ export default function Float() {
     <AppShell
       title="Float"
       subtitle="Your opening account balances"
+      showHeader={false}
       right={<UiButton variant="secondary" size="sm" onClick={() => navigate("/settings")}>← Back</UiButton>}
     >
       <div className="space-y-4">

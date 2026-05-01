@@ -431,6 +431,7 @@ export default function Dashboard() {
         title="Elevate"
         subtitle={business?.name}
         className="pb-28"
+        showHeader={false}
         contentClassName="max-w-lg space-y-4"
         right={(
           <>
@@ -467,6 +468,7 @@ export default function Dashboard() {
       title="Elevate"
       subtitle={business?.name}
       className="pb-28"
+      showHeader={false}
       contentClassName="max-w-5xl space-y-6"
       right={(
         <>

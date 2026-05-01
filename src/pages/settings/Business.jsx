@@ -56,6 +56,7 @@ export default function Business() {
     <AppShell
       title="Business Details"
       subtitle="Keep your trading name, contacts, and registration details current"
+      showHeader={false}
       right={<UiButton variant="secondary" size="sm" onClick={() => navigate("/settings")}>← Back</UiButton>}
     >
       <div className="space-y-4">

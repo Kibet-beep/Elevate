@@ -117,6 +117,7 @@ export default function Employees() {
     <AppShell
       title="Employees"
       subtitle="Manage your team and access roles"
+      showHeader={false}
       right={(
         <div className="flex items-center gap-1.5 sm:gap-3 max-w-[calc(100vw-2rem)] sm:max-w-none">
           <UiButton variant="secondary" size="sm" onClick={() => navigate("/settings")} className="flex-shrink-0 text-xs px-2 sm:px-3">← Back</UiButton>

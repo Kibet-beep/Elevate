@@ -29,6 +29,7 @@ export default function ChangePassword() {
     <AppShell
       title="Change Password"
       subtitle="Update the password for this account"
+      showHeader={false}
       right={<UiButton variant="secondary" size="sm" onClick={() => navigate("/settings")}>← Back</UiButton>}
     >
       <div className="space-y-4">

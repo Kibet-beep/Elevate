@@ -128,6 +128,7 @@ export function Settings() {
     <AppShell
       title="Settings"
       subtitle={business?.name}
+      showHeader={false}
       right={<UiButton variant="secondary" size="sm" onClick={handleSignOut}>Sign out</UiButton>}
     >
       <div className="space-y-6">
