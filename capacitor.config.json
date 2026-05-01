@@ -4,8 +4,36 @@
   "appName": "Elevate",
   "webDir": "dist",
   "server": {
-    "url": "http://192.168.100.19:5173",
-    "cleartext": true,
-    "androidScheme": "https"
+    "url": "https://elevate-ke.com",
+    "cleartext": false
+  },
+  "plugins": {
+    "SplashScreen": {
+      "launchShowDuration": 2000,
+      "backgroundColor": "#18181b",
+      "androidScaleType": "CENTER_CROP",
+      "androidSpinnerStyle": "large",
+      "iosSpinnerStyle": "large",
+      "spinnerColor": "#999999",
+      "showSpinner": true,
+      "splashFullScreen": true,
+      "splashImmersive": true,
+      "layoutName": "launch_screen",
+      "useDialog": true
+    },
+    "WebView": {
+      "allowFileAccessFromFileURLs": true,
+      "allowUniversalAccessFromFileURLs": true,
+      "javascriptEnabled": true,
+      "domStorageEnabled": true,
+      "databaseEnabled": true,
+      "appCacheEnabled": true,
+      "cacheMode": "LOAD_DEFAULT"
+    },
+    "Network": {
+      "requestHeaders": {
+        "User-Agent": "Elevate-Android-App/1.0"
+      }
+    }
   }
 }
