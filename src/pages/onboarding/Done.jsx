@@ -1,6 +1,6 @@
 // src/pages/onboarding/Done.jsx
 import { useNavigate } from "react-router-dom"
-import { ArrowRight, CheckCircle2, Sparkles } from "lucide-react"
+import { ArrowRight, CheckCircle2, Sparkles } from "../../lib/icons"
 import { supabase } from "../../lib/supabase"
 import { SessionShell, UiButton } from "../../components/ui"
 

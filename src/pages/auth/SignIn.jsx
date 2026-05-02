@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react"
 import { supabase } from "../../lib/supabase"
 import { useNavigate, Link } from "react-router-dom"
-import { ArrowRight, BarChart3, Boxes, LineChart, Sparkles } from "lucide-react"
+import { ArrowRight, BarChart3, Boxes, LineChart, Sparkles } from "../../lib/icons"
 import { SessionShell, UiButton } from "../../components/ui"
 import { useUser } from "../../hooks/useRole"
 

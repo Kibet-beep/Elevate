@@ -1,4 +1,4 @@
-import { ArrowRight, CheckCircle2, ShieldCheck, Sparkles, Users } from "lucide-react"
+import { ArrowRight, CheckCircle2, ShieldCheck, Sparkles, Users } from "../../lib/icons"
 import { UiCard } from "./UiCard"
 
 export default function SessionShell({

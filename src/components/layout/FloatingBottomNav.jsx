@@ -1,5 +1,5 @@
 import { useNavigate } from "react-router-dom"
-import { ArrowUpDown, Boxes, LayoutGrid, Settings2 } from "lucide-react"
+import { ArrowUpDown, Boxes, LayoutGrid, Settings2 } from "../../lib/icons"
 import { useUser } from "../../hooks/useRole"
 import { getNavigationItems } from "../../lib/roles"
 

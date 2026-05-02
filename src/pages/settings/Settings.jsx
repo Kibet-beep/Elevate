@@ -4,7 +4,7 @@ import { supabase } from "../../lib/supabase"
 import { useNavigate } from "react-router-dom"
 import FloatingBottomNav from "../../components/layout/FloatingBottomNav"
 import { AppShell, UiButton, UiCard } from "../../components/ui"
-import { BarChart2, Building2, ChevronRight, LifeBuoy, LockKeyhole, Package, Settings2, Shield, TrendingUp, Users, Wallet } from "lucide-react"
+import { BarChart2, Building2, ChevronRight, LifeBuoy, LockKeyhole, Package, Settings2, Shield, TrendingUp, Users, Wallet } from "../../lib/icons"
 import { useUser, useIsOwner, useIsOwnerOrManager } from "../../hooks/useRole"
 import { getRoleDisplayName } from "../../lib/roles"
  
