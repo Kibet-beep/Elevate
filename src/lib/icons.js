@@ -7,7 +7,7 @@ export const {
   ChevronRight,
   LifeBuoy,
   LockKeyhole,
-  PackageIcon: Package,
+  Package,
   Settings2,
   Shield,
   TrendingUp,

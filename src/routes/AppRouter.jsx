@@ -1,39 +1,40 @@
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom"
-import { Suspense, useEffect } from "react"
+import { Suspense, lazy, useEffect } from "react"
 import { UserProvider } from "../context/UserContext"
 import { useInstantAuth } from "../hooks/useInstantAuth"
 import { useInstantNavigation } from "../hooks/useInstantNavigation"
-import SignIn from "../pages/auth/SignIn"
-import SignUp from "../pages/auth/SignUp"
-import ForgotPassword from "../pages/auth/ForgotPassword"
-import ResetPassword from "../pages/auth/ResetPassword"
-import AuthCallback from "../pages/auth/AuthCallback"
-import AddEmployees from "../pages/onboarding/AddEmployees"
-import Done from "../pages/onboarding/Done"
-import Dashboard from "../pages/dashboard/Dashboard"
-import Inventory from "../pages/inventory/Inventory"
-import NewStock from "../pages/inventory/NewStock"
-import ProductDetail from "../pages/inventory/ProductDetail"
-import StockTake from "../pages/inventory/StockTake"
-import Transactions from "../pages/transactions/Transactions"
-import AddSale from "../pages/transactions/AddSale"
-import AddExpense from "../pages/transactions/AddExpense"
-import Settings from "../pages/settings/Settings"
-import Business from "../pages/settings/Business"
-import General from "../pages/settings/General"
-import Employees from "../pages/settings/Employees"
-import EmployeeDetails from "../pages/settings/EmployeeDetails"
-import Suppliers from "../pages/settings/Suppliers"
-import ChangePassword from "../pages/settings/ChangePassword"
-import Support from "../pages/settings/Support"
-import Float from "../pages/settings/Float"
-import SalesReport from "../pages/settings/salesReport"
-import ProfitLossReport from "../pages/settings/profitlossreport"
-import AddTransfer from "../pages/transactions/AddTransfer"
 import AuthGuard from "./AuthGuard"
 import RoleGuard from "./RoleGuard"
 import OnboardingGuard from "../components/OnboardingGuard"
 import { ROLES } from "../lib/roles"
+
+const SignIn = lazy(() => import("../pages/auth/SignIn"))
+const SignUp = lazy(() => import("../pages/auth/SignUp"))
+const ForgotPassword = lazy(() => import("../pages/auth/ForgotPassword"))
+const ResetPassword = lazy(() => import("../pages/auth/ResetPassword"))
+const AuthCallback = lazy(() => import("../pages/auth/AuthCallback"))
+const AddEmployees = lazy(() => import("../pages/onboarding/AddEmployees"))
+const Done = lazy(() => import("../pages/onboarding/Done"))
+const Dashboard = lazy(() => import("../pages/dashboard/Dashboard"))
+const Inventory = lazy(() => import("../pages/inventory/Inventory"))
+const NewStock = lazy(() => import("../pages/inventory/NewStock"))
+const ProductDetail = lazy(() => import("../pages/inventory/ProductDetail"))
+const StockTake = lazy(() => import("../pages/inventory/StockTake"))
+const Transactions = lazy(() => import("../pages/transactions/Transactions"))
+const AddSale = lazy(() => import("../pages/transactions/AddSale"))
+const AddExpense = lazy(() => import("../pages/transactions/AddExpense"))
+const AddTransfer = lazy(() => import("../pages/transactions/AddTransfer"))
+const Settings = lazy(() => import("../pages/settings/Settings"))
+const Business = lazy(() => import("../pages/settings/Business"))
+const General = lazy(() => import("../pages/settings/General"))
+const Employees = lazy(() => import("../pages/settings/Employees"))
+const EmployeeDetails = lazy(() => import("../pages/settings/EmployeeDetails"))
+const Suppliers = lazy(() => import("../pages/settings/Suppliers"))
+const ChangePassword = lazy(() => import("../pages/settings/ChangePassword"))
+const Support = lazy(() => import("../pages/settings/Support"))
+const Float = lazy(() => import("../pages/settings/Float"))
+const SalesReport = lazy(() => import("../pages/settings/salesReport"))
+const ProfitLossReport = lazy(() => import("../pages/settings/profitlossreport"))
 
 // Instant loading fallback component
 const InstantLoadingFallback = () => (
@@ -60,7 +61,8 @@ function AppRouterContent() {
   }
 
   return (
-    <Routes>
+    <Suspense fallback={<InstantLoadingFallback />}>
+      <Routes>
       {/* Public routes */}
       <Route path="/" element={<SignIn />} />
       <Route path="/signup" element={<SignUp />} />
@@ -329,7 +331,8 @@ function AppRouterContent() {
 
       {/* Fallback */}
       <Route path="*" element={<Navigate to="/dashboard" replace />} />
-    </Routes>
+      </Routes>
+    </Suspense>
   )
 }
 

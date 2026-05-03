@@ -1,7 +1,6 @@
 import { useState, useEffect } from "react"
 import { supabase } from "../../lib/supabase"
 import { useNavigate, Link } from "react-router-dom"
-import { ArrowRight, BarChart3, Boxes, LineChart, Sparkles } from "../../lib/icons"
 import { SessionShell, UiButton } from "../../components/ui"
 import { useUser } from "../../hooks/useRole"
 
@@ -61,12 +60,12 @@ export default function SignIn() {
       <div className="space-y-5">
         <div className="grid gap-3 sm:grid-cols-3">
           {[
-            { icon: BarChart3, label: "Sales" },
-            { icon: Boxes, label: "Stock" },
-            { icon: LineChart, label: "Cash flow" },
-          ].map(({ icon: Icon, label }) => (
+            { label: "Sales" },
+            { label: "Stock" },
+            { label: "Cash flow" },
+          ].map(({ label }) => (
             <div key={label} className="flex items-center gap-3 rounded-2xl border border-white/5 bg-black/15 px-4 py-3">
-              <div className="rounded-xl bg-emerald-500/10 p-2 text-emerald-300"><Icon className="h-4 w-4" /></div>
+              <div className="rounded-xl bg-emerald-500/10 px-2 py-1 text-xs font-semibold uppercase tracking-wide text-emerald-300">•</div>
               <span className="text-sm text-zinc-200">{label}</span>
             </div>
           ))}
@@ -102,7 +101,7 @@ export default function SignIn() {
             Forgot password?
           </Link>
           <button type="button" onClick={handleCreateAccount} className="inline-flex items-center gap-1 text-xs font-medium text-emerald-300 hover:text-emerald-200">
-            Create account <ArrowRight className="h-3.5 w-3.5" />
+            Create account <span aria-hidden="true">→</span>
           </button>
         </div>
 
