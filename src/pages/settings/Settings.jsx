@@ -1,49 +1,23 @@
 // src/pages/settings/Settings.jsx
-import { useState, useEffect } from "react"
-import { supabase } from "../../lib/supabase"
 import { useNavigate } from "react-router-dom"
 import FloatingBottomNav from "../../components/layout/FloatingBottomNav"
 import { AppShell, UiButton, UiCard } from "../../components/ui"
 import { BarChart2, Building2, ChevronRight, LifeBuoy, LockKeyhole, Package, Settings2, Shield, TrendingUp, Users, Wallet } from "../../lib/icons"
 import { useUser, useIsOwner, useIsOwnerOrManager } from "../../hooks/useRole"
+import { useInstantAuth } from "../../hooks/useInstantAuth"
 import { getRoleDisplayName } from "../../lib/roles"
  
 export function Settings() {
   const navigate = useNavigate()
   const { user: authUser, userRole, logout } = useUser()
-  const [userData, setUserData] = useState(null)
-  const [business, setBusiness] = useState(null)
-  const [loading, setLoading] = useState(true)
+  const { business } = useInstantAuth()
   const isOwner = useIsOwner()
   const isOwnerOrManager = useIsOwnerOrManager()
- 
-  useEffect(() => {
-    fetchData()
-  }, [authUser])
- 
-  const fetchData = async () => {
-    if (!authUser) return
-    const { data: userDataResponse } = await supabase
-      .from("users")
-      .select("*, businesses(*)")
-      .eq("id", authUser.id)
-      .single()
- 
-    setUserData(userDataResponse)
-    setBusiness(userDataResponse?.businesses)
-    setLoading(false)
-  }
  
   const handleSignOut = async () => {
     await logout()
     navigate("/")
   }
- 
-  if (loading) return (
-    <div className="min-h-screen bg-zinc-950 flex items-center justify-center">
-      <p className="text-zinc-500 text-sm">Loading...</p>
-    </div>
-  )
  
   // Dynamically build menu sections based on role
   const getMenuSections = () => {
@@ -140,7 +114,7 @@ export function Settings() {
                 Control center
               </div>
               <div>
-                <p className="text-sm text-zinc-400">Signed in as {userData?.full_name}</p>
+                <p className="text-sm text-zinc-400">Signed in as {authUser?.full_name || authUser?.email}</p>
                 <h2 className="mt-1 text-2xl font-semibold tracking-tight text-white sm:text-3xl">Keep the business profile, team, and policies in one place.</h2>
               </div>
             </div>
@@ -154,10 +128,10 @@ export function Settings() {
         </UiCard>
  
         <UiCard className="p-4 flex items-center gap-4">
-          <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 flex items-center justify-center flex-shrink-0 text-emerald-300 font-bold text-lg">{userData?.full_name?.charAt(0).toUpperCase()}</div>
+          <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 flex items-center justify-center flex-shrink-0 text-emerald-300 font-bold text-lg">{(authUser?.full_name || authUser?.email || "?").charAt(0).toUpperCase()}</div>
           <div className="min-w-0">
-            <p className="truncate text-white font-semibold text-sm">{userData?.full_name}</p>
-            <p className="truncate text-zinc-500 text-xs">{userData?.email}</p>
+            <p className="truncate text-white font-semibold text-sm">{authUser?.full_name}</p>
+            <p className="truncate text-zinc-500 text-xs">{authUser?.email}</p>
             <span className="mt-1 inline-flex rounded-full bg-emerald-500/10 px-2 py-0.5 text-xs capitalize text-emerald-300">{getRoleDisplayName(userRole)}</span>
           </div>
         </UiCard>

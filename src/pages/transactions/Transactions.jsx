@@ -5,13 +5,14 @@ import { useNavigate } from "react-router-dom"
 import FloatingBottomNav from "../../components/layout/FloatingBottomNav"
 import { AppShell, UiButton } from "../../components/ui"
 import PaymentIcon from "../../components/ui/PaymentIcon"
-import { useUser, useIsOwnerOrManager } from "../../hooks/useRole"
+import { useIsOwnerOrManager } from "../../hooks/useRole"
+import { useInstantAuth } from "../../hooks/useInstantAuth"
 
 const today = () => new Date().toISOString().split("T")[0]
 
 export default function Transactions() {
   const navigate = useNavigate()
-  const { user: authUser } = useUser()
+  const { business: instantBusiness, initialized } = useInstantAuth()
   const isOwnerOrManager = useIsOwnerOrManager()
   const [transactions, setTransactions] = useState([])
   const [filtered, setFiltered] = useState([])
@@ -24,7 +25,18 @@ export default function Transactions() {
   const [selectedTx, setSelectedTx] = useState(null)
   const [loading, setLoading] = useState(true)
 
-  useEffect(() => { fetchTransactions() }, [authUser])
+  useEffect(() => {
+    if (instantBusiness?.id) {
+      fetchTransactions(instantBusiness.id)
+      return
+    }
+
+    if (initialized) {
+      setTransactions([])
+      setFiltered([])
+      setLoading(false)
+    }
+  }, [instantBusiness?.id, initialized])
 
   useEffect(() => {
     let result = transactions
@@ -47,13 +59,8 @@ export default function Transactions() {
     setFiltered(result)
   }, [filter, search, dateFrom, dateTo, paymentFilter, transactions])
 
-  const fetchTransactions = async () => {
-    if (!authUser) return
-    const { data: userData } = await supabase
-      .from("users")
-      .select("business_id")
-      .eq("id", authUser.id)
-      .single()
+  const fetchTransactions = async (businessId) => {
+    if (!businessId) return
 
     const { data } = await supabase
       .from("transactions")
@@ -62,7 +69,7 @@ export default function Transactions() {
         sale_items(total_amount, quantity, products(name)),
         expenses(amount, category, description)
       `)
-      .eq("business_id", userData.business_id)
+      .eq("business_id", businessId)
       .order("date", { ascending: false })
 
     const enriched = (data || []).map(t => {

@@ -2,7 +2,8 @@
 import { useState, useEffect } from "react"
 import { supabase } from "../../lib/supabase"
 import { useNavigate } from "react-router-dom"
-import { useUser, useCurrentBusiness } from "../../hooks/useRole"
+import { useCurrentBusiness } from "../../hooks/useRole"
+import { useInstantAuth } from "../../hooks/useInstantAuth"
 
 function classifyABC(products) {
   if (!products.length) return {}
@@ -154,34 +155,34 @@ export default function StockTake() {
   const [error, setError] = useState("")
   const [pastStockTakes, setPastStockTakes] = useState([])
   const [selectedVarianceId, setSelectedVarianceId] = useState(null)
-  const { user } = useUser()
+  const { user } = useInstantAuth()
   const { businessId } = useCurrentBusiness()
 
-  useEffect(() => { if (businessId) fetchInitialData() }, [businessId])
+  useEffect(() => { if (businessId && user?.id) fetchInitialData(businessId, user.id) }, [businessId, user?.id])
 
-  const fetchInitialData = async () => {
-    if (!businessId) return
-    setUserId(user.id)
+  const fetchInitialData = async (resolvedBusinessId, resolvedUserId) => {
+    if (!resolvedBusinessId || !resolvedUserId) return
+    setUserId(resolvedUserId)
 
-    const { data: productsData } = await supabase
-      .from("products")
-      .select("id, name, sku_id, current_quantity, unit_of_measure, category, buying_price")
-      .eq("business_id", businessId)
-      .eq("is_active", true)
-      .order("name")
+    const [productsResult, pastResult] = await Promise.all([
+      supabase
+        .from("products")
+        .select("id, name, sku_id, current_quantity, unit_of_measure, category, buying_price")
+        .eq("business_id", resolvedBusinessId)
+        .eq("is_active", true)
+        .order("name"),
+      supabase
+        .from("stock_takes")
+        .select("*")
+        .eq("business_id", resolvedBusinessId)
+        .order("created_at", { ascending: false })
+        .limit(5),
+    ])
 
-    const prods = productsData || []
+    const prods = productsResult?.data || []
     setAllProducts(prods)
     setAbcMap(classifyABC(prods))
-
-    const { data: past } = await supabase
-      .from("stock_takes")
-      .select("*")
-      .eq("business_id", userData.business_id)
-      .order("created_at", { ascending: false })
-      .limit(5)
-
-    setPastStockTakes(past || [])
+    setPastStockTakes(pastResult?.data || [])
   }
 
   const getProductsForType = (t, spotId = null) => {

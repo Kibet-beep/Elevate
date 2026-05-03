@@ -3,14 +3,14 @@ import { useState, useEffect } from "react"
 import { supabase } from "../../lib/supabase"
 import { useNavigate } from "react-router-dom"
 import FloatingBottomNav from "../../components/layout/FloatingBottomNav"
-import { useUser, useIsOwner, useIsOwnerOrManager } from "../../hooks/useRole"
+import { useIsOwner, useIsOwnerOrManager } from "../../hooks/useRole"
+import { useInstantAuth } from "../../hooks/useInstantAuth"
 
 export default function Inventory() {
   const navigate = useNavigate()
-  const { user: authUser } = useUser()
+  const { business: instantBusiness, initialized } = useInstantAuth()
   const isOwner = useIsOwner()
   const isOwnerOrManager = useIsOwnerOrManager()
-  const [businessId, setBusinessId] = useState(null)
   const [products, setProducts] = useState([])
   const [filtered, setFiltered] = useState([])
   const [search, setSearch] = useState("")
@@ -22,8 +22,18 @@ export default function Inventory() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    fetchProducts()
-  }, [authUser])
+    if (instantBusiness?.id) {
+      fetchProducts(instantBusiness.id)
+      return
+    }
+
+    if (initialized) {
+      setProducts([])
+      setFiltered([])
+      setCategories([])
+      setLoading(false)
+    }
+  }, [instantBusiness?.id, initialized])
 
   useEffect(() => {
     let result = products
@@ -52,19 +62,8 @@ export default function Inventory() {
     setFiltered(result)
   }, [search, categoryFilter, riskFilter, products])
 
-  const fetchProducts = async () => {
-    if (!authUser) {
-      setLoading(false)
-      return
-    }
-
-    const { data: userData } = await supabase
-      .from("users")
-      .select("business_id")
-      .eq("id", authUser.id)
-      .single()
-
-    if (!userData?.business_id) {
+  const fetchProducts = async (businessId) => {
+    if (!businessId) {
       setProducts([])
       setFiltered([])
       setCategories([])
@@ -72,12 +71,10 @@ export default function Inventory() {
       return
     }
 
-    setBusinessId(userData.business_id)
-
     const { data } = await supabase
       .from("products")
       .select("id, name, sku_id, category, current_quantity, reorder_point, buying_price, selling_price, unit_of_measure")
-      .eq("business_id", userData.business_id)
+      .eq("business_id", businessId)
       .order("name")
 
     setProducts(data || [])
