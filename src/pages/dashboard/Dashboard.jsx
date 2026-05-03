@@ -5,7 +5,7 @@ import { useNavigate } from "react-router-dom"
 import FloatingBottomNav from "../../components/layout/FloatingBottomNav"
 import { AppShell, UiButton } from "../../components/ui"
 import { useUser, useIsOwnerOrManager, useIsCashier } from "../../hooks/useRole"
-import { usePreloadData, useCache } from "../../hooks/useCache"
+import { usePreloadData } from "../../hooks/useCache"
 import { useInstantNavigation } from "../../hooks/useInstantNavigation"
 import { useInstantAuth } from "../../hooks/useInstantAuth"
 
@@ -18,7 +18,6 @@ export default function Dashboard() {
   const { user: authUser } = useUser()
   const { user: instantUser, business: instantBusiness } = useInstantAuth()
   const { navigateInstant } = useInstantNavigation()
-  const { get, set } = useCache()
   const { preloadTransactions, preloadProducts, preloadEmployees, preloadBusiness } = usePreloadData()
   const isOwnerOrManager = useIsOwnerOrManager()
   const isCashier = useIsCashier()
@@ -44,6 +43,18 @@ export default function Dashboard() {
   const [periodLoading, setPeriodLoading] = useState(false)
   const [accessIssue, setAccessIssue] = useState("")
 
+  const setBusinessFromProfile = (profile, fallbackBusiness) => {
+    const resolvedBusiness = fallbackBusiness || profile?.businesses || null
+    if (!resolvedBusiness) return null
+
+    const nextBusiness = {
+      ...resolvedBusiness,
+      userName: profile?.full_name || resolvedBusiness.userName || "",
+    }
+    setBusiness(nextBusiness)
+    return nextBusiness
+  }
+
   // Use instant auth data if available
   useEffect(() => {
     if (instantUser && instantBusiness) {
@@ -54,6 +65,7 @@ export default function Dashboard() {
       preloadTransactions(instantBusiness.id)
       preloadProducts(instantBusiness.id)
       preloadEmployees(instantBusiness.id)
+      preloadBusiness(instantBusiness.id)
     } else if (authUser) {
       fetchDashboardData()
     }
@@ -122,59 +134,57 @@ export default function Dashboard() {
 
     setAccessIssue("")
 
-    const { data: userData } = await supabase
+    const { data: userData, error: userError } = await supabase
       .from("users")
-      .select("business_id, full_name")
+      .select("business_id, full_name, businesses(*)")
       .eq("id", authUser.id)
-      .single()
+      .maybeSingle()
 
-    if (!userData) {
+    if (userError || !userData) {
       setAccessIssue("Your account is signed in, but profile setup is incomplete. Please sign out and sign in again.")
       setLoading(false)
       return
     }
 
-    const { data: businessData } = await supabase
-      .from("businesses")
-      .select("*")
-      .eq("id", userData.business_id)
-      .single()
-
-    if (!businessData) {
+    const resolvedBusiness = setBusinessFromProfile(userData, userData.businesses)
+    if (!resolvedBusiness) {
       setAccessIssue("Your business profile is missing. Please contact support or complete onboarding.")
       setLoading(false)
       return
     }
 
-    setBusiness({ ...businessData, userName: userData.full_name })
-
     const todayStart = getTodayStartUtcIsoEAT()
+    const businessId = userData.business_id
 
-    const { data: todayTxns } = await supabase
+    const [todayTxnsResult, allTxnsResult, lowStockResult] = await Promise.all([
+      supabase
       .from("transactions")
       .select("id, date, sale_items(total_amount)")
-      .eq("business_id", userData.business_id)
+      .eq("business_id", businessId)
       .eq("type", "sale")
-      .gte("date", todayStart)
-
-    const todaySales = todayTxns?.reduce((sum, t) =>
-      sum + (t.sale_items?.reduce((s, i) => s + i.total_amount, 0) || 0), 0) || 0
-
-    const { data: allTxns } = await supabase
+      .gte("date", todayStart),
+      supabase
       .from("transactions")
       .select("id, sale_items(total_amount)")
-      .eq("business_id", userData.business_id)
-      .eq("type", "sale")
-
-    const totalRevenue = allTxns?.reduce((sum, t) =>
-      sum + (t.sale_items?.reduce((s, i) => s + i.total_amount, 0) || 0), 0) || 0
-
-    const { data: lowStock } = await supabase
+      .eq("business_id", businessId)
+      .eq("type", "sale"),
+      supabase
       .from("products")
       .select("id, name, current_quantity, reorder_point")
-      .eq("business_id", userData.business_id)
+      .eq("business_id", businessId)
       .eq("is_active", true)
       .limit(100)
+    ])
+
+    const todayTxns = todayTxnsResult?.data || []
+    const allTxns = allTxnsResult?.data || []
+    const lowStock = lowStockResult?.data || []
+
+    const todaySales = todayTxns.reduce((sum, t) =>
+      sum + (t.sale_items?.reduce((s, i) => s + i.total_amount, 0) || 0), 0) || 0
+
+    const totalRevenue = allTxns.reduce((sum, t) =>
+      sum + (t.sale_items?.reduce((s, i) => s + i.total_amount, 0) || 0), 0) || 0
 
     const filteredLowStock = (lowStock || [])
       .filter(p => p.current_quantity <= p.reorder_point)
@@ -184,7 +194,7 @@ export default function Dashboard() {
     setStats({
       todaySales,
       totalRevenue,
-      transactions: todayTxns?.length || 0,
+      transactions: todayTxns.length || 0,
       lowStock: filteredLowStock.length,
     })
 
@@ -192,35 +202,41 @@ export default function Dashboard() {
   }
 
   const fetchTodayData = async () => {
+    if (!business?.id) return
+
     const todayStart = getTodayStartUtcIsoEAT()
     const businessId = business.id
 
-    const { data: txns } = await supabase
-      .from("transactions")
-      .select(`id, type, payment_account, date,
-        sale_items(total_amount, quantity, unit_price, products(name)),
-        expenses(amount, category)`)
-      .eq("business_id", businessId)
-      .gte("date", todayStart)
-      .order("date", { ascending: true })
+    const [txnsResult, floatResult, allTxnsResult, transfersResult] = await Promise.all([
+      supabase
+        .from("transactions")
+        .select(`id, type, payment_account, date,
+          sale_items(total_amount, quantity, unit_price, products(name)),
+          expenses(amount, category)`)
+        .eq("business_id", businessId)
+        .gte("date", todayStart)
+        .order("date", { ascending: true }),
+      supabase
+        .from("float_baseline")
+        .select("*")
+        .eq("business_id", businessId)
+        .maybeSingle(),
+      supabase
+        .from("transactions")
+        .select("type, payment_account, sale_items(total_amount), expenses(amount)")
+        .eq("business_id", businessId),
+      supabase
+        .from("transfers")
+        .select("*")
+        .eq("business_id", businessId),
+    ])
 
-    const { data: floatData } = await supabase
-      .from("float_baseline")
-      .select("*")
-      .eq("business_id", businessId)
-      .maybeSingle()
+    const txns = txnsResult?.data || []
+    const floatData = floatResult?.data || null
+    const allTxns = allTxnsResult?.data || []
+    const transfers = transfersResult?.data || []
 
-    const { data: allTxns } = await supabase
-      .from("transactions")
-      .select("type, payment_account, sale_items(total_amount), expenses(amount)")
-      .eq("business_id", businessId)
-
-    const { data: transfers } = await supabase
-      .from("transfers")
-      .select("*")
-      .eq("business_id", businessId)
-
-    const enriched = (txns || []).map(t => {
+    const enriched = txns.map(t => {
       if (t.type === "sale") {
         const amount = t.sale_items?.reduce((s, i) => s + i.total_amount, 0) || 0
         const name = t.sale_items?.length > 1
@@ -266,37 +282,43 @@ export default function Dashboard() {
   }
 
   const fetchPeriodData = async () => {
+    if (!business?.id) return
+
     setPeriodLoading(true)
     const businessId = business.id
     const { start, end } = getPeriodRange()
 
-    const { data: txns } = await supabase
-      .from("transactions")
-      .select(`id, type, payment_account, date,
-        sale_items(total_amount, products(name)),
-        expenses(amount, category)`)
-      .eq("business_id", businessId)
-      .gte("date", start)
-      .lte("date", end)
-      .order("date", { ascending: false })
+    const [txnsResult, floatResult, allTxnsResult, transfersResult] = await Promise.all([
+      supabase
+        .from("transactions")
+        .select(`id, type, payment_account, date,
+          sale_items(total_amount, products(name)),
+          expenses(amount, category)`)
+        .eq("business_id", businessId)
+        .gte("date", start)
+        .lte("date", end)
+        .order("date", { ascending: false }),
+      supabase
+        .from("float_baseline")
+        .select("*")
+        .eq("business_id", businessId)
+        .maybeSingle(),
+      supabase
+        .from("transactions")
+        .select("type, payment_account, sale_items(total_amount), expenses(amount)")
+        .eq("business_id", businessId),
+      supabase
+        .from("transfers")
+        .select("*")
+        .eq("business_id", businessId),
+    ])
 
-    const { data: floatData } = await supabase
-      .from("float_baseline")
-      .select("*")
-      .eq("business_id", businessId)
-      .maybeSingle()
+    const txns = txnsResult?.data || []
+    const floatData = floatResult?.data || null
+    const allTxns = allTxnsResult?.data || []
+    const transfers = transfersResult?.data || []
 
-    const { data: allTxns } = await supabase
-      .from("transactions")
-      .select("type, payment_account, sale_items(total_amount), expenses(amount)")
-      .eq("business_id", businessId)
-
-    const { data: transfers } = await supabase
-      .from("transfers")
-      .select("*")
-      .eq("business_id", businessId)
-
-    const enriched = (txns || []).map(t => {
+    const enriched = txns.map(t => {
       if (t.type === "sale") {
         const amount = t.sale_items?.reduce((s, i) => s + i.total_amount, 0) || 0
         const name = t.sale_items?.length > 1
