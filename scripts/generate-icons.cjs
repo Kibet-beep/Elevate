@@ -16,6 +16,16 @@ function extractIconNode(content) {
   return m[1]
 }
 
+function resolveReexport(content) {
+  // Extract re-export: export { default } from './chart-no-axes-column.mjs';
+  const re = /export\s*{\s*default\s*}\s*from\s*['"]([^'"]+)['"]/
+  const m = content.match(re)
+  if (!m) return null
+  const importPath = m[1]
+  const baseName = path.basename(importPath, '.mjs')
+  return baseName
+}
+
 function writeFile(contents) {
   fs.mkdirSync(path.dirname(outFile), { recursive: true })
   fs.writeFileSync(outFile, contents, 'utf8')
@@ -26,13 +36,22 @@ const files = fs.existsSync(iconsDir)
   : []
 
 const entries = []
+const reexports = [] // Track aliases: [fromName, toName]
 
 for (const file of files) {
   const name = path.basename(file, '.mjs') // e.g., layout-grid
   const pascal = pascalCase(name)
   const content = fs.readFileSync(path.join(iconsDir, file), 'utf8')
-  const nodeText = extractIconNode(content)
-  if (!nodeText) continue
+  let nodeText = extractIconNode(content)
+  
+  // If no __iconNode found, check if it's a re-export
+  if (!nodeText) {
+    const targetName = resolveReexport(content)
+    if (targetName && targetName !== name) {  // Only create alias if it's not self-referential
+      reexports.push([name, targetName])
+    }
+    continue
+  }
 
   // Evaluate the array literal to turn into JS structure
   let nodeVal
@@ -66,12 +85,35 @@ if (entries.length === 0) {
   process.exit(1)
 }
 
+const entryNames = new Set(entries.map((e) => e.name))
+
 const header = `/* THIS FILE IS GENERATED - DO NOT EDIT DIRECTLY */\nimport React from 'react'\n\n`
 
 const componentsCode = entries.map((e) => e.component).join('\n')
 
-const namedExports = '\nexport default {' + entries.map((e) => ` ${e.name}`).join(',') + ' }\n'
+// Build aliases for re-exports, excluding any that collide with existing components
+const aliasesCode = reexports
+  .filter(([fromName, toName]) => {
+    const fromPascal = pascalCase(fromName)
+    const toPascal = pascalCase(toName)
+    // Skip if source name collides with an existing component
+    return fromPascal !== toPascal && !entryNames.has(fromPascal)
+  })
+  .map(([fromName, toName]) => {
+    const fromPascal = pascalCase(fromName)
+    const toPascal = pascalCase(toName)
+    return `export const ${fromPascal} = ${toPascal}`
+  })
+  .join('\n')
 
-writeFile(header + componentsCode + namedExports)
+const validAliases = reexports.filter(([fromName, toName]) => {
+  const fromPascal = pascalCase(fromName)
+  const toPascal = pascalCase(toName)
+  return fromPascal !== toPascal && !entryNames.has(fromPascal)
+})
 
-console.log('Wrote', outFile, 'with', entries.length, 'icons')
+const namedExports = '\nexport default {' + entries.map((e) => ` ${e.name}`).join(',') + validAliases.map(([name]) => `, ${pascalCase(name)}`).join('') + ' }\n'
+
+writeFile(header + componentsCode + (aliasesCode ? '\n' + aliasesCode : '') + namedExports)
+
+console.log('Wrote', outFile, 'with', entries.length, 'icons and', validAliases.length, 'aliases')
