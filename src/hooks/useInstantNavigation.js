@@ -1,5 +1,5 @@
 // src/hooks/useInstantNavigation.js
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useCache } from './useCache'
 
@@ -88,12 +88,6 @@ export function useInstantNavigation() {
     preloadTimeoutRef.current = setTimeout(() => {
       routes.forEach(route => preloadPage(route))
     }, 100)
-  }, [preloadPage])
-
-  // Pre-load all critical pages on mount
-  useEffect(() => {
-    const criticalPages = ['/dashboard', '/transactions', '/inventory', '/settings']
-    criticalPages.forEach(page => preloadPage(page))
   }, [preloadPage])
 
   return {

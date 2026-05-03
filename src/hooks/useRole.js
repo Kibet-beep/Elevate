@@ -1,59 +1,72 @@
-import { useContext } from "react"
-import { UserContext } from "../context/UserContext"
+import { useCallback } from "react"
+import { supabase } from "../lib/supabase"
 import { hasPermission, canAccessPage } from "../lib/roles"
+import { useAppStore } from "../store/useAppStore"
 
-// Hook to get current user and role
 export function useUser() {
-  const context = useContext(UserContext)
-  if (!context) {
-    throw new Error("useUser must be used within UserProvider")
+  const user = useAppStore((state) => state.user)
+  const userRole = useAppStore((state) => state.userRole)
+  const businessId = useAppStore((state) => state.businessId)
+  const loading = useAppStore((state) => state.loading)
+  const error = useAppStore((state) => state.error)
+  const setUserRole = useAppStore((state) => state.setUserRole)
+  const clearAuthSnapshot = useAppStore((state) => state.clearAuthSnapshot)
+
+  const updateUserRole = useCallback((newRole) => {
+    setUserRole(newRole)
+  }, [setUserRole])
+
+  const logout = useCallback(async () => {
+    await supabase.auth.signOut()
+    clearAuthSnapshot()
+  }, [clearAuthSnapshot])
+
+  return {
+    user,
+    userRole,
+    businessId,
+    loading,
+    error,
+    updateUserRole,
+    logout,
   }
-  return context
 }
 
-// Hook to get current business_id (resolved from user profile)
 export function useCurrentBusiness() {
   const { businessId, loading } = useUser()
   return { businessId, loading }
 }
 
-// Hook to check if user has a specific permission
 export function usePermission(permission) {
   const { userRole } = useUser()
   return userRole && hasPermission(userRole, permission)
 }
 
-// Hook to check if user can access a specific page
 export function useCanAccessPage(pathname) {
   const { userRole } = useUser()
   return userRole && canAccessPage(userRole, pathname)
 }
 
-// Hook to check if user has a specific role
 export function useIsRole(role) {
   const { userRole } = useUser()
   return userRole === role
 }
 
-// Hook to check if user is owner or manager
 export function useIsOwnerOrManager() {
   const { userRole } = useUser()
   return userRole === "owner" || userRole === "manager"
 }
 
-// Hook to check if user is owner
 export function useIsOwner() {
   const { userRole } = useUser()
   return userRole === "owner"
 }
 
-// Hook to check if user is manager
 export function useIsManager() {
   const { userRole } = useUser()
   return userRole === "manager"
 }
 
-// Hook to check if user is cashier
 export function useIsCashier() {
   const { userRole } = useUser()
   return userRole === "cashier"
