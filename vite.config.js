@@ -11,10 +11,17 @@ export default defineConfig({
     host: true, // Listen on all addresses for network access
     port: 5173,
     strictPort: true,
+    // Optimize development experience
+    hmr: {
+      protocol: 'ws',
+      host: 'localhost',
+      port: 5173,
+    }
   },
   build: {
     sourcemap: true,
     minify: true, // Use default minifier
+    chunkSizeWarningLimit: 1000,
     rollupOptions: {
       output: {
         manualChunks(id) {
@@ -32,7 +39,13 @@ export default defineConfig({
               id.includes('node_modules/react-router-dom')) {
             return 'vendor-react'
           }
-        }
+        },
+        // Optimize async chunk loading - smaller initial payload
+        dir: 'dist',
+        format: 'es',
+        entryFileNames: 'assets/[name]-[hash].js',
+        chunkFileNames: 'assets/chunk-[name]-[hash].js',
+        assetFileNames: 'assets/[name]-[hash][extname]'
       }
     }
   },

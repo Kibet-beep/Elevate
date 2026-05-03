@@ -9,7 +9,7 @@ const USER_KEY = 'elevate_user_data'
 export function useInstantAuth() {
   const [user, setUser] = useState(null)
   const [business, setBusiness] = useState(null)
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(false)  // Start false for instant render
   const [initialized, setInitialized] = useState(false)
   const authCheckRef = useRef(false)
 
@@ -26,7 +26,7 @@ export function useInstantAuth() {
         // Check if session is still valid (not expired)
         if (authData.expires_at && Date.now() < authData.expires_at * 1000) {
           setUser(userData)
-          setLoading(false)
+          // Don't set loading false here - let background verification handle it
           return true
         } else {
           // Clear expired session

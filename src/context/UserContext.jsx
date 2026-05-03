@@ -1,4 +1,4 @@
-﻿import { createContext, useState, useEffect } from "react"
+﻿import { createContext, useState, useEffect, useCallback } from "react"
 import { supabase } from "../lib/supabase"
 
 export const UserContext = createContext()
@@ -7,27 +7,60 @@ export function UserProvider({ children }) {
   const [user, setUser] = useState(null)
   const [userRole, setUserRole] = useState(null)
   const [businessId, setBusinessId] = useState(null)
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(false)  // Start false - use cached data
   const [error, setError] = useState(null)
 
+  // Load from localStorage cache immediately (before async auth)
   useEffect(() => {
-    // Get initial session and fetch user role from database
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session?.user) {
-        setUser(session.user)
-        fetchUserRole(session.user)
-      } else {
-        setLoading(false)
+    try {
+      const cached = localStorage.getItem('elevate:auth:cache')
+      if (cached) {
+        const { user: cachedUser, userRole: cachedRole, businessId: cachedBizId } = JSON.parse(cached)
+        if (cachedUser) {
+          setUser(cachedUser)
+          setUserRole(cachedRole)
+          setBusinessId(cachedBizId)
+        }
       }
+    } catch (e) {
+      console.warn('Cache load failed:', e)
+    }
+  }, [])
+
+  // Fetch auth in background (non-blocking)
+  useEffect(() => {
+    let mounted = true
+    
+    const checkAuth = async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession()
+        if (!mounted) return
+        
+        if (session?.user) {
+          setUser(session.user)
+          await fetchUserRole(session.user)
+        } else {
+          setUser(null)
+          setUserRole(null)
+          setLoading(false)
+        }
+      } catch (err) {
+        console.error('Auth check failed:', err)
+        if (mounted) setLoading(false)
+      }
+    }
+
+    // Schedule auth check after UI renders
+    const timeoutId = requestAnimationFrame(() => {
+      checkAuth()
     })
 
-    // Listen for auth state changes
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
+    // Listen for auth changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      if (!mounted) return
       if (session?.user) {
         setUser(session.user)
-        fetchUserRole(session.user)
+        await fetchUserRole(session.user)
       } else {
         setUser(null)
         setUserRole(null)
@@ -35,7 +68,11 @@ export function UserProvider({ children }) {
       }
     })
 
-    return () => subscription.unsubscribe()
+    return () => {
+      mounted = false
+      cancelAnimationFrame(timeoutId)
+      subscription?.unsubscribe()
+    }
   }, [])
 
   const ensureUserProfile = async (authUser) => {
@@ -159,10 +196,24 @@ export function UserProvider({ children }) {
         const fallbackRole = metadata.business_name ? "owner" : "cashier"
         setUserRole(fallbackRole)
         setBusinessId(null)
+        // Cache immediately
+        localStorage.setItem('elevate:auth:cache', JSON.stringify({ 
+          user: authUser, 
+          userRole: fallbackRole, 
+          businessId: null 
+        }))
       } else {
         console.log("Setting user role from database:", userData.role)
-        setUserRole(userData?.role || "cashier")
-        setBusinessId(userData?.business_id || null)
+        const role = userData?.role || "cashier"
+        const bizId = userData?.business_id || null
+        setUserRole(role)
+        setBusinessId(bizId)
+        // Cache immediately
+        localStorage.setItem('elevate:auth:cache', JSON.stringify({ 
+          user: authUser, 
+          userRole: role, 
+          businessId: bizId 
+        }))
       }
     } catch (err) {
       console.error("Error fetching user role:", err)
@@ -171,6 +222,12 @@ export function UserProvider({ children }) {
       const fallbackRole = metadata.business_name ? "owner" : "cashier"
       setUserRole(fallbackRole)
       setBusinessId(null)
+      // Cache anyway for offline capability
+      localStorage.setItem('elevate:auth:cache', JSON.stringify({ 
+        user: authUser, 
+        userRole: fallbackRole, 
+        businessId: null 
+      }))
     } finally {
       setLoading(false)
     }
