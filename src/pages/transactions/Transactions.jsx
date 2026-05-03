@@ -6,6 +6,7 @@ import FloatingBottomNav from "../../components/layout/FloatingBottomNav"
 import { AppShell, UiButton } from "../../components/ui"
 import PaymentIcon from "../../components/ui/PaymentIcon"
 import { useIsOwnerOrManager } from "../../hooks/useRole"
+import { useCache } from "../../hooks/useCache"
 import { useInstantAuth } from "../../hooks/useInstantAuth"
 
 const today = () => new Date().toISOString().split("T")[0]
@@ -13,6 +14,7 @@ const today = () => new Date().toISOString().split("T")[0]
 export default function Transactions() {
   const navigate = useNavigate()
   const { business: instantBusiness, initialized } = useInstantAuth()
+  const { get, set } = useCache()
   const isOwnerOrManager = useIsOwnerOrManager()
   const [transactions, setTransactions] = useState([])
   const [filtered, setFiltered] = useState([])
@@ -27,6 +29,14 @@ export default function Transactions() {
 
   useEffect(() => {
     if (instantBusiness?.id) {
+      const cacheKey = `transactions_${instantBusiness.id}`
+      const cachedTransactions = get(cacheKey)
+
+      if (cachedTransactions) {
+        setTransactions(cachedTransactions)
+        setLoading(false)
+      }
+
       fetchTransactions(instantBusiness.id)
       return
     }
@@ -86,9 +96,12 @@ export default function Transactions() {
       }
     })
 
+    set(cacheKeyForTransactions(businessId), enriched)
     setTransactions(enriched)
     setLoading(false)
   }
+
+  const cacheKeyForTransactions = (businessId) => `transactions_${businessId}`
 
   const totalSales    = filtered.filter(t => t.type === "sale").reduce((s, t) => s + t.amount, 0)
   const totalExpenses = filtered.filter(t => t.type === "expense").reduce((s, t) => s + t.amount, 0)

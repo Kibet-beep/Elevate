@@ -4,11 +4,13 @@ import { supabase } from "../../lib/supabase"
 import { useNavigate } from "react-router-dom"
 import FloatingBottomNav from "../../components/layout/FloatingBottomNav"
 import { useIsOwner, useIsOwnerOrManager } from "../../hooks/useRole"
+import { useCache } from "../../hooks/useCache"
 import { useInstantAuth } from "../../hooks/useInstantAuth"
 
 export default function Inventory() {
   const navigate = useNavigate()
   const { business: instantBusiness, initialized } = useInstantAuth()
+  const { get, set } = useCache()
   const isOwner = useIsOwner()
   const isOwnerOrManager = useIsOwnerOrManager()
   const [products, setProducts] = useState([])
@@ -23,6 +25,16 @@ export default function Inventory() {
 
   useEffect(() => {
     if (instantBusiness?.id) {
+      const cacheKey = `products_${instantBusiness.id}`
+      const cachedProducts = get(cacheKey)
+
+      if (cachedProducts) {
+        setProducts(cachedProducts)
+        setFiltered(cachedProducts)
+        setCategories([...new Set(cachedProducts.map((p) => p.category).filter(Boolean))])
+        setLoading(false)
+      }
+
       fetchProducts(instantBusiness.id)
       return
     }
@@ -77,13 +89,17 @@ export default function Inventory() {
       .eq("business_id", businessId)
       .order("name")
 
-    setProducts(data || [])
-    setFiltered(data || [])
+    const nextProducts = data || []
+    set(cacheKeyForProducts(businessId), nextProducts)
+    setProducts(nextProducts)
+    setFiltered(nextProducts)
 
-    const cats = [...new Set((data || []).map((p) => p.category).filter(Boolean))]
+    const cats = [...new Set(nextProducts.map((p) => p.category).filter(Boolean))]
     setCategories(cats)
     setLoading(false)
   }
+
+  const cacheKeyForProducts = (businessId) => `products_${businessId}`
 
   const isLowStock = (p) => Number(p.current_quantity || 0) <= Number(p.reorder_point || 0)
 
