@@ -14,14 +14,23 @@ export default defineConfig({
   },
   build: {
     sourcemap: true,
-     minify: false, // Disable minification to debug icon issue
-     rollupOptions: {
+    minify: true, // Use default minifier
+    rollupOptions: {
       output: {
         manualChunks(id) {
-          // Don't create a separate lucide chunk - let it be inlined
-          // This prevents cross-chunk re-export issues
-          if (id.includes('node_modules/lucide-react')) {
-            return undefined // Don't chunk, let it inline
+          // Split icons into separate lazy-loadable chunk
+          if (id.includes('icons.generated')) {
+            return 'icons'
+          }
+          // Split supabase into separate chunk
+          if (id.includes('node_modules/@supabase')) {
+            return 'supabase'
+          }
+          // React & core dependencies go to vendor
+          if (id.includes('node_modules/react') || 
+              id.includes('node_modules/react-dom') ||
+              id.includes('node_modules/react-router-dom')) {
+            return 'vendor-react'
           }
         }
       }

@@ -4,6 +4,31 @@ const path = require('path')
 const iconsDir = path.join(__dirname, '..', 'node_modules', 'lucide-react', 'dist', 'esm', 'icons')
 const outFile = path.join(__dirname, '..', 'src', 'lib', 'icons.generated.jsx')
 
+// OPTIMIZATION: Only generate icons that are actually used in the app
+// This reduces bundle size from 1.5MB to ~50KB
+const USED_ICONS = new Set([
+  'arrow-right',
+  'arrow-up-down',
+  'bar-chart-2',
+  'boxes',
+  'building-2',
+  'check-circle-2',
+  'chevron-right',
+  'layout-grid',
+  'life-buoy',
+  'lock-keyhole',
+  'package',
+  'settings-2',
+  'shield',
+  'sparkles',
+  'trending-up',
+  'users',
+  'wallet',
+  // Re-export targets that need to be included
+  'chart-no-axes-column', // target of bar-chart-2
+  'circle-check', // target of check-circle-2
+])
+
 function pascalCase(name) {
   return name
     .replace(/(^.|[-_].)/g, (s) => s.replace(/[-_]/, '').toUpperCase())
@@ -40,6 +65,12 @@ const reexports = [] // Track aliases: [fromName, toName]
 
 for (const file of files) {
   const name = path.basename(file, '.mjs') // e.g., layout-grid
+  
+  // OPTIMIZATION: Skip icons not in USED_ICONS set
+  if (!USED_ICONS.has(name)) {
+    continue
+  }
+  
   const pascal = pascalCase(name)
   const content = fs.readFileSync(path.join(iconsDir, file), 'utf8')
   let nodeText = extractIconNode(content)
