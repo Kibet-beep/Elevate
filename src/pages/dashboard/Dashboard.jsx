@@ -373,6 +373,19 @@ export default function Dashboard() {
 
   const fmt = (n) => `KES ${Number(n).toLocaleString("en-KE", { minimumFractionDigits: 2 })}`
 
+  const QuickActions = () => (
+    <div className="flex flex-wrap gap-2">
+      <UiButton variant="primary" size="sm" onClick={() => navigateInstant("/transactions/sale")}>
+        + Sale
+      </UiButton>
+      {isOwnerOrManager && (
+        <UiButton variant="secondary" size="sm" onClick={() => navigateInstant("/transactions/add-expense")}>
+          + Expense
+        </UiButton>
+      )}
+    </div>
+  )
+
   if (loading) return (
     <div className="min-h-screen bg-zinc-950 flex items-center justify-center">
       <p className="text-zinc-500 text-sm">Loading...</p>
@@ -478,7 +491,6 @@ export default function Dashboard() {
         contentClassName="max-w-lg space-y-4"
         right={(
           <>
-            <UiButton variant="primary" size="sm" onClick={() => navigateInstant("/transactions/sale")}>+ Sale</UiButton>
             <UiButton variant="tertiary" size="sm" onClick={handleSignOut} className="text-zinc-500 hover:text-red-400">
               Sign out
             </UiButton>
@@ -491,6 +503,7 @@ export default function Dashboard() {
               {new Date().toLocaleDateString("en-KE", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}
             </p>
           </div>
+          <QuickActions />
           <TodayReport />
 
         <FloatingBottomNav
@@ -515,7 +528,6 @@ export default function Dashboard() {
       contentClassName="max-w-5xl space-y-6"
       right={(
         <>
-          <UiButton variant="primary" size="sm" onClick={() => navigateInstant("/transactions/sale")}>+ Sale</UiButton>
           <UiButton variant="tertiary" size="sm" onClick={handleSignOut} className="text-zinc-500 hover:text-red-400">
             Sign out
           </UiButton>
@@ -529,6 +541,7 @@ export default function Dashboard() {
             {new Date().toLocaleDateString("en-KE", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}
           </p>
         </div>
+        <QuickActions />
 
         {stats.totalRevenue === 0 && stats.lowStock === 0 && (
           <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-2xl p-4 flex items-center justify-between">
