@@ -25,10 +25,6 @@ export default function Float() {
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState("")
 
-  useEffect(() => {
-    if (businessId) fetchFloat()
-  }, [businessId])
-
   const fetchFloat = async () => {
     const { data } = await supabase
       .from("float_baseline")
@@ -45,6 +41,10 @@ export default function Float() {
 
     setLoading(false)
   }
+
+  useEffect(() => {
+    if (businessId) fetchFloat()
+  }, [businessId, fetchFloat])
 
   const handleSave = async () => {
     setSaving(true)

@@ -101,6 +101,7 @@ export default function Transactions() {
 
       if (!active) return
 
+      const { data } = await query
       const enriched = (data || []).map(t => {
         if (t.type === "sale") {
           const amount = t.sale_items?.reduce((s, i) => s + i.total_amount, 0) || 0

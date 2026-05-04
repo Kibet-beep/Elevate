@@ -21,8 +21,8 @@ export const PAGE_PERMISSIONS = {
   "/transactions": [ROLES.OWNER, ROLES.MANAGER, ROLES.CASHIER],
   "/transactions/add-sale": [ROLES.OWNER, ROLES.MANAGER, ROLES.CASHIER],
   "/transactions/sale": [ROLES.OWNER, ROLES.MANAGER, ROLES.CASHIER],
-  "/transactions/add-expense": [ROLES.OWNER, ROLES.MANAGER],
-  "/transactions/expense": [ROLES.OWNER, ROLES.MANAGER],
+  "/transactions/add-expense": [ROLES.OWNER, ROLES.MANAGER, ROLES.CASHIER],
+  "/transactions/expense": [ROLES.OWNER, ROLES.MANAGER, ROLES.CASHIER],
   "/transactions/transfer": [ROLES.OWNER, ROLES.MANAGER],
   
   // Settings

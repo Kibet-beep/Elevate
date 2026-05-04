@@ -137,6 +137,16 @@ export default function Branches() {
     }
   }
 
+  const manageBranchEmployees = (branch) => {
+    navigate("/settings/branch-employees", {
+      state: { branchId: branch.id, branchName: branch.name },
+    })
+  }
+
+  const viewBranchDetails = (branch) => {
+    navigate(`/settings/branches/${branch.id}`)
+  }
+
   const goBack = () => {
     if (window.history.length > 1) {
       navigate(-1)
@@ -149,11 +159,11 @@ export default function Branches() {
     <AppShell
       title="Branches"
       subtitle="Manage your business locations"
-      showHeader={false}
+      showHeader={true}
       right={(
         <div className="flex items-center gap-1.5 sm:gap-3 max-w-[calc(100vw-2rem)] sm:max-w-none">
           <UiButton variant="secondary" size="sm" onClick={goBack} className="flex-shrink-0 text-xs px-2 sm:px-3" aria-label="Back">←</UiButton>
-          <UiButton variant="primary" size="sm" onClick={() => setAdding(!adding)} className="flex-shrink-0 text-xs px-2 sm:px-3">{adding ? "Cancel" : "+ Add"}</UiButton>
+          <UiButton variant="primary" size="sm" onClick={() => setAdding(!adding)} className="flex-shrink-0 text-xs px-2 sm:px-3">{adding ? "Cancel" : "Create branch"}</UiButton>
         </div>
       )}
     >
@@ -235,7 +245,16 @@ export default function Branches() {
           ) : branches.map((branch) => (
             <div
               key={branch.id}
-              className="bg-zinc-900 border border-zinc-800 rounded-2xl px-4 py-4 flex items-center justify-between hover:border-emerald-500/30 transition-colors"
+              role="button"
+              tabIndex={0}
+              onClick={() => viewBranchDetails(branch)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault()
+                  viewBranchDetails(branch)
+                }
+              }}
+              className="bg-zinc-900 border border-zinc-800 rounded-2xl px-4 py-4 flex items-center justify-between hover:border-emerald-500/30 transition-colors cursor-pointer"
             >
               <div className="flex items-center gap-3">
                 <div className="w-9 h-9 bg-zinc-800 rounded-full flex items-center justify-center">
@@ -256,16 +275,40 @@ export default function Branches() {
                 }`}>
                   {branch.is_active ? "Active" : "Inactive"}
                 </span>
+
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    viewBranchDetails(branch)
+                  }}
+                  className="text-xs px-3 py-1.5 rounded-xl bg-zinc-800 text-zinc-400 hover:text-white transition-colors flex-shrink-0"
+                >
+                  View
+                </button>
+
+                <button
+                  onClick={() => manageBranchEmployees(branch)}
+                  onMouseDown={(e) => e.stopPropagation()}
+                  className="text-xs px-3 py-1.5 rounded-xl bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20 transition-colors flex-shrink-0"
+                >
+                  Employees
+                </button>
                 
                 <button
-                  onClick={() => handleEdit(branch)}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    handleEdit(branch)
+                  }}
                   className="text-xs px-3 py-1.5 rounded-xl bg-zinc-800 text-zinc-400 hover:text-white transition-colors flex-shrink-0"
                 >
                   Edit
                 </button>
                 
                 <button
-                  onClick={() => toggleActive(branch)}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    toggleActive(branch)
+                  }}
                   className={`text-xs px-3 py-1.5 rounded-xl transition-colors flex-shrink-0 ${
                     branch.is_active ? "bg-zinc-800 text-zinc-400 hover:text-red-400" : "bg-emerald-500/10 text-emerald-400"
                   }`}
@@ -274,7 +317,10 @@ export default function Branches() {
                 </button>
                 
                 <button
-                  onClick={() => handleDelete(branch)}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    handleDelete(branch)
+                  }}
                   className="text-xs px-3 py-1.5 rounded-xl bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-colors flex-shrink-0"
                 >
                   Delete

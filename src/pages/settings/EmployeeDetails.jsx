@@ -25,19 +25,15 @@ export default function EmployeeDetails() {
     is_active: true
   })
 
-  useEffect(() => {
-    if (id) fetchEmployeeDetails(id)
-  }, [id])
-
   const fetchEmployeeDetails = async (employeeId) => {
     try {
-      const { data, error } = await supabase
+      const { data, fetchError } = await supabase
         .from("users")
         .select("*")
         .eq("id", employeeId)
         .single()
 
-      if (error) throw error
+      if (fetchError) throw fetchError
 
       setEmployee(data)
       setFormData({
@@ -52,6 +48,10 @@ export default function EmployeeDetails() {
       setLoading(false)
     }
   }
+
+  useEffect(() => {
+    if (id) fetchEmployeeDetails(id)
+  }, [id])
 
   const handleSave = async () => {
     try {

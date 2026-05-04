@@ -127,7 +127,7 @@ export default function EmployeeDetail() {
 
   if (loading) {
     return (
-      <AppShell title="Employee" showHeader={false}>
+      <AppShell title="Employee" showHeader={true}>
         <div className="flex items-center justify-center py-12">
           <p className="text-zinc-500">Loading...</p>
         </div>
@@ -137,7 +137,7 @@ export default function EmployeeDetail() {
 
   if (!employee) {
     return (
-      <AppShell title="Employee" showHeader={false}>
+      <AppShell title="Employee" showHeader={true}>
         <div className="flex items-center justify-center py-12">
           <p className="text-zinc-500">Employee not found</p>
         </div>
@@ -149,7 +149,7 @@ export default function EmployeeDetail() {
     <AppShell
       title="Employee Details"
       subtitle={employee.full_name}
-      showHeader={false}
+      showHeader={true}
       right={(
         <div className="flex items-center gap-1.5 sm:gap-3">
           <UiButton variant="secondary" size="sm" onClick={goBack} className="text-xs px-2 sm:px-3">←</UiButton>

@@ -24,8 +24,6 @@ export default function Suppliers() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
 
-  useEffect(() => { if (businessId) fetchSuppliers() }, [businessId])
-
   const fetchSuppliers = async () => {
     const { data } = await supabase
       .from("suppliers").select("*")
@@ -34,6 +32,8 @@ export default function Suppliers() {
 
     setSuppliers(data || [])
   }
+
+  useEffect(() => { if (businessId) fetchSuppliers() }, [businessId, fetchSuppliers])
 
   const handleAdd = async () => {
     if (!name) { setError("Supplier name required"); return }

@@ -30,7 +30,6 @@ export default function AddTransfer() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
   const [success, setSuccess] = useState(false)
-  const [balances, setBalances] = useState({ cash: 0, mpesa: 0, bank: 0 })
 
   useEffect(() => {
     if (businessId && authUser) {

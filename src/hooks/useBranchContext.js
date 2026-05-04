@@ -1,17 +1,18 @@
-import { useState, useEffect, useContext } from "react"
+import { useState, useEffect } from "react"
 import { supabase } from "../lib/supabase"
 import { useUser, useCurrentBusiness } from "./useRole"
-import { AuthContext } from "../contexts/AuthContext"
+import { useInstantAuth } from "./useInstantAuth"
 
 export function useBranchContext() {
   const { user } = useUser()
   const { businessId } = useCurrentBusiness()
-  const { initialized } = useContext(AuthContext)
+  const { initialized } = useInstantAuth()
   
   const [activeBranch, setActiveBranch] = useState(null)
   const [viewMode, setViewMode] = useState('all') // 'all' | 'branch'
   const [availableBranches, setAvailableBranches] = useState([])
   const [loading, setLoading] = useState(true)
+  const [refreshToken, setRefreshToken] = useState(0)
   
   const isOwner = user?.role === 'owner'
   const isManager = user?.role === 'manager'
@@ -78,7 +79,7 @@ export function useBranchContext() {
     }
     
     fetchBranches()
-  }, [user?.id, businessId, initialized, isOwner, user.default_branch_id])
+  }, [user?.id, businessId, initialized, isOwner, user?.default_branch_id, refreshToken])
   
   // Handle branch selection
   const selectBranch = (branch) => {
@@ -93,6 +94,10 @@ export function useBranchContext() {
       // For owners, show all branches. For managers, show "all" of their assigned branches
       setViewMode('all')
     }
+  }
+
+  const refreshBranches = () => {
+    setRefreshToken((current) => current + 1)
   }
   
   // Get current branch ID for queries
@@ -123,6 +128,7 @@ export function useBranchContext() {
     setActiveBranch: selectBranch,
     setViewMode,
     showAllBranches,
+    refreshBranches,
     hasBranchAccess,
     
     // Helpers

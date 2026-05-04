@@ -1,18 +1,14 @@
 // src/pages/settings/Employees.jsx
-import { useState, useEffect } from "react"
-import { supabase } from "../../lib/supabase"
+import { useState } from "react"
 import { useNavigate } from "react-router-dom"
-import { useUser, useCurrentBusiness } from "../../hooks/useRole"
+import { useCurrentBusiness } from "../../hooks/useRole"
 import { useBranchContext } from "../../hooks/useBranchContext"
 import { AppShell, UiButton, UiCard } from "../../components/ui"
 
 export default function Employees() {
   const navigate = useNavigate()
-  const { user: authUser } = useUser()
   const { businessId } = useCurrentBusiness()
-  const { availableBranches, activeBranch, viewMode, canViewAll } = useBranchContext()
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState("")
+  const { availableBranches, canViewAll } = useBranchContext()
 
   const goBack = () => {
     if (window.history.length > 1) {
@@ -28,18 +24,19 @@ export default function Employees() {
   }
 
   const handleManageAllEmployees = () => {
-    // Navigate to employee management for all branches
-    navigate(`/settings/branch-employees`)
+    // Navigate to view all branches
+    navigate(`/settings/branches`)
   }
 
   return (
     <AppShell
       title="Employees"
       subtitle="Manage your team and access roles by branch"
-      showHeader={false}
+      showHeader={true}
       right={(
         <div className="flex items-center gap-1.5 sm:gap-3 max-w-[calc(100vw-2rem)] sm:max-w-none">
           <UiButton variant="secondary" size="sm" onClick={goBack} className="flex-shrink-0 text-xs px-2 sm:px-3" aria-label="Back">←</UiButton>
+          <UiButton variant="primary" size="sm" onClick={() => navigate("/settings/branches")} className="flex-shrink-0 text-xs px-2 sm:px-3">Create branch</UiButton>
         </div>
       )}
     >
@@ -53,7 +50,7 @@ export default function Employees() {
             </div>
             <h3 className="text-white font-semibold text-sm mb-2">No branches yet</h3>
             <p className="text-zinc-500 text-xs mb-4">Create your first branch to start managing employees</p>
-            <UiButton variant="primary" onClick={() => navigate("/settings/branches")}>
+            <UiButton variant="primary" onClick={() => navigate("/settings/branches") }>
               Create Branch
             </UiButton>
           </UiCard>

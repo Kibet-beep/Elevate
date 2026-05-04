@@ -25,10 +25,6 @@ export default function General() {
   const months = ["January","February","March","April","May","June",
     "July","August","September","October","November","December"]
 
-  useEffect(() => {
-    if (businessId) fetchData()
-  }, [businessId])
-
   const fetchData = async () => {
     const { data } = await supabase
       .from("businesses").select("vat_rate, low_stock_threshold, financial_year_start")
@@ -38,6 +34,10 @@ export default function General() {
     setLowStockThreshold(data.low_stock_threshold || 10)
     setFinancialYearStart(data.financial_year_start || 1)
   }
+
+  useEffect(() => {
+    if (businessId) fetchData()
+  }, [businessId, fetchData])
 
   const handleSave = async () => {
     setSaving(true)

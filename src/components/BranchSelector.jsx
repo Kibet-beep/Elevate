@@ -1,4 +1,5 @@
-import { ChevronDownIcon } from "@heroicons/react/24/outline"
+import { ChevronDown } from "lucide-react"
+import { useBranchContext } from "../hooks/useBranchContext"
 
 export function BranchSelector({ className = "" }) {
   const { 
@@ -46,11 +47,8 @@ export function BranchSelector({ className = "" }) {
       
       {/* Custom dropdown arrow */}
       <div className="absolute inset-y-0 right-0 flex items-center pr-2 pointer-events-none">
-        <ChevronDownIcon className="h-4 w-4 text-zinc-400" />
+        <ChevronDown className="h-4 w-4 text-zinc-400" />
       </div>
     </div>
   )
 }
-
-// For use in hooks - import the hook directly
-import { useBranchContext } from "../hooks/useBranchContext"

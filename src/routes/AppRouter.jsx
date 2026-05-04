@@ -30,8 +30,8 @@ const AddTransfer = lazy(() => import("../pages/transactions/AddTransfer"))
 const Business = lazy(() => import("../pages/settings/Business"))
 const General = lazy(() => import("../pages/settings/General"))
 const Employees = lazy(() => import("../pages/settings/Employees"))
-const EmployeeDetails = lazy(() => import("../pages/settings/EmployeeDetails"))
 const Branches = lazy(() => import("../pages/settings/Branches"))
+const BranchDetail = lazy(() => import("../pages/settings/BranchDetail"))
 const BranchEmployees = lazy(() => import("../pages/settings/BranchEmployees"))
 const EmployeeDetail = lazy(() => import("../pages/settings/EmployeeDetail"))
 const Suppliers = lazy(() => import("../pages/settings/Suppliers"))
@@ -219,7 +219,7 @@ function AppRouterContent() {
         path="/transactions/add-expense"
         element={
           <AuthGuard>
-            <RoleGuard roles={[ROLES.OWNER, ROLES.MANAGER]}>
+            <RoleGuard roles={[ROLES.OWNER, ROLES.MANAGER, ROLES.CASHIER]}>
               <Suspense fallback={<InstantLoadingFallback />}>
                 <AddExpense />
               </Suspense>
@@ -258,6 +258,18 @@ function AppRouterContent() {
             <RoleGuard roles={[ROLES.OWNER]}>
               <Suspense fallback={<InstantLoadingFallback />}>
                 <Branches />
+              </Suspense>
+            </RoleGuard>
+          </AuthGuard>
+        }
+      />
+      <Route
+        path="/settings/branches/:id"
+        element={
+          <AuthGuard>
+            <RoleGuard roles={[ROLES.OWNER]}>
+              <Suspense fallback={<InstantLoadingFallback />}>
+                <BranchDetail />
               </Suspense>
             </RoleGuard>
           </AuthGuard>

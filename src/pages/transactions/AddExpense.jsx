@@ -2,7 +2,7 @@
 import { useState, useEffect } from "react"
 import { supabase } from "../../lib/supabase"
 import { useNavigate } from "react-router-dom"
-import { useUser, useIsOwnerOrManager, useCurrentBusiness } from "../../hooks/useRole"
+import { useUser, useCurrentBusiness } from "../../hooks/useRole"
 import { AppShell, UiButton, UiCard, UiSectionTitle } from "../../components/ui"
 
 const EXPENSE_CATEGORIES = [
@@ -24,7 +24,6 @@ const ACCOUNT_MAP = {
 export default function AddExpense() {
   const navigate = useNavigate()
   const { user: authUser } = useUser()
-  const isOwnerOrManager = useIsOwnerOrManager()
   const { businessId } = useCurrentBusiness()
   const [userId, setUserId] = useState(null)
   const [category, setCategory] = useState("")

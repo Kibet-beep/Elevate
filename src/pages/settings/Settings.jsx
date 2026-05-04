@@ -1,8 +1,9 @@
 // src/pages/settings/Settings.jsx
 import { useNavigate } from "react-router-dom"
+import { MapPin } from "lucide-react"
 import FloatingBottomNav from "../../components/layout/FloatingBottomNav"
 import { AppShell, UiButton, UiCard } from "../../components/ui"
-import { BarChart2, Building2, ChevronRight, LifeBuoy, LockKeyhole, Package, Settings2, Shield, TrendingUp, Users, Wallet, MapPin } from "../../lib/icons"
+import { BarChart2, Building2, ChevronRight, LifeBuoy, LockKeyhole, Package, Settings2, Shield, TrendingUp, Users, Wallet } from "../../lib/icons"
 import { useUser, useIsOwner, useIsOwnerOrManager } from "../../hooks/useRole"
 import { useInstantAuth } from "../../hooks/useInstantAuth"
 import { getRoleDisplayName } from "../../lib/roles"

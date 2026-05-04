@@ -1,15 +1,16 @@
 import { useState, useEffect } from "react"
 import { supabase } from "../../lib/supabase"
-import { useNavigate } from "react-router-dom"
+import { useLocation, useNavigate } from "react-router-dom"
 import { useUser, useCurrentBusiness, useIsOwner, useIsManager } from "../../hooks/useRole"
 import { useBranchContext } from "../../hooks/useBranchContext"
 import { AppShell, UiButton, UiCard } from "../../components/ui"
 
 export default function BranchEmployees() {
   const navigate = useNavigate()
+  const location = useLocation()
   const { user: authUser } = useUser()
   const { businessId } = useCurrentBusiness()
-  const { activeBranch, viewMode, canViewAll } = useBranchContext()
+  const { activeBranch, viewMode, canViewAll, availableBranches, loading: branchLoading, setActiveBranch, setViewMode } = useBranchContext()
   const isOwner = useIsOwner()
   const isManager = useIsManager()
   
@@ -19,15 +20,34 @@ export default function BranchEmployees() {
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [role, setRole] = useState("cashier")
+  const [targetBranchId, setTargetBranchId] = useState("")
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
 
+  const branchIdFromNavigation = location.state?.branchId || null
+  const branchNameFromNavigation = location.state?.branchName || null
+
   // Only allow access if user has branch access
   useEffect(() => {
+    if (branchLoading) return
+
+    if (branchIdFromNavigation) {
+      const branch = availableBranches.find((item) => item.id === branchIdFromNavigation)
+      if (branch) {
+        setActiveBranch(branch)
+        setViewMode("branch")
+        setTargetBranchId(branch.id)
+      }
+    }
+
+    if (!branchIdFromNavigation && canViewAll && !targetBranchId && availableBranches.length === 1) {
+      setTargetBranchId(availableBranches[0].id)
+    }
+
     if (availableBranches.length === 0) {
       navigate("/settings")
     }
-  }, [availableBranches, navigate])
+  }, [availableBranches, branchIdFromNavigation, branchLoading, canViewAll, navigate, setActiveBranch, setTargetBranchId, setViewMode, targetBranchId])
 
   useEffect(() => { 
     if (businessId && (activeBranch || canViewAll)) {
@@ -76,7 +96,9 @@ export default function BranchEmployees() {
       return
     }
 
-    if (viewMode === 'branch' && !activeBranch) {
+    const branchId = viewMode === 'branch' ? activeBranch?.id : (targetBranchId || null)
+
+    if (!branchId) {
       setError("Please select a branch first.")
       return
     }
@@ -97,7 +119,7 @@ export default function BranchEmployees() {
       fullName,
       role,
       businessId,
-      branchId: viewMode === 'branch' ? activeBranch.id : null,
+      branchId,
     }
     console.log("Sending create-employee request with:", requestBody)
 
@@ -162,6 +184,9 @@ export default function BranchEmployees() {
   }
 
   const getBranchContext = () => {
+    if (branchNameFromNavigation) {
+      return ` • ${branchNameFromNavigation}`
+    }
     if (viewMode === 'branch' && activeBranch) {
       return ` • ${activeBranch.name}`
     }
@@ -177,7 +202,7 @@ export default function BranchEmployees() {
     <AppShell
       title="Employees"
       subtitle={`Manage your team and access roles${getBranchContext()}`}
-      showHeader={false}
+      showHeader={true}
       right={(
         <div className="flex items-center gap-1.5 sm:gap-3 max-w-[calc(100vw-2rem)] sm:max-w-none">
           <UiButton variant="secondary" size="sm" onClick={goBack} className="flex-shrink-0 text-xs px-2 sm:px-3" aria-label="Back">←</UiButton>
@@ -224,6 +249,23 @@ export default function BranchEmployees() {
               <div className="bg-zinc-800 border border-zinc-700 rounded-xl px-4 py-3">
                 <p className="text-zinc-400 text-xs mb-1">Branch assignment</p>
                 <p className="text-white text-sm font-medium">{activeBranch.name}</p>
+              </div>
+            )}
+            {canViewAll && viewMode !== 'branch' && (
+              <div>
+                <label className="text-zinc-400 text-xs mb-1 block">Assign to branch</label>
+                <select
+                  value={targetBranchId}
+                  onChange={(e) => setTargetBranchId(e.target.value)}
+                  className="w-full bg-zinc-800 border border-zinc-700 text-white rounded-xl px-4 py-3 text-sm outline-none focus:border-emerald-500 transition-colors"
+                >
+                  <option value="">Select a branch</option>
+                  {availableBranches.map((branch) => (
+                    <option key={branch.id} value={branch.id}>
+                      {branch.name} {branch.code ? `(${branch.code})` : ""}
+                    </option>
+                  ))}
+                </select>
               </div>
             )}
             <UiButton variant="primary" className="w-full" onClick={handleAddEmployee} disabled={loading}>
