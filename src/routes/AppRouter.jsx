@@ -31,6 +31,9 @@ const Business = lazy(() => import("../pages/settings/Business"))
 const General = lazy(() => import("../pages/settings/General"))
 const Employees = lazy(() => import("../pages/settings/Employees"))
 const EmployeeDetails = lazy(() => import("../pages/settings/EmployeeDetails"))
+const Branches = lazy(() => import("../pages/settings/Branches"))
+const BranchEmployees = lazy(() => import("../pages/settings/BranchEmployees"))
+const EmployeeDetail = lazy(() => import("../pages/settings/EmployeeDetail"))
 const Suppliers = lazy(() => import("../pages/settings/Suppliers"))
 const ChangePassword = lazy(() => import("../pages/settings/ChangePassword"))
 const Support = lazy(() => import("../pages/settings/Support"))
@@ -249,6 +252,42 @@ function AppRouterContent() {
         }
       />
       <Route
+        path="/settings/branches"
+        element={
+          <AuthGuard>
+            <RoleGuard roles={[ROLES.OWNER]}>
+              <Suspense fallback={<InstantLoadingFallback />}>
+                <Branches />
+              </Suspense>
+            </RoleGuard>
+          </AuthGuard>
+        }
+      />
+      <Route
+        path="/settings/branch-employees"
+        element={
+          <AuthGuard>
+            <RoleGuard roles={[ROLES.OWNER, ROLES.MANAGER]}>
+              <Suspense fallback={<InstantLoadingFallback />}>
+                <BranchEmployees />
+              </Suspense>
+            </RoleGuard>
+          </AuthGuard>
+        }
+      />
+      <Route
+        path="/settings/employees/:id"
+        element={
+          <AuthGuard>
+            <RoleGuard roles={[ROLES.OWNER, ROLES.MANAGER]}>
+              <Suspense fallback={<InstantLoadingFallback />}>
+                <EmployeeDetail />
+              </Suspense>
+            </RoleGuard>
+          </AuthGuard>
+        }
+      />
+      <Route
         path="/settings/business"
         element={
           <AuthGuard>
@@ -279,18 +318,6 @@ function AppRouterContent() {
             <RoleGuard roles={[ROLES.OWNER, ROLES.MANAGER]}>
               <Suspense fallback={<InstantLoadingFallback />}>
                 <Employees />
-              </Suspense>
-            </RoleGuard>
-          </AuthGuard>
-        }
-      />
-      <Route
-        path="/settings/employees/:id"
-        element={
-          <AuthGuard>
-            <RoleGuard roles={[ROLES.OWNER, ROLES.MANAGER]}>
-              <Suspense fallback={<InstantLoadingFallback />}>
-                <EmployeeDetails />
               </Suspense>
             </RoleGuard>
           </AuthGuard>
