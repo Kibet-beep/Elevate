@@ -7,6 +7,13 @@ import { AppShell, UiButton, UiCard } from "../../components/ui"
 
 export default function Float() {
   const navigate = useNavigate()
+  const goBack = () => {
+    if (window.history.length > 1) {
+      navigate(-1)
+      return
+    }
+    navigate("/settings", { replace: true })
+  }
   const { businessId } = useCurrentBusiness()
   const [userId, setUserId] = useState(null)
   const [cash, setCash] = useState("")
@@ -82,7 +89,7 @@ export default function Float() {
       title="Float"
       subtitle="Your opening account balances"
       showHeader={false}
-      right={<UiButton variant="secondary" size="sm" onClick={() => navigate("/settings")}>← Back</UiButton>}
+      right={<UiButton variant="secondary" size="sm" onClick={goBack} aria-label="Back">←</UiButton>}
     >
       <div className="space-y-4">
 

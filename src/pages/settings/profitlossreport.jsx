@@ -8,6 +8,13 @@ const EAT_OFFSET_MS = 3 * 60 * 60 * 1000
 
 export default function ProfitLossReport() {
   const navigate = useNavigate()
+  const goBack = () => {
+    if (window.history.length > 1) {
+      navigate(-1)
+      return
+    }
+    navigate("/settings", { replace: true })
+  }
   const [period, setPeriod] = useState("Month")
   const [businessId, setBusinessId] = useState(null)
   const [data, setData] = useState(null)
@@ -146,10 +153,11 @@ export default function ProfitLossReport() {
     <div className="min-h-screen bg-zinc-950 pb-16">
       <div className="px-6 pt-8 pb-6 max-w-3xl mx-auto">
         <button
-          onClick={() => navigate("/settings")}
-          className="flex items-center gap-2 text-zinc-500 hover:text-white transition-colors text-sm mb-6"
+          onClick={goBack}
+          aria-label="Back"
+          className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-zinc-700 text-zinc-300 hover:text-white hover:border-zinc-500 transition-colors mb-6"
         >
-          ← Back
+          ←
         </button>
         <h1 className="text-white font-bold text-2xl tracking-tight">Profit & Loss</h1>
         <p className="text-zinc-500 text-sm mt-1">{periodLabel()}</p>

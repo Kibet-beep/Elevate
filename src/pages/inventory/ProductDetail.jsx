@@ -108,7 +108,7 @@ export default function ProductDetail() {
   const goToSalesReport = (date) => {
     const d = new Date(date)
     const dateStr = d.toISOString().split("T")[0]
-    navigate(`/settings/reports/sales?date=${dateStr}`)
+    navigate(`/settings/sales-report?date=${dateStr}`)
   }
 
   if (loading) {

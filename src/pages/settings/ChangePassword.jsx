@@ -6,6 +6,13 @@ import { AppShell, UiButton, UiCard } from "../../components/ui"
 
 export default function ChangePassword() {
   const navigate = useNavigate()
+  const goBack = () => {
+    if (window.history.length > 1) {
+      navigate(-1)
+      return
+    }
+    navigate("/settings", { replace: true })
+  }
   const [password, setPassword] = useState("")
   const [confirm, setConfirm] = useState("")
   const [loading, setLoading] = useState(false)
@@ -30,7 +37,7 @@ export default function ChangePassword() {
       title="Change Password"
       subtitle="Update the password for this account"
       showHeader={false}
-      right={<UiButton variant="secondary" size="sm" onClick={() => navigate("/settings")}>← Back</UiButton>}
+      right={<UiButton variant="secondary" size="sm" onClick={goBack} aria-label="Back">←</UiButton>}
     >
       <div className="space-y-4">
         {error && <p className="text-red-400 text-sm bg-red-400/10 px-3 py-2 rounded-lg">{error}</p>}

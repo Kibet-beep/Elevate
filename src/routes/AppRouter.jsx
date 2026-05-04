@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom"
+import { BrowserRouter, Routes, Route, Navigate, useLocation, useNavigate } from "react-router-dom"
 import { Suspense, lazy, useEffect } from "react"
 import { UserProvider } from "../context/UserContext"
 import { useInstantAuth } from "../hooks/useInstantAuth"
@@ -7,6 +7,8 @@ import AuthGuard from "./AuthGuard"
 import RoleGuard from "./RoleGuard"
 import OnboardingGuard from "../components/OnboardingGuard"
 import { ROLES } from "../lib/roles"
+import { Capacitor } from "@capacitor/core"
+import { App as CapacitorApp } from "@capacitor/app"
 import Dashboard from "../pages/dashboard/Dashboard"
 import Inventory from "../pages/inventory/Inventory"
 import Transactions from "../pages/transactions/Transactions"
@@ -46,6 +48,8 @@ const InstantLoadingFallback = () => (
 function AppRouterContent() {
   const { user, loading: authLoading, initialized } = useInstantAuth()
   const { preloadLikelyPages } = useInstantNavigation()
+  const location = useLocation()
+  const navigate = useNavigate()
 
   // Pre-load likely pages based on current route
   useEffect(() => {
@@ -54,6 +58,36 @@ function AppRouterContent() {
       preloadLikelyPages(currentPath)
     }
   }, [authLoading, user, preloadLikelyPages])
+
+  useEffect(() => {
+    if (Capacitor.getPlatform() !== "android") return
+
+    let handle
+    const isSettingsChild = location.pathname.startsWith("/settings/") && location.pathname !== "/settings"
+
+    const registerBackHandler = async () => {
+      handle = await CapacitorApp.addListener("backButton", ({ canGoBack }) => {
+        if (isSettingsChild) {
+          if (window.history.length > 1) {
+            navigate(-1)
+          } else {
+            navigate("/settings", { replace: true })
+          }
+          return
+        }
+
+        if (canGoBack) {
+          window.history.back()
+        }
+      })
+    }
+
+    registerBackHandler()
+
+    return () => {
+      handle?.remove()
+    }
+  }, [location.pathname, navigate])
 
   // Show instant loading or content
   if (authLoading && !initialized) {
@@ -156,6 +190,7 @@ function AppRouterContent() {
           </AuthGuard>
         }
       />
+      <Route path="/inventory/stocktake" element={<Navigate to="/inventory/stock-take" replace />} />
       <Route
         path="/transactions"
         element={
@@ -176,6 +211,7 @@ function AppRouterContent() {
           </AuthGuard>
         }
       />
+      <Route path="/transactions/sale" element={<Navigate to="/transactions/add-sale" replace />} />
       <Route
         path="/transactions/add-expense"
         element={
@@ -294,6 +330,7 @@ function AppRouterContent() {
           </AuthGuard>
         }
       />
+      <Route path="/settings/password" element={<Navigate to="/settings/change-password" replace />} />
       <Route
         path="/settings/support"
         element={
@@ -316,6 +353,7 @@ function AppRouterContent() {
           </AuthGuard>
         }
       />
+      <Route path="/settings/reports/sales" element={<Navigate to="/settings/sales-report" replace />} />
       <Route
         path="/settings/profit-loss"
         element={
@@ -328,6 +366,7 @@ function AppRouterContent() {
           </AuthGuard>
         }
       />
+      <Route path="/settings/reports/pl" element={<Navigate to="/settings/profit-loss" replace />} />
 
       {/* Fallback */}
       <Route path="*" element={<Navigate to="/dashboard" replace />} />

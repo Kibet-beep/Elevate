@@ -14,6 +14,7 @@ export const PAGE_PERMISSIONS = {
   "/inventory": [ROLES.OWNER, ROLES.MANAGER, ROLES.CASHIER],
   "/inventory/new-stock": [ROLES.OWNER, ROLES.MANAGER],
   "/inventory/product/:id": [ROLES.OWNER, ROLES.MANAGER, ROLES.CASHIER],
+  "/inventory/stock-take": [ROLES.OWNER, ROLES.MANAGER],
   "/inventory/stocktake": [ROLES.OWNER, ROLES.MANAGER],
   
   // Transactions
@@ -30,9 +31,12 @@ export const PAGE_PERMISSIONS = {
   "/settings/general": [ROLES.OWNER],
   "/settings/employees": [ROLES.OWNER, ROLES.MANAGER],
   "/settings/suppliers": [ROLES.OWNER, ROLES.MANAGER],
+  "/settings/change-password": [ROLES.OWNER, ROLES.MANAGER, ROLES.CASHIER],
   "/settings/password": [ROLES.OWNER, ROLES.MANAGER, ROLES.CASHIER],
   "/settings/support": [ROLES.OWNER],
   "/settings/float": [ROLES.OWNER],
+  "/settings/sales-report": [ROLES.OWNER, ROLES.MANAGER],
+  "/settings/profit-loss": [ROLES.OWNER, ROLES.MANAGER],
   "/settings/reports/sales": [ROLES.OWNER, ROLES.MANAGER],
   "/settings/reports/pl": [ROLES.OWNER, ROLES.MANAGER],
   

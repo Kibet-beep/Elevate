@@ -59,8 +59,8 @@ export function Settings() {
       sections.push({
         title: "Reports",
         items: [
-          { label: "Sales Records", desc: "Daily, weekly, monthly and quarterly sales breakdown", path: "/settings/reports/sales", icon: BarChart2 },
-          { label: "Profit & Loss", desc: "Revenue, COGS, gross profit and net profit by period", path: "/settings/reports/pl", icon: TrendingUp },
+          { label: "Sales Records", desc: "Daily, weekly, monthly and quarterly sales breakdown", path: "/settings/sales-report", icon: BarChart2 },
+          { label: "Profit & Loss", desc: "Revenue, COGS, gross profit and net profit by period", path: "/settings/profit-loss", icon: TrendingUp },
         ]
       })
     }
@@ -79,7 +79,7 @@ export function Settings() {
     sections.push({
       title: "Security",
       items: [
-        { label: "Change password", desc: "Update your password", path: "/settings/password", icon: LockKeyhole },
+        { label: "Change password", desc: "Update your password", path: "/settings/change-password", icon: LockKeyhole },
       ]
     })
 

@@ -7,6 +7,13 @@ import { AppShell, UiButton, UiCard } from "../../components/ui"
 
 export default function Suppliers() {
   const navigate = useNavigate()
+  const goBack = () => {
+    if (window.history.length > 1) {
+      navigate(-1)
+      return
+    }
+    navigate("/settings", { replace: true })
+  }
   const [suppliers, setSuppliers] = useState([])
   const { businessId } = useCurrentBusiness()
   const [adding, setAdding] = useState(false)
@@ -62,7 +69,7 @@ export default function Suppliers() {
       showHeader={false}
       right={(
         <div className="flex items-center gap-1.5 sm:gap-3 max-w-[calc(100vw-2rem)] sm:max-w-none">
-          <UiButton variant="secondary" size="sm" onClick={() => navigate("/settings")} className="flex-shrink-0 text-xs px-2 sm:px-3">← Back</UiButton>
+          <UiButton variant="secondary" size="sm" onClick={goBack} className="flex-shrink-0 text-xs px-2 sm:px-3" aria-label="Back">←</UiButton>
           <UiButton variant="primary" size="sm" onClick={() => setAdding(!adding)} className="flex-shrink-0 text-xs px-2 sm:px-3">{adding ? "Cancel" : "+ Add"}</UiButton>
         </div>
       )}

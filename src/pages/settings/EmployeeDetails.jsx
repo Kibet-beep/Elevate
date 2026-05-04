@@ -7,6 +7,13 @@ import { AppShell, UiButton, UiCard } from "../../components/ui"
 export default function EmployeeDetails() {
   const { id } = useParams()
   const navigate = useNavigate()
+  const goBack = () => {
+    if (window.history.length > 1) {
+      navigate(-1)
+      return
+    }
+    navigate("/settings/employees", { replace: true })
+  }
   const [employee, setEmployee] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState("")
@@ -87,7 +94,7 @@ export default function EmployeeDetails() {
 
   if (loading) {
     return (
-      <AppShell title="Employee Details" showHeader={false} right={<UiButton variant="secondary" onClick={() => navigate("/settings/employees")}>← Back</UiButton>}>
+      <AppShell title="Employee Details" showHeader={false} right={<UiButton variant="secondary" onClick={goBack} aria-label="Back">←</UiButton>}>
         <div className="flex items-center justify-center h-64">
           <div className="w-8 h-8 border-2 border-zinc-700 border-t-emerald-500 rounded-full animate-spin" />
         </div>
@@ -97,7 +104,7 @@ export default function EmployeeDetails() {
 
   if (error || !employee) {
     return (
-      <AppShell title="Employee Details" showHeader={false} right={<UiButton variant="secondary" onClick={() => navigate("/settings/employees")}>← Back</UiButton>}>
+      <AppShell title="Employee Details" showHeader={false} right={<UiButton variant="secondary" onClick={goBack} aria-label="Back">←</UiButton>}>
         <div className="text-center py-8">
           <p className="text-red-400">{error || "Employee not found"}</p>
         </div>
@@ -111,7 +118,7 @@ export default function EmployeeDetails() {
       showHeader={false}
       right={(
         <>
-          <UiButton variant="secondary" onClick={() => navigate("/settings/employees")}>← Back</UiButton>
+          <UiButton variant="secondary" onClick={goBack} aria-label="Back">←</UiButton>
           {!editing && <UiButton variant="primary" onClick={() => setEditing(true)}>Edit</UiButton>}
           {editing && (
             <>

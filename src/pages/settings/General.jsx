@@ -7,6 +7,13 @@ import { AppShell, UiButton, UiCard } from "../../components/ui"
 
 export default function General() {
   const navigate = useNavigate()
+  const goBack = () => {
+    if (window.history.length > 1) {
+      navigate(-1)
+      return
+    }
+    navigate("/settings", { replace: true })
+  }
   const { businessId } = useCurrentBusiness()
   const [vatRate, setVatRate] = useState(16)
   const [lowStockThreshold, setLowStockThreshold] = useState(10)
@@ -51,7 +58,7 @@ export default function General() {
       title="General Preferences"
       subtitle="VAT rate, stock threshold, and financial year settings"
       showHeader={false}
-      right={<UiButton variant="secondary" size="sm" onClick={() => navigate("/settings")}>← Back</UiButton>}
+      right={<UiButton variant="secondary" size="sm" onClick={goBack} aria-label="Back">←</UiButton>}
     >
       <div className="space-y-4">
         {error && <p className="text-red-400 text-sm bg-red-400/10 px-3 py-2 rounded-lg">{error}</p>}

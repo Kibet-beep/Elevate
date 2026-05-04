@@ -7,8 +7,9 @@ import { canAccessPage } from "../lib/roles"
  * Usage: <RoleGuard requiredRoles={["owner", "manager"]}><Page /></RoleGuard>
  * Or: <RoleGuard pathname="/inventory"><Page /></RoleGuard>
  */
-export default function RoleGuard({ children, requiredRoles = null, pathname = null }) {
+export default function RoleGuard({ children, requiredRoles = null, roles = null, pathname = null }) {
   const { userRole, loading } = useUser()
+  const resolvedRoles = requiredRoles || roles
 
   // Still loading user data
   if (loading) {
@@ -27,7 +28,7 @@ export default function RoleGuard({ children, requiredRoles = null, pathname = n
   }
 
   // Check access based on required roles
-  if (requiredRoles && !requiredRoles.includes(userRole)) {
+  if (resolvedRoles && !resolvedRoles.includes(userRole)) {
     return <Navigate to="/dashboard" replace />
   }
 

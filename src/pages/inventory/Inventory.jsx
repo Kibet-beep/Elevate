@@ -132,7 +132,7 @@ export default function Inventory() {
           {isOwnerOrManager && (
             <>
               <button
-                onClick={() => navigate("/inventory/stocktake")}
+                onClick={() => navigate("/inventory/stock-take")}
                 className="bg-zinc-800 hover:bg-zinc-700 text-white text-xs font-medium px-3 py-2 rounded-xl transition-colors"
               >
                 Stock take
@@ -323,7 +323,7 @@ export default function Inventory() {
       {/* Bottom nav */}
       <div className="md:hidden fixed bottom-24 left-4 right-4 z-30 grid grid-cols-2 gap-2">
         <button
-          onClick={() => navigate("/inventory/stocktake")}
+          onClick={() => navigate("/inventory/stock-take")}
           className="bg-zinc-900/95 border border-zinc-800 text-zinc-200 rounded-xl py-3 text-sm font-medium"
         >
           Stock take

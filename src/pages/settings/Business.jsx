@@ -7,6 +7,13 @@ import { AppShell, UiButton, UiCard } from "../../components/ui"
 
 export default function Business() {
   const navigate = useNavigate()
+  const goBack = () => {
+    if (window.history.length > 1) {
+      navigate(-1)
+      return
+    }
+    navigate("/settings", { replace: true })
+  }
   const { businessId } = useCurrentBusiness()
   const [name, setName] = useState("")
   const [type, setType] = useState("retail")
@@ -57,7 +64,7 @@ export default function Business() {
       title="Business Details"
       subtitle="Keep your trading name, contacts, and registration details current"
       showHeader={false}
-      right={<UiButton variant="secondary" size="sm" onClick={() => navigate("/settings")}>← Back</UiButton>}
+      right={<UiButton variant="secondary" size="sm" onClick={goBack} aria-label="Back">←</UiButton>}
     >
       <div className="space-y-4">
         {error && <p className="text-red-400 text-sm bg-red-400/10 px-3 py-2 rounded-lg">{error}</p>}

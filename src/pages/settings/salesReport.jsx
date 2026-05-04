@@ -8,6 +8,13 @@ const EAT_OFFSET_MS = 3 * 60 * 60 * 1000
 
 export default function SalesReport() {
   const navigate = useNavigate()
+  const goBack = () => {
+    if (window.history.length > 1) {
+      navigate(-1)
+      return
+    }
+    navigate("/settings", { replace: true })
+  }
   const [searchParams] = useSearchParams()
   const todayIso = new Date().toISOString().split("T")[0]
 
@@ -301,8 +308,12 @@ export default function SalesReport() {
 
       {/* Header */}
       <div className="px-4 pt-6 pb-4 w-full max-w-screen-2xl mx-auto">
-        <button onClick={() => navigate(-1)} className="flex items-center gap-2 text-zinc-500 hover:text-white transition-colors text-sm mb-5">
-          ← Back
+        <button
+          onClick={goBack}
+          aria-label="Back"
+          className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-zinc-700 text-zinc-300 hover:text-white hover:border-zinc-500 transition-colors mb-5"
+        >
+          ←
         </button>
         <div className="flex items-center justify-between">
           <div>
