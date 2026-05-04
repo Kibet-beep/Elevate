@@ -14,7 +14,7 @@
       "showSpinner": true,
       "splashFullScreen": true,
       "splashImmersive": true,
-      "launchAutoHide": true,
+      "launchAutoHide": false,
       "launchFadeOutDuration": 300
     },
     "WebView": {

@@ -19,18 +19,6 @@ export function useInstantNavigation() {
     try {
       let component
       switch (route) {
-        case '/dashboard':
-          component = await import('../pages/dashboard/Dashboard')
-          break
-        case '/transactions':
-          component = await import('../pages/transactions/Transactions')
-          break
-        case '/inventory':
-          component = await import('../pages/inventory/Inventory')
-          break
-        case '/settings':
-          component = await import('../pages/settings/Settings')
-          break
         case '/inventory/new-stock':
           component = await import('../pages/inventory/NewStock')
           break
@@ -73,10 +61,10 @@ export function useInstantNavigation() {
   // Pre-load likely next pages
   const preloadLikelyPages = useCallback((currentRoute) => {
     const likelyRoutes = {
-      '/dashboard': ['/transactions', '/inventory'],
-      '/transactions': ['/dashboard', '/inventory'],
-      '/inventory': ['/transactions', '/inventory/new-stock'],
-      '/settings': ['/dashboard'],
+      '/dashboard': ['/transactions/add-sale', '/transactions/add-expense', '/inventory/new-stock'],
+      '/transactions': ['/transactions/add-sale', '/transactions/add-expense'],
+      '/inventory': ['/inventory/new-stock'],
+      '/settings': ['/transactions/add-expense'],
       '/inventory/new-stock': ['/inventory'],
       '/transactions/add-sale': ['/transactions'],
       '/transactions/add-expense': ['/transactions']

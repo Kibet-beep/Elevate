@@ -375,7 +375,7 @@ export default function Dashboard() {
 
   const QuickActions = () => (
     <div className="flex flex-wrap gap-2">
-      <UiButton variant="primary" size="sm" onClick={() => navigateInstant("/transactions/sale")}>
+      <UiButton variant="primary" size="sm" onClick={() => navigateInstant("/transactions/add-sale")}>
         + Sale
       </UiButton>
       {isOwnerOrManager && (

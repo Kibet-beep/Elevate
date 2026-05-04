@@ -7,6 +7,10 @@ import AuthGuard from "./AuthGuard"
 import RoleGuard from "./RoleGuard"
 import OnboardingGuard from "../components/OnboardingGuard"
 import { ROLES } from "../lib/roles"
+import Dashboard from "../pages/dashboard/Dashboard"
+import Inventory from "../pages/inventory/Inventory"
+import Transactions from "../pages/transactions/Transactions"
+import Settings from "../pages/settings/Settings"
 
 const SignIn = lazy(() => import("../pages/auth/SignIn"))
 const SignUp = lazy(() => import("../pages/auth/SignUp"))
@@ -15,16 +19,12 @@ const ResetPassword = lazy(() => import("../pages/auth/ResetPassword"))
 const AuthCallback = lazy(() => import("../pages/auth/AuthCallback"))
 const AddEmployees = lazy(() => import("../pages/onboarding/AddEmployees"))
 const Done = lazy(() => import("../pages/onboarding/Done"))
-const Dashboard = lazy(() => import("../pages/dashboard/Dashboard"))
-const Inventory = lazy(() => import("../pages/inventory/Inventory"))
 const NewStock = lazy(() => import("../pages/inventory/NewStock"))
 const ProductDetail = lazy(() => import("../pages/inventory/ProductDetail"))
 const StockTake = lazy(() => import("../pages/inventory/StockTake"))
-const Transactions = lazy(() => import("../pages/transactions/Transactions"))
 const AddSale = lazy(() => import("../pages/transactions/AddSale"))
 const AddExpense = lazy(() => import("../pages/transactions/AddExpense"))
 const AddTransfer = lazy(() => import("../pages/transactions/AddTransfer"))
-const Settings = lazy(() => import("../pages/settings/Settings"))
 const Business = lazy(() => import("../pages/settings/Business"))
 const General = lazy(() => import("../pages/settings/General"))
 const Employees = lazy(() => import("../pages/settings/Employees"))
