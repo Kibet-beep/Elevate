@@ -29,7 +29,8 @@ const AddExpense = lazy(() => import("../pages/transactions/AddExpense"))
 const AddTransfer = lazy(() => import("../pages/transactions/AddTransfer"))
 const Business = lazy(() => import("../pages/settings/Business"))
 const General = lazy(() => import("../pages/settings/General"))
-const Employees = lazy(() => import("../pages/settings/Employees"))
+const OpeningStock = lazy(() => import("../pages/settings/OpeningStock"))
+const HistoricalSales = lazy(() => import("../pages/settings/HistoricalSales"))
 const Branches = lazy(() => import("../pages/settings/Branches"))
 const BranchDetail = lazy(() => import("../pages/settings/BranchDetail"))
 const BranchEmployees = lazy(() => import("../pages/settings/BranchEmployees"))
@@ -324,17 +325,30 @@ function AppRouterContent() {
         }
       />
       <Route
-        path="/settings/employees"
+        path="/settings/opening-stock"
         element={
           <AuthGuard>
             <RoleGuard roles={[ROLES.OWNER, ROLES.MANAGER]}>
               <Suspense fallback={<InstantLoadingFallback />}>
-                <Employees />
+                <OpeningStock />
               </Suspense>
             </RoleGuard>
           </AuthGuard>
         }
       />
+      <Route
+        path="/settings/historical-sales"
+        element={
+          <AuthGuard>
+            <RoleGuard roles={[ROLES.OWNER, ROLES.MANAGER]}>
+              <Suspense fallback={<InstantLoadingFallback />}>
+                <HistoricalSales />
+              </Suspense>
+            </RoleGuard>
+          </AuthGuard>
+        }
+      />
+      <Route path="/settings/employees" element={<Navigate to="/settings/branches" replace />} />
       <Route
         path="/settings/suppliers"
         element={

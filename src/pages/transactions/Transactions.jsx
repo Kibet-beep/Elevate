@@ -160,7 +160,7 @@ export default function Transactions() {
     <AppShell
       title="Transactions"
       subtitle={`${viewMode === 'branch' && activeBranch ? `${activeBranch.name} · ` : ''}${filtered.length} transactions · ${periodLabel()}`}
-      showHeader={false}
+      showHeader={true}
       right={canViewAll ? <BranchSelector /> : null}
     >
       <div className="space-y-4">

@@ -74,8 +74,9 @@ export default function Dashboard() {
     }
   }, [instantUser, instantBusiness, authUser])
 
-  useEffect(() => { if (business) fetchPeriodData() }, [period, selectedDay, business])
-  useEffect(() => { if (business) fetchTodayData() }, [business])
+  useEffect(() => { if (business) fetchPeriodData() }, [period, selectedDay, business, currentBranchId, viewMode])
+  useEffect(() => { if (business) fetchTodayData() }, [business, currentBranchId, viewMode])
+  useEffect(() => { if (business) fetchDashboardData() }, [business?.id, currentBranchId, viewMode])
 
   const getEATNow = () => new Date(Date.now() + EAT_OFFSET_MS)
 
@@ -158,25 +159,38 @@ export default function Dashboard() {
 
     const todayStart = getTodayStartUtcIsoEAT()
     const businessId = userData.business_id
+    const branchFilter = viewMode === 'branch' && currentBranchId ? currentBranchId : null
 
-    const [todayTxnsResult, allTxnsResult, lowStockResult] = await Promise.all([
-      supabase
+    const todayTxnsQuery = supabase
       .from("transactions")
-      .select("id, date, sale_items(total_amount)")
+      .select("id, branch_id, date, sale_items(total_amount)")
       .eq("business_id", businessId)
       .eq("type", "sale")
-      .gte("date", todayStart),
-      supabase
+      .gte("date", todayStart)
+
+    const allTxnsQuery = supabase
       .from("transactions")
-      .select("id, sale_items(total_amount)")
+      .select("id, branch_id, sale_items(total_amount)")
       .eq("business_id", businessId)
-      .eq("type", "sale"),
-      supabase
+      .eq("type", "sale")
+
+    const lowStockQuery = supabase
       .from("products")
-      .select("id, name, current_quantity, reorder_point")
+      .select("id, branch_id, name, current_quantity, reorder_point")
       .eq("business_id", businessId)
       .eq("is_active", true)
       .limit(100)
+
+    if (branchFilter) {
+      todayTxnsQuery.eq("branch_id", branchFilter)
+      allTxnsQuery.eq("branch_id", branchFilter)
+      lowStockQuery.eq("branch_id", branchFilter)
+    }
+
+    const [todayTxnsResult, allTxnsResult, lowStockResult] = await Promise.all([
+      todayTxnsQuery,
+      allTxnsQuery,
+      lowStockQuery,
     ])
 
     const todayTxns = todayTxnsResult?.data || []
@@ -538,7 +552,7 @@ export default function Dashboard() {
       title="Elevate"
       subtitle={`${business?.name}${viewMode === 'branch' && activeBranch ? ` • ${activeBranch.name}` : ''}`}
       className="pb-28"
-      showHeader={false}
+      showHeader={true}
       contentClassName="max-w-5xl space-y-6"
       right={(
         <div className="flex items-center gap-3">

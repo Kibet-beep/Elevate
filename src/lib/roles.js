@@ -31,6 +31,8 @@ export const PAGE_PERMISSIONS = {
   "/settings/general": [ROLES.OWNER],
   "/settings/employees": [ROLES.OWNER, ROLES.MANAGER],
   "/settings/suppliers": [ROLES.OWNER, ROLES.MANAGER],
+  "/settings/opening-stock": [ROLES.OWNER, ROLES.MANAGER],
+  "/settings/historical-sales": [ROLES.OWNER, ROLES.MANAGER],
   "/settings/change-password": [ROLES.OWNER, ROLES.MANAGER, ROLES.CASHIER],
   "/settings/password": [ROLES.OWNER, ROLES.MANAGER, ROLES.CASHIER],
   "/settings/support": [ROLES.OWNER],

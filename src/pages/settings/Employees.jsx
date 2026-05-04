@@ -9,6 +9,7 @@ export default function Employees() {
   const navigate = useNavigate()
   const { businessId } = useCurrentBusiness()
   const { availableBranches, canViewAll } = useBranchContext()
+  const [error] = useState("")
 
   const goBack = () => {
     if (window.history.length > 1) {
@@ -43,7 +44,11 @@ export default function Employees() {
       <div className="space-y-4">
         {error && <p className="text-red-400 text-sm bg-red-400/10 px-3 py-2 rounded-lg">{error}</p>}
 
-        {availableBranches.length === 0 ? (
+        {!businessId ? (
+          <UiCard className="p-6 text-center">
+            <p className="text-zinc-400 text-sm">Loading business context...</p>
+          </UiCard>
+        ) : availableBranches.length === 0 ? (
           <UiCard className="p-6 text-center">
             <div className="w-12 h-12 bg-zinc-800 rounded-full flex items-center justify-center mx-auto mb-4">
               <span className="text-zinc-400 text-lg">📍</span>

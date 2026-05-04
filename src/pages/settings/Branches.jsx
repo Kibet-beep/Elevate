@@ -254,22 +254,22 @@ export default function Branches() {
                   viewBranchDetails(branch)
                 }
               }}
-              className="bg-zinc-900 border border-zinc-800 rounded-2xl px-4 py-4 flex items-center justify-between hover:border-emerald-500/30 transition-colors cursor-pointer"
+              className="bg-zinc-900 border border-zinc-800 rounded-2xl px-4 py-4 flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between hover:border-emerald-500/30 transition-colors cursor-pointer"
             >
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-3 min-w-0">
                 <div className="w-9 h-9 bg-zinc-800 rounded-full flex items-center justify-center">
                   <span className="text-white text-sm font-bold">{branch.name?.charAt(0)}</span>
                 </div>
-                <div>
+                <div className="min-w-0">
                   <p className="text-white text-sm font-medium">{branch.name}</p>
-                  <p className="text-zinc-500 text-xs">
+                  <p className="text-zinc-500 text-xs break-words">
                     {branch.code && `${branch.code} · `}
                     {branch.address || "No address"}
                   </p>
                 </div>
               </div>
               
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2 lg:justify-end">
                 <span className={`text-xs px-2.5 py-1 rounded-full font-medium flex-shrink-0 ${
                   branch.is_active ? "bg-emerald-500/10 text-emerald-400" : "bg-red-500/10 text-red-400"
                 }`}>

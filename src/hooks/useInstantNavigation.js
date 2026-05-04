@@ -28,6 +28,23 @@ export function useInstantNavigation() {
         case '/transactions/add-expense':
           component = await import('../pages/transactions/AddExpense')
           break
+        case '/settings/branches':
+          component = await import('../pages/settings/Branches')
+          break
+        case '/settings/branch-employees':
+          component = await import('../pages/settings/BranchEmployees')
+          break
+        case '/settings/opening-stock':
+          component = await import('../pages/settings/OpeningStock')
+          break
+        case '/settings/branch-detail':
+        case '/settings/branches/:id':
+          component = await import('../pages/settings/BranchDetail')
+          break
+        case '/settings/employee-detail':
+        case '/settings/employees/:id':
+          component = await import('../pages/settings/EmployeeDetail')
+          break
         default:
           return null
       }
@@ -67,7 +84,11 @@ export function useInstantNavigation() {
       '/settings': ['/transactions/add-expense'],
       '/inventory/new-stock': ['/inventory'],
       '/transactions/add-sale': ['/transactions'],
-      '/transactions/add-expense': ['/transactions']
+      '/transactions/add-expense': ['/transactions'],
+      '/settings/branches': ['/settings/branch-employees'],
+      '/settings/opening-stock': ['/transactions/add-sale'],
+      '/settings/branch-employees': ['/settings/branches'],
+      '/settings/branches/': ['/settings/branch-employees']
     }
     
     const routes = likelyRoutes[currentRoute] || []

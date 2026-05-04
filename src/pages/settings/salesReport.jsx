@@ -2,12 +2,15 @@
 import { useState, useEffect, useMemo } from "react"
 import { supabase } from "../../lib/supabase"
 import { useNavigate, useSearchParams } from "react-router-dom"
+import { useBranchContext } from "../../hooks/useBranchContext"
+import { BranchSelector } from "../../components/BranchSelector"
 
 const PERIODS = ["Day", "Week", "Month", "Quarter"]
 const EAT_OFFSET_MS = 3 * 60 * 60 * 1000
 
 export default function SalesReport() {
   const navigate = useNavigate()
+  const { currentBranchId, viewMode, canViewAll, activeBranch } = useBranchContext()
   const goBack = () => {
     if (window.history.length > 1) {
       navigate(-1)
@@ -43,7 +46,7 @@ export default function SalesReport() {
 
   useEffect(() => {
     if (businessId) fetchData()
-  }, [period, businessId, anchorDate, compareMode, compareType, compareDateA, compareDateB])
+  }, [period, businessId, anchorDate, compareMode, compareType, compareDateA, compareDateB, currentBranchId, viewMode])
 
   const fetchUser = async () => {
     const { data: { user } } = await supabase.auth.getUser()
@@ -95,14 +98,20 @@ export default function SalesReport() {
   }
 
   const fetchTxnsByRange = async (start, end) => {
-    const { data } = await supabase
+    let query = supabase
       .from("transactions")
-      .select(`id, date, payment_account, sale_items(quantity, unit_price, total_amount, products(name, sku_id, category))`)
+      .select(`id, branch_id, date, payment_account, sale_items(quantity, unit_price, total_amount, products(name, sku_id, category))`)
       .eq("business_id", businessId)
       .eq("type", "sale")
       .gte("date", start)
       .lte("date", end)
       .order("date", { ascending: true })
+
+    if (viewMode === 'branch' && currentBranchId) {
+      query = query.eq("branch_id", currentBranchId)
+    }
+
+    const { data } = await query
 
     return data || []
   }
@@ -308,24 +317,31 @@ export default function SalesReport() {
 
       {/* Header */}
       <div className="px-4 pt-6 pb-4 w-full max-w-screen-2xl mx-auto">
-        <button
-          onClick={goBack}
-          aria-label="Back"
-          className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-zinc-700 text-zinc-300 hover:text-white hover:border-zinc-500 transition-colors mb-5"
-        >
-          ←
-        </button>
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div>
-            <h1 className="text-white font-bold text-xl tracking-tight">Sales Records</h1>
-            <p className="text-zinc-500 text-xs mt-0.5">{periodLabel(anchorDate)}</p>
+            <button
+              onClick={goBack}
+              aria-label="Back"
+              className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-zinc-700 text-zinc-300 hover:text-white hover:border-zinc-500 transition-colors mb-5"
+            >
+              ←
+            </button>
+            <div>
+              <h1 className="text-white font-bold text-xl tracking-tight">Sales Records</h1>
+              <p className="text-zinc-500 text-xs mt-0.5">
+                {viewMode === 'branch' && activeBranch ? `${activeBranch.name} • ` : ''}{periodLabel(anchorDate)}
+              </p>
+            </div>
           </div>
-          <button
-            onClick={() => setCompareMode(v => !v)}
-            className={`text-xs font-medium px-3 py-2 rounded-xl transition-colors ${compareMode ? "bg-emerald-500 text-black" : "bg-zinc-800 text-zinc-400"}`}
-          >
-            Compare
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            {canViewAll && <BranchSelector />}
+            <button
+              onClick={() => setCompareMode(v => !v)}
+              className={`text-xs font-medium px-3 py-2 rounded-xl transition-colors ${compareMode ? "bg-emerald-500 text-black" : "bg-zinc-800 text-zinc-400"}`}
+            >
+              Compare
+            </button>
+          </div>
         </div>
       </div>
 

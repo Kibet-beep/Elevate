@@ -97,12 +97,13 @@ export default function Inventory() {
       let query = supabase
         .from("products")
         .select("id, name, sku_id, category, current_quantity, reorder_point, buying_price, selling_price, unit_of_measure, branch_id")
+        .not("is_active", "eq", false)
         .eq("business_id", businessId)
         .order("name")
 
       // Apply branch filtering if in branch mode
       if (viewMode === 'branch' && currentBranchId) {
-        query = query.eq("branch_id", currentBranchId)
+        query = query.or(`branch_id.eq.${currentBranchId},branch_id.is.null`)
       }
 
       const { data } = await query

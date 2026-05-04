@@ -204,9 +204,9 @@ export default function BranchEmployees() {
       subtitle={`Manage your team and access roles${getBranchContext()}`}
       showHeader={true}
       right={(
-        <div className="flex items-center gap-1.5 sm:gap-3 max-w-[calc(100vw-2rem)] sm:max-w-none">
-          <UiButton variant="secondary" size="sm" onClick={goBack} className="flex-shrink-0 text-xs px-2 sm:px-3" aria-label="Back">←</UiButton>
-          <UiButton variant="primary" size="sm" onClick={() => setAdding(!adding)} className="flex-shrink-0 text-xs px-2 sm:px-3">{adding ? "Cancel" : "+ Add"}</UiButton>
+        <div className="flex w-full flex-wrap items-stretch gap-1.5 sm:w-auto sm:items-center sm:gap-3 max-w-[calc(100vw-2rem)] sm:max-w-none">
+          <UiButton variant="secondary" size="sm" onClick={goBack} className="flex-1 text-xs px-2 sm:flex-none sm:px-3" aria-label="Back">←</UiButton>
+          <UiButton variant="primary" size="sm" onClick={() => setAdding(!adding)} className="flex-1 text-xs px-2 sm:flex-none sm:px-3">{adding ? "Cancel" : "+ Add"}</UiButton>
         </div>
       )}
     >
@@ -276,23 +276,23 @@ export default function BranchEmployees() {
 
         <div className="space-y-2">
           {employees.map((emp, i) => (
-            <div 
+            <div
               key={i} 
-              className="bg-zinc-900 border border-zinc-800 rounded-2xl px-4 py-4 flex items-center justify-between hover:border-emerald-500/30 transition-colors cursor-pointer"
+              className="bg-zinc-900 border border-zinc-800 rounded-2xl px-4 py-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between hover:border-emerald-500/30 transition-colors cursor-pointer"
               onClick={() => navigate(`/settings/employees/${emp.id}`)}
             >
-              <div className="flex items-center gap-3">
+              <div className="flex items-center gap-3 min-w-0">
                 <div className="w-9 h-9 bg-zinc-800 rounded-full flex items-center justify-center">
                   <span className="text-white text-sm font-bold">{emp.full_name?.charAt(0)}</span>
                 </div>
-                <div>
+                <div className="min-w-0">
                   <p className="text-white text-sm font-medium">{emp.full_name}
                     {emp.id === authUser.id && <span className="text-zinc-500 text-xs ml-1">(you)</span>}
                   </p>
-                  <p className="text-zinc-500 text-xs capitalize">{emp.role} · {emp.email}</p>
+                  <p className="text-zinc-500 text-xs capitalize break-words">{emp.role} · {emp.email}</p>
                 </div>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2 sm:justify-end">
                 <span className={`text-xs px-2.5 py-1 rounded-full font-medium flex-shrink-0 ${
                   emp.is_active ? "bg-emerald-500/10 text-emerald-400" : "bg-red-500/10 text-red-400"
                 }`}>

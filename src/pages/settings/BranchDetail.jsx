@@ -185,10 +185,10 @@ export default function BranchDetail() {
       subtitle={branch.name}
       showHeader={true}
       right={(
-        <div className="flex items-center gap-1.5 sm:gap-3">
-          <UiButton variant="secondary" size="sm" onClick={goBack} className="text-xs px-2 sm:px-3">←</UiButton>
-          <UiButton variant="secondary" size="sm" onClick={addEmployees} className="text-xs px-2 sm:px-3">Employees</UiButton>
-          <UiButton variant="primary" size="sm" onClick={() => setEditing((current) => !current)} className="text-xs px-2 sm:px-3">
+        <div className="flex w-full flex-wrap items-stretch gap-1.5 sm:w-auto sm:items-center sm:gap-3">
+          <UiButton variant="secondary" size="sm" onClick={goBack} className="flex-1 text-xs px-2 sm:flex-none sm:px-3">←</UiButton>
+          <UiButton variant="secondary" size="sm" onClick={addEmployees} className="flex-1 text-xs px-2 sm:flex-none sm:px-3">Employees</UiButton>
+          <UiButton variant="primary" size="sm" onClick={() => setEditing((current) => !current)} className="flex-1 text-xs px-2 sm:flex-none sm:px-3">
             {editing ? "Cancel" : "Edit"}
           </UiButton>
         </div>
@@ -258,7 +258,7 @@ export default function BranchDetail() {
         </div>
 
         <UiCard className="p-4 space-y-3">
-          <div className="flex items-center justify-between gap-3">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <h3 className="text-white font-medium text-sm">Assigned Employees</h3>
             <UiButton variant="secondary" size="sm" onClick={addEmployees}>Add employees</UiButton>
           </div>
@@ -270,11 +270,11 @@ export default function BranchDetail() {
                 <button
                   key={employee.id}
                   onClick={() => navigate(`/settings/employees/${employee.id}`)}
-                  className="w-full text-left bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 flex items-center justify-between hover:border-emerald-500/30 transition-colors"
+                  className="w-full text-left bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between hover:border-emerald-500/30 transition-colors"
                 >
-                  <div>
+                  <div className="min-w-0">
                     <p className="text-white text-sm font-medium">{employee.full_name}</p>
-                    <p className="text-zinc-500 text-xs">{employee.email} • {employee.role}</p>
+                    <p className="text-zinc-500 text-xs break-words">{employee.email} • {employee.role}</p>
                   </div>
                   <span className={`text-xs px-2.5 py-1 rounded-full font-medium ${employee.is_active ? "bg-emerald-500/10 text-emerald-400" : "bg-red-500/10 text-red-400"}`}>
                     {employee.is_active ? "Active" : "Inactive"}

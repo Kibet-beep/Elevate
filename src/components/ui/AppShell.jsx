@@ -23,7 +23,7 @@ export default function AppShell({
                 {subtitle && <p className="max-w-2xl text-zinc-400 text-xs sm:text-sm leading-5">{subtitle}</p>}
               </div>
               {right ? (
-                <div className="flex items-center gap-2 rounded-2xl border border-white/6 bg-white/[0.03] p-1 shadow-lg shadow-black/10">
+                <div className="flex w-full flex-wrap items-stretch gap-2 rounded-2xl border border-white/6 bg-white/[0.03] p-1 shadow-lg shadow-black/10 sm:w-auto sm:items-center sm:justify-end">
                   {right}
                 </div>
               ) : null}

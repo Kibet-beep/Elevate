@@ -2,12 +2,15 @@
 import { useState, useEffect } from "react"
 import { supabase } from "../../lib/supabase"
 import { useNavigate } from "react-router-dom"
+import { useBranchContext } from "../../hooks/useBranchContext"
+import { BranchSelector } from "../../components/BranchSelector"
 
 const PERIODS = ["Day", "Week", "Month", "Quarter", "Year"]
 const EAT_OFFSET_MS = 3 * 60 * 60 * 1000
 
 export default function ProfitLossReport() {
   const navigate = useNavigate()
+  const { currentBranchId, viewMode, canViewAll, activeBranch } = useBranchContext()
   const goBack = () => {
     if (window.history.length > 1) {
       navigate(-1)
@@ -26,7 +29,7 @@ export default function ProfitLossReport() {
 
   useEffect(() => {
     if (businessId) fetchData()
-  }, [period, businessId])
+  }, [period, businessId, currentBranchId, viewMode])
 
   const fetchUser = async () => {
     const { data: { user } } = await supabase.auth.getUser()
@@ -72,23 +75,32 @@ export default function ProfitLossReport() {
     setLoading(true)
     const { start, end } = getRange()
 
-    // Sales
-    const { data: saleTxns } = await supabase
+    let salesQuery = supabase
       .from("transactions")
-      .select("sale_items(quantity, total_amount, products(buying_price))")
+      .select("branch_id, sale_items(quantity, total_amount, products(buying_price))")
       .eq("business_id", businessId)
       .eq("type", "sale")
       .gte("date", start)
       .lte("date", end)
 
-    // Expenses
-    const { data: expTxns } = await supabase
+    let expenseQuery = supabase
       .from("transactions")
-      .select("expenses(amount, category)")
+      .select("branch_id, expenses(amount, category)")
       .eq("business_id", businessId)
       .eq("type", "expense")
       .gte("date", start)
       .lte("date", end)
+
+    if (viewMode === 'branch' && currentBranchId) {
+      salesQuery = salesQuery.eq("branch_id", currentBranchId)
+      expenseQuery = expenseQuery.eq("branch_id", currentBranchId)
+    }
+
+    // Sales
+    const { data: saleTxns } = await salesQuery
+
+    // Expenses
+    const { data: expTxns } = await expenseQuery
 
     // Revenue
     const revenue = (saleTxns || []).reduce((s, txn) =>
@@ -151,16 +163,23 @@ export default function ProfitLossReport() {
 
   return (
     <div className="min-h-screen bg-zinc-950 pb-16">
-      <div className="px-6 pt-8 pb-6 max-w-3xl mx-auto">
-        <button
-          onClick={goBack}
-          aria-label="Back"
-          className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-zinc-700 text-zinc-300 hover:text-white hover:border-zinc-500 transition-colors mb-6"
-        >
-          ←
-        </button>
-        <h1 className="text-white font-bold text-2xl tracking-tight">Profit & Loss</h1>
-        <p className="text-zinc-500 text-sm mt-1">{periodLabel()}</p>
+      <div className="px-4 sm:px-6 pt-8 pb-6 max-w-3xl mx-auto">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <button
+              onClick={goBack}
+              aria-label="Back"
+              className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-zinc-700 text-zinc-300 hover:text-white hover:border-zinc-500 transition-colors mb-6"
+            >
+              ←
+            </button>
+            <h1 className="text-white font-bold text-2xl tracking-tight">Profit & Loss</h1>
+            <p className="text-zinc-500 text-sm mt-1">
+              {viewMode === 'branch' && activeBranch ? `${activeBranch.name} • ` : ''}{periodLabel()}
+            </p>
+          </div>
+          {canViewAll ? <BranchSelector /> : null}
+        </div>
       </div>
 
       <div className="px-4 sm:px-6 space-y-4">

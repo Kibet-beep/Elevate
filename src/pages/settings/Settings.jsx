@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom"
 import { MapPin } from "lucide-react"
 import FloatingBottomNav from "../../components/layout/FloatingBottomNav"
 import { AppShell, UiButton, UiCard } from "../../components/ui"
-import { BarChart2, Building2, ChevronRight, LifeBuoy, LockKeyhole, Package, Settings2, Shield, TrendingUp, Users, Wallet } from "../../lib/icons"
+import { BarChart2, Building2, ChevronRight, LifeBuoy, LockKeyhole, Package, Settings2, Shield, TrendingUp, Wallet } from "../../lib/icons"
 import { useUser, useIsOwner, useIsOwnerOrManager } from "../../hooks/useRole"
 import { useInstantAuth } from "../../hooks/useInstantAuth"
 import { getRoleDisplayName } from "../../lib/roles"
@@ -29,7 +29,7 @@ export function Settings() {
       sections.push({
         title: "Admin",
         items: [
-          { label: "Employees", desc: "Manage your team", path: "/settings/employees", icon: Users },
+          { label: "Opening stock", desc: "Set starting quantities and stock take date", path: "/settings/opening-stock", icon: Package },
           { label: "Suppliers", desc: "Manage suppliers", path: "/settings/suppliers", icon: Package },
         ]
       })
