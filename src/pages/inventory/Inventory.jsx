@@ -21,29 +21,37 @@ export default function Inventory() {
   const [mobileFilterOpen, setMobileFilterOpen] = useState(false)
   const [selectedProduct, setSelectedProduct] = useState(null)
   const [categories, setCategories] = useState([])
-  const [loading, setLoading] = useState(true)
 
   useEffect(() => {
+    let active = true
+
+    const hydrate = async () => {
     if (instantBusiness?.id) {
       const cacheKey = `products_${instantBusiness.id}`
       const cachedProducts = get(cacheKey)
 
-      if (cachedProducts) {
+      if (active && cachedProducts) {
         setProducts(cachedProducts)
         setFiltered(cachedProducts)
         setCategories([...new Set(cachedProducts.map((p) => p.category).filter(Boolean))])
-        setLoading(false)
       }
 
-      fetchProducts(instantBusiness.id)
+      await fetchProducts(instantBusiness.id, active)
       return
     }
 
-    if (initialized) {
+    if (initialized && active) {
       setProducts([])
       setFiltered([])
       setCategories([])
-      setLoading(false)
+    }
+
+    }
+
+    hydrate()
+
+    return () => {
+      active = false
     }
   }, [instantBusiness?.id, initialized])
 
@@ -74,29 +82,33 @@ export default function Inventory() {
     setFiltered(result)
   }, [search, categoryFilter, riskFilter, products])
 
-  const fetchProducts = async (businessId) => {
+  const fetchProducts = async (businessId, active = true) => {
     if (!businessId) {
       setProducts([])
       setFiltered([])
       setCategories([])
-      setLoading(false)
       return
     }
 
-    const { data } = await supabase
-      .from("products")
-      .select("id, name, sku_id, category, current_quantity, reorder_point, buying_price, selling_price, unit_of_measure")
-      .eq("business_id", businessId)
-      .order("name")
+    try {
+      const { data } = await supabase
+        .from("products")
+        .select("id, name, sku_id, category, current_quantity, reorder_point, buying_price, selling_price, unit_of_measure")
+        .eq("business_id", businessId)
+        .order("name")
 
-    const nextProducts = data || []
-    set(cacheKeyForProducts(businessId), nextProducts)
-    setProducts(nextProducts)
-    setFiltered(nextProducts)
+      if (!active) return
 
-    const cats = [...new Set(nextProducts.map((p) => p.category).filter(Boolean))]
-    setCategories(cats)
-    setLoading(false)
+      const nextProducts = data || []
+      set(cacheKeyForProducts(businessId), nextProducts)
+      setProducts(nextProducts)
+      setFiltered(nextProducts)
+
+      const cats = [...new Set(nextProducts.map((p) => p.category).filter(Boolean))]
+      setCategories(cats)
+    } catch (error) {
+      console.error("Failed to load inventory products:", error)
+    }
   }
 
   const cacheKeyForProducts = (businessId) => `products_${businessId}`
@@ -112,13 +124,6 @@ export default function Inventory() {
     .filter((p) => isLowStock(p))
     .reduce((sum, p) => sum + Number(p.current_quantity || 0), 0)
   const totalValue = products.reduce((sum, p) => sum + Number(p.current_quantity || 0) * Number(p.buying_price || 0), 0)
-
-  if (loading)
-    return (
-      <div className="min-h-screen bg-zinc-950 flex items-center justify-center">
-        <p className="text-zinc-500 text-sm">Loading inventory...</p>
-      </div>
-    )
 
   return (
     <div className="min-h-screen bg-zinc-950 pb-24">

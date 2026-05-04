@@ -25,26 +25,34 @@ export default function Transactions() {
   const [paymentFilter, setPaymentFilter] = useState("all")
   const [mobileFilterOpen, setMobileFilterOpen] = useState(false)
   const [selectedTx, setSelectedTx] = useState(null)
-  const [loading, setLoading] = useState(true)
 
   useEffect(() => {
+    let active = true
+
+    const hydrate = async () => {
     if (instantBusiness?.id) {
       const cacheKey = `transactions_${instantBusiness.id}`
       const cachedTransactions = get(cacheKey)
 
-      if (cachedTransactions) {
+      if (active && cachedTransactions) {
         setTransactions(cachedTransactions)
-        setLoading(false)
       }
 
-      fetchTransactions(instantBusiness.id)
+      await fetchTransactions(instantBusiness.id, active)
       return
     }
 
-    if (initialized) {
+    if (initialized && active) {
       setTransactions([])
       setFiltered([])
-      setLoading(false)
+    }
+
+    }
+
+    hydrate()
+
+    return () => {
+      active = false
     }
   }, [instantBusiness?.id, initialized])
 
@@ -69,36 +77,41 @@ export default function Transactions() {
     setFiltered(result)
   }, [filter, search, dateFrom, dateTo, paymentFilter, transactions])
 
-  const fetchTransactions = async (businessId) => {
+  const fetchTransactions = async (businessId, active = true) => {
     if (!businessId) return
 
-    const { data } = await supabase
-      .from("transactions")
-      .select(`
-        id, type, transaction_type_tag, payment_account, date, account_code,
-        sale_items(total_amount, quantity, products(name)),
-        expenses(amount, category, description)
-      `)
-      .eq("business_id", businessId)
-      .order("date", { ascending: false })
+    try {
+      const { data } = await supabase
+        .from("transactions")
+        .select(`
+          id, type, transaction_type_tag, payment_account, date, account_code,
+          sale_items(total_amount, quantity, products(name)),
+          expenses(amount, category, description)
+        `)
+        .eq("business_id", businessId)
+        .order("date", { ascending: false })
 
-    const enriched = (data || []).map(t => {
-      if (t.type === "sale") {
-        const amount = t.sale_items?.reduce((s, i) => s + i.total_amount, 0) || 0
-        const name = t.sale_items?.length > 1
-          ? `${t.sale_items[0].products?.name} + ${t.sale_items.length - 1} more`
-          : t.sale_items?.[0]?.products?.name || "Sale"
-        return { ...t, amount, display_name: name }
-      } else {
+      if (!active) return
+
+      const enriched = (data || []).map(t => {
+        if (t.type === "sale") {
+          const amount = t.sale_items?.reduce((s, i) => s + i.total_amount, 0) || 0
+          const name = t.sale_items?.length > 1
+            ? `${t.sale_items[0].products?.name} + ${t.sale_items.length - 1} more`
+            : t.sale_items?.[0]?.products?.name || "Sale"
+          return { ...t, amount, display_name: name }
+        }
+
         const amount = t.expenses?.reduce((s, e) => s + e.amount, 0) || 0
         const name = t.expenses?.[0]?.category || "Expense"
         return { ...t, amount, display_name: name }
-      }
-    })
+      })
 
-    set(cacheKeyForTransactions(businessId), enriched)
-    setTransactions(enriched)
-    setLoading(false)
+      set(cacheKeyForTransactions(businessId), enriched)
+      setTransactions(enriched)
+    } catch (error) {
+      console.error("Failed to load transactions:", error)
+    }
   }
 
   const cacheKeyForTransactions = (businessId) => `transactions_${businessId}`
@@ -128,12 +141,6 @@ export default function Transactions() {
   }
 
   const clearDates = () => { setDateFrom(""); setDateTo("") }
-
-  if (loading) return (
-    <div className="min-h-screen bg-zinc-950 flex items-center justify-center">
-      <p className="text-zinc-500 text-sm">Loading transactions...</p>
-    </div>
-  )
 
   return (
     <AppShell

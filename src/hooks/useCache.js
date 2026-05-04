@@ -1,38 +1,114 @@
 // src/hooks/useCache.js
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useCallback, useRef } from 'react'
 
 // Global cache store that persists across component unmounts
 const globalCache = new Map()
 const cacheTimestamps = new Map()
 const CACHE_DURATION = 5 * 60 * 1000 // 5 minutes
+const CACHE_STORAGE_PREFIX = 'elevate:cache:'
+
+function getStorage() {
+  if (typeof window === 'undefined') return null
+  return window.localStorage
+}
+
+function getStorageKey(key) {
+  return `${CACHE_STORAGE_PREFIX}${key}`
+}
+
+function readPersistedEntry(key) {
+  const storage = getStorage()
+  if (!storage) return null
+
+  try {
+    const raw = storage.getItem(getStorageKey(key))
+    if (!raw) return null
+
+    const parsed = JSON.parse(raw)
+    if (!parsed?.timestamp || Date.now() - parsed.timestamp > CACHE_DURATION) {
+      storage.removeItem(getStorageKey(key))
+      return null
+    }
+
+    cacheTimestamps.set(key, parsed.timestamp)
+    return parsed.data ?? null
+  } catch (error) {
+    console.warn('Failed to read persisted cache entry:', error)
+    storage.removeItem(getStorageKey(key))
+    return null
+  }
+}
+
+function writePersistedEntry(key, data, timestamp) {
+  const storage = getStorage()
+  if (!storage) return
+
+  try {
+    storage.setItem(getStorageKey(key), JSON.stringify({ data, timestamp }))
+  } catch (error) {
+    console.warn('Failed to write persisted cache entry:', error)
+  }
+}
+
+function removePersistedEntry(key) {
+  const storage = getStorage()
+  if (!storage) return
+
+  storage.removeItem(getStorageKey(key))
+}
+
+function clearPersistedCache() {
+  const storage = getStorage()
+  if (!storage) return
+
+  for (let index = storage.length - 1; index >= 0; index -= 1) {
+    const key = storage.key(index)
+    if (key?.startsWith(CACHE_STORAGE_PREFIX)) {
+      storage.removeItem(key)
+    }
+  }
+}
 
 // Simple in-memory cache with TTL
 export function useCache() {
   const cacheRef = useRef(globalCache)
   
   const get = useCallback((key) => {
+    const cachedValue = cacheRef.current.get(key)
     const timestamp = cacheTimestamps.get(key)
-    if (!timestamp || Date.now() - timestamp > CACHE_DURATION) {
-      cacheRef.current.delete(key)
-      cacheTimestamps.delete(key)
-      return null
+    if (cachedValue && timestamp && Date.now() - timestamp <= CACHE_DURATION) {
+      return cachedValue
     }
-    return cacheRef.current.get(key)
+
+    cacheRef.current.delete(key)
+    cacheTimestamps.delete(key)
+
+    const persistedValue = readPersistedEntry(key)
+    if (persistedValue !== null) {
+      cacheRef.current.set(key, persistedValue)
+      return persistedValue
+    }
+
+    return null
   }, [])
 
   const set = useCallback((key, data) => {
+    const timestamp = Date.now()
     cacheRef.current.set(key, data)
-    cacheTimestamps.set(key, Date.now())
+    cacheTimestamps.set(key, timestamp)
+    writePersistedEntry(key, data, timestamp)
   }, [])
 
   const invalidate = useCallback((key) => {
     cacheRef.current.delete(key)
     cacheTimestamps.delete(key)
+    removePersistedEntry(key)
   }, [])
 
   const clear = useCallback(() => {
     cacheRef.current.clear()
     cacheTimestamps.clear()
+    clearPersistedCache()
   }, [])
 
   return { get, set, invalidate, clear }
