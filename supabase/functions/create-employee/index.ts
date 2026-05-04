@@ -65,7 +65,7 @@ serve(async (req: Request) => {
       })
     }
 
-    const { email, password, fullName, role, businessId } = await req.json()
+    const { email, password, fullName, role, businessId, branchId } = await req.json()
 
     console.log("=== CREATE-EMPLOYEE REQUEST DEBUG ===")
     console.log("Request body:", { email, password, fullName, role, businessId })
@@ -147,6 +147,7 @@ serve(async (req: Request) => {
       email,
       role,
       business_id: callerData.business_id,
+      default_branch_id: branchId || null,
       is_active: true,
     })
 
@@ -155,6 +156,21 @@ serve(async (req: Request) => {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       })
+    }
+
+    // Create branch assignment if branchId is provided
+    if (branchId) {
+      const { error: assignmentError } = await adminClient.from("user_branch_assignments").insert({
+        user_id: authData.user.id,
+        branch_id: branchId,
+        role: role,
+        is_active: true,
+      })
+
+      if (assignmentError) {
+        console.log("Branch assignment error:", assignmentError)
+        // Don't fail the whole operation, but log the error
+      }
     }
 
     return new Response(

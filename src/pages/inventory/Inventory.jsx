@@ -6,6 +6,8 @@ import FloatingBottomNav from "../../components/layout/FloatingBottomNav"
 import { useIsOwner, useIsOwnerOrManager } from "../../hooks/useRole"
 import { useCache } from "../../hooks/useCache"
 import { useInstantAuth } from "../../hooks/useInstantAuth"
+import { useBranchContext } from "../../hooks/useBranchContext"
+import { BranchSelector } from "../../components/BranchSelector"
 
 export default function Inventory() {
   const navigate = useNavigate()
@@ -13,6 +15,7 @@ export default function Inventory() {
   const { get, set } = useCache()
   const isOwner = useIsOwner()
   const isOwnerOrManager = useIsOwnerOrManager()
+  const { currentBranchId, viewMode, canViewAll, activeBranch } = useBranchContext()
   const [products, setProducts] = useState([])
   const [filtered, setFiltered] = useState([])
   const [search, setSearch] = useState("")
@@ -27,7 +30,7 @@ export default function Inventory() {
 
     const hydrate = async () => {
     if (instantBusiness?.id) {
-      const cacheKey = `products_${instantBusiness.id}`
+      const cacheKey = cacheKeyForProducts(instantBusiness.id, currentBranchId)
       const cachedProducts = get(cacheKey)
 
       if (active && cachedProducts) {
@@ -53,7 +56,7 @@ export default function Inventory() {
     return () => {
       active = false
     }
-  }, [instantBusiness?.id, initialized])
+  }, [instantBusiness?.id, initialized, currentBranchId, viewMode])
 
   useEffect(() => {
     let result = products
@@ -91,16 +94,25 @@ export default function Inventory() {
     }
 
     try {
-      const { data } = await supabase
+      let query = supabase
         .from("products")
-        .select("id, name, sku_id, category, current_quantity, reorder_point, buying_price, selling_price, unit_of_measure")
+        .select("id, name, sku_id, category, current_quantity, reorder_point, buying_price, selling_price, unit_of_measure, branch_id")
         .eq("business_id", businessId)
         .order("name")
+
+      // Apply branch filtering if in branch mode
+      if (viewMode === 'branch' && currentBranchId) {
+        query = query.eq("branch_id", currentBranchId)
+      }
+
+      const { data } = await query
 
       if (!active) return
 
       const nextProducts = data || []
-      set(cacheKeyForProducts(businessId), nextProducts)
+      // Use branch-aware cache key
+      const cacheKey = cacheKeyForProducts(businessId, currentBranchId)
+      set(cacheKey, nextProducts)
       setProducts(nextProducts)
       setFiltered(nextProducts)
 
@@ -111,7 +123,12 @@ export default function Inventory() {
     }
   }
 
-  const cacheKeyForProducts = (businessId) => `products_${businessId}`
+  const cacheKeyForProducts = (businessId, branchId = null) => {
+  if (branchId) {
+    return `products_${businessId}_${branchId}`
+  }
+  return `products_${businessId}_all`
+}
 
   const isLowStock = (p) => Number(p.current_quantity || 0) <= Number(p.reorder_point || 0)
 
@@ -131,26 +148,11 @@ export default function Inventory() {
       <div className="border-b border-zinc-800 px-6 py-5 flex items-center justify-between">
         <div>
           <h1 className="text-white font-bold text-xl">Stock Register</h1>
-          <p className="text-zinc-500 text-xs">Live inventory balances</p>
+          <p className="text-zinc-500 text-xs">
+            {viewMode === 'branch' && activeBranch ? `${activeBranch.name} • ` : ''}Live inventory balances
+          </p>
         </div>
-        <div className="flex items-center gap-2">
-          {isOwnerOrManager && (
-            <>
-              <button
-                onClick={() => navigate("/inventory/stock-take")}
-                className="bg-zinc-800 hover:bg-zinc-700 text-white text-xs font-medium px-3 py-2 rounded-xl transition-colors"
-              >
-                Stock take
-              </button>
-              <button
-                onClick={() => navigate("/inventory/new-stock")}
-                className="bg-emerald-500 hover:bg-emerald-400 text-black text-xs font-semibold px-3 py-2 rounded-xl transition-colors"
-              >
-                + New stock
-              </button>
-            </>
-          )}
-        </div>
+        {canViewAll && <BranchSelector />}
       </div>
 
       <div className="px-6 py-4 space-y-4">

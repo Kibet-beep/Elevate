@@ -8,6 +8,8 @@ import PaymentIcon from "../../components/ui/PaymentIcon"
 import { useIsOwnerOrManager } from "../../hooks/useRole"
 import { useCache } from "../../hooks/useCache"
 import { useInstantAuth } from "../../hooks/useInstantAuth"
+import { useBranchContext } from "../../hooks/useBranchContext"
+import { BranchSelector } from "../../components/BranchSelector"
 
 const today = () => new Date().toISOString().split("T")[0]
 
@@ -16,6 +18,7 @@ export default function Transactions() {
   const { business: instantBusiness, initialized } = useInstantAuth()
   const { get, set } = useCache()
   const isOwnerOrManager = useIsOwnerOrManager()
+  const { currentBranchId, viewMode, canViewAll, activeBranch } = useBranchContext()
   const [transactions, setTransactions] = useState([])
   const [filtered, setFiltered] = useState([])
   const [filter, setFilter] = useState("all")
@@ -31,7 +34,7 @@ export default function Transactions() {
 
     const hydrate = async () => {
     if (instantBusiness?.id) {
-      const cacheKey = `transactions_${instantBusiness.id}`
+      const cacheKey = cacheKeyForTransactions(instantBusiness.id, currentBranchId)
       const cachedTransactions = get(cacheKey)
 
       if (active && cachedTransactions) {
@@ -54,7 +57,7 @@ export default function Transactions() {
     return () => {
       active = false
     }
-  }, [instantBusiness?.id, initialized])
+  }, [instantBusiness?.id, initialized, currentBranchId, viewMode])
 
   useEffect(() => {
     let result = transactions
@@ -81,7 +84,7 @@ export default function Transactions() {
     if (!businessId) return
 
     try {
-      const { data } = await supabase
+      let query = supabase
         .from("transactions")
         .select(`
           id, type, transaction_type_tag, payment_account, date, account_code,
@@ -90,6 +93,11 @@ export default function Transactions() {
         `)
         .eq("business_id", businessId)
         .order("date", { ascending: false })
+
+      // Apply branch filtering if in branch mode
+      if (viewMode === 'branch' && currentBranchId) {
+        query = query.eq("branch_id", currentBranchId)
+      }
 
       if (!active) return
 
@@ -107,14 +115,19 @@ export default function Transactions() {
         return { ...t, amount, display_name: name }
       })
 
-      set(cacheKeyForTransactions(businessId), enriched)
+      set(cacheKeyForTransactions(businessId, currentBranchId), enriched)
       setTransactions(enriched)
     } catch (error) {
       console.error("Failed to load transactions:", error)
     }
   }
 
-  const cacheKeyForTransactions = (businessId) => `transactions_${businessId}`
+  const cacheKeyForTransactions = (businessId, branchId = null) => {
+  if (branchId) {
+    return `transactions_${businessId}_${branchId}`
+  }
+  return `transactions_${businessId}_all`
+}
 
   const totalSales    = filtered.filter(t => t.type === "sale").reduce((s, t) => s + t.amount, 0)
   const totalExpenses = filtered.filter(t => t.type === "expense").reduce((s, t) => s + t.amount, 0)
@@ -145,38 +158,12 @@ export default function Transactions() {
   return (
     <AppShell
       title="Transactions"
-      subtitle={`${filtered.length} transactions · ${periodLabel()}`}
+      subtitle={`${viewMode === 'branch' && activeBranch ? `${activeBranch.name} · ` : ''}${filtered.length} transactions · ${periodLabel()}`}
       showHeader={false}
-      right={(
-        <div className="flex items-center gap-1.5 sm:gap-3 max-w-[calc(100vw-2rem)] sm:max-w-none flex-wrap">
-          <UiButton variant="primary" size="sm" onClick={() => navigate("/transactions/add-sale")} className="flex-shrink-0 text-xs px-2 sm:px-3">+ Sale</UiButton>
-          {isOwnerOrManager && (
-            <>
-              <UiButton variant="secondary" size="sm" onClick={() => navigate("/transactions/add-expense")} className="flex-shrink-0 text-xs px-2 sm:px-3">+ Expense</UiButton>
-              <UiButton variant="secondary" size="sm" onClick={() => navigate("/transactions/transfer")} className="flex-shrink-0 text-xs px-2 sm:px-3">⇄ Transfer</UiButton>
-            </>
-          )}
-        </div>
-      )}
+      right={canViewAll ? <BranchSelector /> : null}
     >
       <div className="space-y-4">
-        {/* Page title and mobile buttons */}
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-          <div>
-            <h1 className="text-white text-xl font-bold">Transactions</h1>
-            <p className="text-zinc-500 text-sm mt-1">{filtered.length} transactions · {periodLabel()}</p>
-          </div>
-          <div className="flex items-center gap-1.5 sm:gap-3 max-w-[calc(100vw-2rem)] sm:max-w-none flex-wrap">
-            <UiButton variant="primary" size="sm" onClick={() => navigate("/transactions/add-sale")} className="flex-shrink-0 text-xs px-2 sm:px-3">+ Sale</UiButton>
-            {isOwnerOrManager && (
-              <>
-                <UiButton variant="secondary" size="sm" onClick={() => navigate("/transactions/add-expense")} className="flex-shrink-0 text-xs px-2 sm:px-3">+ Expense</UiButton>
-                <UiButton variant="secondary" size="sm" onClick={() => navigate("/transactions/transfer")} className="flex-shrink-0 text-xs px-2 sm:px-3">⇄ Transfer</UiButton>
-              </>
-            )}
-          </div>
-        </div>
-
+        
         {/* Summary cards — scoped to filtered period */}
         <div className="grid grid-cols-3 gap-3">
           <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-3">

@@ -8,6 +8,8 @@ import { useUser, useIsOwnerOrManager, useIsCashier } from "../../hooks/useRole"
 import { usePreloadData } from "../../hooks/useCache"
 import { useInstantNavigation } from "../../hooks/useInstantNavigation"
 import { useInstantAuth } from "../../hooks/useInstantAuth"
+import { useBranchContext } from "../../hooks/useBranchContext"
+import { BranchSelector } from "../../components/BranchSelector"
 
 const WEEK_DAYS = ["All", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 const OWNER_PERIODS = ["Week", "Month"]
@@ -21,6 +23,7 @@ export default function Dashboard() {
   const { preloadTransactions, preloadProducts, preloadEmployees, preloadBusiness } = usePreloadData()
   const isOwnerOrManager = useIsOwnerOrManager()
   const isCashier = useIsCashier()
+  const { currentBranchId, viewMode, canViewAll, activeBranch } = useBranchContext()
   const [business, setBusiness] = useState(null)
   const [stats, setStats] = useState({
     todaySales: 0,
@@ -207,24 +210,35 @@ export default function Dashboard() {
     const todayStart = getTodayStartUtcIsoEAT()
     const businessId = business.id
 
+    // Build base queries
+    const baseTxnQuery = supabase
+      .from("transactions")
+      .select(`id, type, payment_account, date,
+        sale_items(total_amount, quantity, unit_price, products(name)),
+        expenses(amount, category)`)
+      .eq("business_id", businessId)
+      .gte("date", todayStart)
+      .order("date", { ascending: true })
+
+    const baseAllTxnQuery = supabase
+      .from("transactions")
+      .select("type, payment_account, sale_items(total_amount), expenses(amount)")
+      .eq("business_id", businessId)
+
+    // Apply branch filtering if in branch mode
+    if (viewMode === 'branch' && currentBranchId) {
+      baseTxnQuery.eq("branch_id", currentBranchId)
+      baseAllTxnQuery.eq("branch_id", currentBranchId)
+    }
+
     const [txnsResult, floatResult, allTxnsResult, transfersResult] = await Promise.all([
-      supabase
-        .from("transactions")
-        .select(`id, type, payment_account, date,
-          sale_items(total_amount, quantity, unit_price, products(name)),
-          expenses(amount, category)`)
-        .eq("business_id", businessId)
-        .gte("date", todayStart)
-        .order("date", { ascending: true }),
+      baseTxnQuery,
       supabase
         .from("float_baseline")
         .select("*")
         .eq("business_id", businessId)
         .maybeSingle(),
-      supabase
-        .from("transactions")
-        .select("type, payment_account, sale_items(total_amount), expenses(amount)")
-        .eq("business_id", businessId),
+      baseAllTxnQuery,
       supabase
         .from("transfers")
         .select("*")
@@ -522,16 +536,17 @@ export default function Dashboard() {
   return (
     <AppShell
       title="Elevate"
-      subtitle={business?.name}
+      subtitle={`${business?.name}${viewMode === 'branch' && activeBranch ? ` • ${activeBranch.name}` : ''}`}
       className="pb-28"
       showHeader={false}
       contentClassName="max-w-5xl space-y-6"
       right={(
-        <>
+        <div className="flex items-center gap-3">
+          <BranchSelector />
           <UiButton variant="tertiary" size="sm" onClick={handleSignOut} className="text-zinc-500 hover:text-red-400">
             Sign out
           </UiButton>
-        </>
+        </div>
       )}
     >
 
