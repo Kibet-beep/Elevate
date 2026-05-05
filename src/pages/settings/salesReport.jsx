@@ -309,41 +309,41 @@ export default function SalesReport() {
                   </div>
                 </div>
               </div>
-            ))}
-          </div>
-        )}
+          ))}
+        </div>
       )}
-      
-      {/* Desktop View */}
-      <div className="hidden md:block">
-        <table className="w-full min-w-[620px]">
-          <thead>
-            <tr className="border-b border-zinc-800">
-              {isDay && <th className="text-left text-[10px] uppercase tracking-widest text-zinc-600 font-medium px-4 py-3">Time</th>}
-              <th className="text-left text-[10px] uppercase tracking-widest text-zinc-600 font-medium px-4 py-3">Product</th>
-              <th className="text-right text-[10px] uppercase tracking-widest text-zinc-600 font-medium px-4 py-3">Qty</th>
-              <th className="text-right text-[10px] uppercase tracking-widest text-zinc-600 font-medium px-4 py-3">Total</th>
-              {isDay && <th className="text-right text-[10px] uppercase tracking-widest text-zinc-600 font-medium px-4 py-3">Via</th>}
-            </tr>}
-          </thead>
-          <tbody>
-            {rows.map((row, i) => (
-              <tr key={i} className="border-b border-zinc-900 hover:bg-zinc-800/30 transition-colors">
-                {isDay && <td className="px-4 py-3 text-xs text-zinc-500 font-mono whitespace-nowrap">{row.time}</td>}
-                <td className="px-4 py-3">
-                  <p className="text-white text-xs font-medium leading-tight">{row.name}</p>
-                  <p className="text-zinc-600 text-[10px] font-mono mt-0.5">{row.sku}</p>
-                </td>
-                <td className="px-4 py-3 text-xs text-right font-mono text-zinc-400">{row.qty}</td>
-                <td className="px-4 py-3 text-xs text-right font-mono text-emerald-400 font-medium whitespace-nowrap">{fmtShort(row.total)}</td>
-                {isDay && <td className="px-4 py-3 text-[10px] text-right text-zinc-500">{accountLabel(row.payment)}</td>}
-              </tr>}}
-            ))}
-          </tbody>
-        </table>
-      </div>
     </div>
-  )
+    
+    {/* Desktop View */}
+    <div className="hidden md:block">
+      <table className="w-full min-w-[620px]">
+        <thead>
+          <tr className="border-b border-zinc-800">
+            {isDay && <th className="text-left text-[10px] uppercase tracking-widest text-zinc-600 font-medium px-4 py-3">Time</th>}
+            <th className="text-left text-[10px] uppercase tracking-widest text-zinc-600 font-medium px-4 py-3">Product</th>
+            <th className="text-right text-[10px] uppercase tracking-widest text-zinc-600 font-medium px-4 py-3">Qty</th>
+            <th className="text-right text-[10px] uppercase tracking-widest text-zinc-600 font-medium px-4 py-3">Total</th>
+            {isDay && <th className="text-right text-[10px] uppercase tracking-widest text-zinc-600 font-medium px-4 py-3">Via</th>}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row, i) => (
+            <tr key={i} className="border-b border-zinc-900 hover:bg-zinc-800/30 transition-colors">
+              {isDay && <td className="px-4 py-3 text-xs text-zinc-500 font-mono whitespace-nowrap">{row.time}</td>}
+              <td className="px-4 py-3">
+                <p className="text-white text-xs font-medium leading-tight">{row.name}</p>
+                <p className="text-zinc-600 text-[10px] font-mono mt-0.5">{row.sku}</p>
+              </td>
+              <td className="px-4 py-3 text-xs text-right font-mono text-zinc-400">{row.qty}</td>
+              <td className="px-4 py-3 text-xs text-right font-mono text-emerald-400 font-medium whitespace-nowrap">{fmtShort(row.total)}</td>
+              {isDay && <td className="px-4 py-3 text-[10px] text-right text-zinc-500">{accountLabel(row.payment)}</td>}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  </div>
+)
 
   return (
     <div className="min-h-screen bg-zinc-950 pb-16">

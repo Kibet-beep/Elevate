@@ -5,7 +5,7 @@ import { useNavigate } from "react-router-dom"
 import FloatingBottomNav from "../../components/layout/FloatingBottomNav"
 import { AppShell, UiButton } from "../../components/ui"
 import PaymentIcon from "../../components/ui/PaymentIcon"
-import { useIsOwnerOrManager } from "../../hooks/useRole"
+import { useIsOwnerOrManager, useUser } from "../../hooks/useRole"
 import { useCache } from "../../hooks/useCache"
 import { useInstantAuth } from "../../hooks/useInstantAuth"
 import { useBranchContext } from "../../hooks/useBranchContext"
@@ -70,7 +70,7 @@ export default function Transactions() {
     let result = transactions
 
     // Type filter
-    if (filter !== "all") result = result.filter(t => t.type === filter)
+    if (typeFilter !== "all") result = result.filter(t => t.type === typeFilter)
 
     // Search
     if (search) result = result.filter(t =>
@@ -85,7 +85,7 @@ export default function Transactions() {
     if (paymentFilter !== "all") result = result.filter(t => t.payment_account === paymentFilter)
 
     setFiltered(result)
-  }, [filter, search, dateFrom, dateTo, paymentFilter, transactions])
+  }, [typeFilter, search, dateFrom, dateTo, paymentFilter, transactions])
 
   const fetchTransactions = async (businessId, active = true) => {
     if (!businessId) return
@@ -226,9 +226,9 @@ export default function Transactions() {
             {["all", "sale", "expense"].map(f => (
               <button
                 key={f}
-                onClick={() => setFilter(f)}
+                onClick={() => setTypeFilter(f)}
                 className={`px-4 py-2 rounded-xl text-xs font-medium transition-colors capitalize ${
-                  filter === f ? "bg-emerald-500 text-black" : "bg-zinc-800 text-zinc-400 hover:text-white"
+                  typeFilter === f ? "bg-emerald-500 text-black" : "bg-zinc-800 text-zinc-400 hover:text-white"
                 }`}
               >
                 {f === "all" ? "All types" : f === "sale" ? "Sales" : "Expenses"}
@@ -536,8 +536,8 @@ export default function Transactions() {
                 <label className="text-zinc-500 text-xs mb-2 block">Type</label>
                 <div className="flex gap-2">
                   {["all", "sale", "expense"].map(f => (
-                    <button key={f} onClick={() => setFilter(f)}
-                      className={`flex-1 py-2.5 rounded-xl text-xs font-medium transition-colors capitalize ${filter === f ? "bg-emerald-500 text-black" : "bg-zinc-800 text-zinc-400"}`}>
+                    <button key={f} onClick={() => setTypeFilter(f)}
+                      className={`flex-1 py-2.5 rounded-xl text-xs font-medium transition-colors capitalize ${typeFilter === f ? "bg-emerald-500 text-black" : "bg-zinc-800 text-zinc-400"}`}>
                       {f === "all" ? "All" : f === "sale" ? "Sales" : "Expenses"}
                     </button>
                   ))}

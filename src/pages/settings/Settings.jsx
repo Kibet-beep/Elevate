@@ -6,20 +6,22 @@ import { AppShell, UiButton, UiCard } from "../../components/ui"
 import { BarChart2, Building2, ChevronRight, LifeBuoy, LockKeyhole, Package, Settings2, Shield, TrendingUp, Wallet } from "../../lib/icons"
 import { useUser, useIsOwner, useIsOwnerOrManager } from "../../hooks/useRole"
 import { useInstantAuth } from "../../hooks/useInstantAuth"
+import { useInstantNavigation } from "../../hooks/useInstantNavigation"
 import { getRoleDisplayName } from "../../lib/roles"
- 
+
 export function Settings() {
   const navigate = useNavigate()
   const { user: authUser, userRole, logout } = useUser()
-  const { business } = useInstantAuth()
+  const { business, signOut } = useInstantAuth()
+  const { navigateInstant } = useInstantNavigation()
   const isOwner = useIsOwner()
   const isOwnerOrManager = useIsOwnerOrManager()
- 
+
   const handleSignOut = async () => {
-    await logout()
-    navigate("/")
+    await signOut()
+    navigateInstant("/")
   }
- 
+
   // Dynamically build menu sections based on role
   const getMenuSections = () => {
     const sections = []

@@ -20,8 +20,8 @@ export function useBranchContext() {
   
   const isOwner = user?.role === 'owner'
   const isManager = user?.role === 'manager'
-  // Owners can see all branches, managers can see their assigned branches (if multiple)
-  const canViewAll = isOwner || (isManager && availableBranches.length > 1)
+  // Only owners can see all branches
+  const canViewAll = isOwner
   
   // Fetch available branches for current user
   useEffect(() => {
@@ -90,13 +90,13 @@ export function useBranchContext() {
         if (branches?.length > 0) {
           const defaultBranch = branches.find(b => b.id === user.default_branch_id) || branches[0]
           setActiveBranch(defaultBranch)
-          setViewMode('branch')
-          
-          // Owners can switch to 'all' view if they want, but start on the default branch
-          // Managers with multiple branches can also switch between their assigned branches
+          // Cashiers and managers always stay in branch view - they cannot see all branches
+          // Only owners can switch to 'all' view
+          setViewMode(isOwner ? 'branch' : 'branch')
         } else {
           setActiveBranch(null)
-          setViewMode('all')
+          // Only owners can be in 'all' view mode
+          setViewMode(isOwner ? 'all' : 'branch')
         }
         
       } catch (error) {
@@ -115,11 +115,10 @@ export function useBranchContext() {
     setViewMode('branch')
   }
   
-  // Switch to all branches view (owners only or managers with multiple branches)
+  // Switch to all branches view (owners only)
   const showAllBranches = () => {
-    if (canViewAll) {
+    if (isOwner) {
       setActiveBranch(null)
-      // For owners, show all branches. For managers, show "all" of their assigned branches
       setViewMode('all')
     }
   }

@@ -23,7 +23,7 @@ export default function Dashboard() {
   const { preloadTransactions, preloadProducts, preloadEmployees, preloadBusiness } = usePreloadData()
   const isOwnerOrManager = useIsOwnerOrManager()
   const isCashier = useIsCashier()
-  const { canViewAll, availableBranches, loading: branchLoading } = useBranchContext()
+  const { canViewAll, availableBranches, loading: branchLoading, activeBranch, viewMode } = useBranchContext()
   const [business, setBusiness] = useState(null)
   const [stats, setStats] = useState({
     todaySales: 0,
@@ -414,10 +414,26 @@ export default function Dashboard() {
         <div>
           <p className="text-[10px] uppercase tracking-[0.24em] text-zinc-500">Store</p>
           <h1 className="text-white text-xl sm:text-2xl font-semibold tracking-tight">Dashboard</h1>
-          <p className="mt-1 text-zinc-400 text-xs sm:text-sm">
-            {business?.name}
-            {localBranchId ? ` • ${availableBranches.find(b => b.id === localBranchId)?.name}` : ''}
-          </p>
+          <div className="mt-1 flex flex-wrap items-center gap-2">
+            <p className="text-zinc-400 text-xs sm:text-sm">
+              {business?.name}
+            </p>
+            {activeBranch && (
+              <span className="inline-flex items-center px-2 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-[10px] font-medium">
+                {activeBranch.name}
+              </span>
+            )}
+            {!isOwnerOrManager && viewMode === 'all' && !activeBranch && (
+              <span className="inline-flex items-center px-2 py-1 rounded-full bg-amber-500/10 border border-amber-500/20 text-amber-400 text-[10px] font-medium">
+                No branch assigned
+              </span>
+            )}
+            {isOwnerOrManager && viewMode === 'all' && !activeBranch && (
+              <span className="inline-flex items-center px-2 py-1 rounded-full bg-zinc-800 border border-zinc-700 text-zinc-400 text-[10px] font-medium">
+                All branches
+              </span>
+            )}
+          </div>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {canViewAll ? (
