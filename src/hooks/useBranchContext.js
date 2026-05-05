@@ -58,17 +58,17 @@ export function useBranchContext() {
         
         setAvailableBranches(branches || [])
         
-        // Set default branch for non-owners
-        if (!isOwner && branches?.length > 0) {
+        // Set default branch for all users (owners, managers, cashiers)
+        if (branches?.length > 0) {
           const defaultBranch = branches.find(b => b.id === user.default_branch_id) || branches[0]
           setActiveBranch(defaultBranch)
+          setViewMode('branch')
           
-          // If manager has multiple branches, allow them to switch between their assigned branches
-          if (user.role === 'manager' && branches.length > 1) {
-            setViewMode('branch') // Still in branch mode, but can switch between their branches
-          } else {
-            setViewMode('branch') // Single branch or cashier
-          }
+          // Owners can switch to 'all' view if they want, but start on the default branch
+          // Managers with multiple branches can also switch between their assigned branches
+        } else {
+          setActiveBranch(null)
+          setViewMode('all')
         }
         
       } catch (error) {
