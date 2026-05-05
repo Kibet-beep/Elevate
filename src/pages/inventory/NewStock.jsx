@@ -4,6 +4,7 @@ import { supabase } from "../../lib/supabase"
 import { useNavigate } from "react-router-dom"
 import { useUser, useIsOwnerOrManager, useCurrentBusiness } from "../../hooks/useRole"
 import { useBranchContext } from "../../hooks/useBranchContext"
+import { useCache } from "../../hooks/useCache"
 import { AppShell, UiButton, UiCard, UiSectionTitle, CategorySelect } from "../../components/ui"
 
 export default function NewStock() {
@@ -12,6 +13,7 @@ export default function NewStock() {
   const isOwnerOrManager = useIsOwnerOrManager()
   const { businessId } = useCurrentBusiness()
   const { canViewAll, availableBranches, activeBranch, setActiveBranch, showAllBranches, loading: branchLoading } = useBranchContext()
+  const { get, set, invalidate } = useCache()
   const [userId, setUserId] = useState(null)
   const [suppliers, setSuppliers] = useState([])
   const [loading, setLoading] = useState(false)
@@ -183,6 +185,32 @@ export default function NewStock() {
       })
 
     if (entryError) { setError(entryError.message); setLoading(false); return }
+
+    // Update product current_quantity
+    const { data: currentProduct } = await supabase
+      .from("products")
+      .select("current_quantity")
+      .eq("id", productId)
+      .single()
+
+    const newQuantity = (currentProduct?.current_quantity || 0) + qty
+    
+    const { error: updateError } = await supabase
+      .from("products")
+      .update({ current_quantity: newQuantity })
+      .eq("id", productId)
+
+    if (updateError) { 
+      console.error("Failed to update product quantity:", updateError)
+      setError("Stock entry saved but failed to update quantity. Please refresh.")
+      setLoading(false); 
+      return 
+    }
+
+    // Invalidate cache to force refresh
+    invalidate(`products_${businessId}`)
+    invalidate('transactions')
+
     setSuccess(true)
     setLoading(false)
   }

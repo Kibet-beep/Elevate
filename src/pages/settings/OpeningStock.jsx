@@ -3,6 +3,7 @@ import { supabase } from "../../lib/supabase"
 import { useNavigate } from "react-router-dom"
 import { useUser, useCurrentBusiness } from "../../hooks/useRole"
 import { useBranchContext } from "../../hooks/useBranchContext"
+import { useCache } from "../../hooks/useCache"
 import { AppShell, UiButton, UiCard, UiSectionTitle, CategorySelect } from "../../components/ui"
 
 export default function OpeningStock() {
@@ -19,6 +20,7 @@ export default function OpeningStock() {
     isManager,
     loading: branchLoading,
   } = useBranchContext()
+  const { get, set, invalidate } = useCache()
   const [userId, setUserId] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
@@ -188,11 +190,10 @@ export default function OpeningStock() {
           sku_id: null,
           name: item.productName,
           category: item.category,
-          unit_of_measure: item.unit,
+          unit_of_measure: item.unit || defaultUnit,
           buying_price: item.landedCostPerUnit,
           selling_price: item.sellingPrice,
           current_quantity: item.quantity,
-          unit_of_measure: item.unit || defaultUnit,
         }))
         .map((row) => ({
           ...row,
@@ -289,6 +290,11 @@ export default function OpeningStock() {
         }, { onConflict: "business_id" })
 
       if (upsertError) throw upsertError
+
+      // Invalidate cache to force refresh
+      invalidate(`products_${businessId}`)
+      invalidate('transactions')
+      invalidate(`business_${businessId}`)
 
       setSuccess(true)
       setAddedStock(persistedItems)

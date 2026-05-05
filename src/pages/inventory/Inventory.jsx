@@ -1,5 +1,5 @@
 // src/pages/inventory/Inventory.jsx
-import { useState, useEffect } from "react"
+import { useState, useEffect, useMemo, useCallback } from "react"
 import { supabase } from "../../lib/supabase"
 import { useNavigate } from "react-router-dom"
 import FloatingBottomNav from "../../components/layout/FloatingBottomNav"
@@ -31,76 +31,16 @@ export default function Inventory() {
   // For cashiers, always use their assigned branch
   const effectiveBranchId = isOwnerOrManager ? localBranchId : (user?.default_branch_id || activeBranch?.id)
 
-  useEffect(() => {
-    let active = true
-
-    const hydrate = async () => {
-      if (instantBusiness?.id && !branchLoading) {
-        const cacheKey = cacheKeyForProducts(instantBusiness.id, effectiveBranchId)
-        const cachedProducts = get(cacheKey)
-
-        if (active && cachedProducts) {
-          setProducts(cachedProducts)
-          setFiltered(cachedProducts)
-          setCategories([...new Set(cachedProducts.map((p) => p.category).filter(Boolean))])
-        } else if (active) {
-          setProducts([])
-          setFiltered([])
-          setCategories([])
-        }
-
-        await fetchProducts(instantBusiness.id, active)
-        return
-      }
-
-      if (initialized && active) {
-        setProducts([])
-        setFiltered([])
-        setCategories([])
-      }
+  // Define cache key function first
+  const cacheKeyForProducts = useCallback((businessId, branchId = null) => {
+    if (branchId) {
+      return `products_${businessId}_${branchId}`
     }
+    return `products_${businessId}_all`
+  }, [])
 
-    hydrate()
-
-    return () => {
-      active = false
-    }
-  }, [instantBusiness?.id, initialized, effectiveBranchId, branchLoading])
-
-  useEffect(() => {
-    setProducts([])
-    setFiltered([])
-    setCategories([])
-  }, [localBranchId])
-
-  useEffect(() => {
-    let result = products
-    if (search) {
-      result = result.filter(p =>
-        (p.name || "").toLowerCase().includes(search.toLowerCase()) ||
-        (p.sku_id || "").toLowerCase().includes(search.toLowerCase())
-      )
-    }
-    if (categoryFilter !== "all") {
-      result = result.filter((p) => p.category === categoryFilter)
-    }
-
-    if (riskFilter === "low") {
-      result = result.filter((p) => isLowStock(p))
-    }
-
-    if (riskFilter === "healthy") {
-      result = result.filter((p) => !isLowStock(p))
-    }
-
-    if (riskFilter === "out") {
-      result = result.filter((p) => Number(p.current_quantity || 0) === 0)
-    }
-
-    setFiltered(result)
-  }, [search, categoryFilter, riskFilter, products])
-
-  const fetchProducts = async (businessId, active = true) => {
+  // Define fetchProducts function before hydrate
+  const fetchProducts = useCallback(async (businessId, active = true) => {
     if (!businessId) {
       setProducts([])
       setFiltered([])
@@ -111,7 +51,7 @@ export default function Inventory() {
     try {
       let query = supabase
         .from("products")
-        .select("id, name, sku_id, category, current_quantity, reorder_point, buying_price, selling_price, unit_of_measure, branch_id, branches!left(name, code)")
+        .select("id, name, sku_id, category, current_quantity, reorder_point, buying_price, selling_price, unit_of_measure, branch_id")
         .not("is_active", "eq", false)
         .eq("business_id", businessId)
         .order("name")
@@ -137,26 +77,105 @@ export default function Inventory() {
     } catch (error) {
       console.error("Failed to load inventory products:", error)
     }
-  }
+  }, [effectiveBranchId, localBranchId, set])
 
-  const cacheKeyForProducts = (businessId, branchId = null) => {
-  if (branchId) {
-    return `products_${businessId}_${branchId}`
-  }
-  return `products_${businessId}_all`
-}
+  const hydrate = useCallback(async () => {
+    let active = true
+
+    const runHydrate = async () => {
+      if (instantBusiness?.id && !branchLoading) {
+        const cacheKey = cacheKeyForProducts(instantBusiness.id, effectiveBranchId)
+        const cachedProducts = get(cacheKey)
+
+        if (active && cachedProducts) {
+          setProducts(cachedProducts)
+          setFiltered(cachedProducts)
+          setCategories([...new Set(cachedProducts.map((p) => p.category).filter(Boolean))])
+        } else if (active) {
+          setProducts([])
+          setFiltered([])
+          setCategories([])
+        }
+
+        await fetchProducts(instantBusiness.id, active)
+        return
+      }
+
+      if (initialized && active) {
+        setProducts([])
+        setFiltered([])
+        setCategories([])
+      }
+    }
+
+    await runHydrate()
+    return () => {
+      active = false
+    }
+  }, [instantBusiness?.id, initialized, effectiveBranchId, branchLoading, get, cacheKeyForProducts, fetchProducts])
+
+  useEffect(() => {
+    hydrate()
+  }, [hydrate])
+
+  useEffect(() => {
+    setProducts([])
+    setFiltered([])
+    setCategories([])
+  }, [localBranchId])
+
+  const filteredProducts = useMemo(() => {
+    let result = products
+    if (search) {
+      result = result.filter(p =>
+        (p.name || "").toLowerCase().includes(search.toLowerCase()) ||
+        (p.sku_id || "").toLowerCase().includes(search.toLowerCase())
+      )
+    }
+    if (categoryFilter !== "all") {
+      result = result.filter((p) => p.category === categoryFilter)
+    }
+
+    if (riskFilter === "low") {
+      result = result.filter((p) => isLowStock(p))
+    }
+
+    if (riskFilter === "healthy") {
+      result = result.filter((p) => !isLowStock(p))
+    }
+
+    if (riskFilter === "out") {
+      result = result.filter((p) => Number(p.current_quantity || 0) === 0)
+    }
+
+    return result
+  }, [search, categoryFilter, riskFilter, products])
+
+  useEffect(() => {
+    setFiltered(filteredProducts)
+  }, [filteredProducts])
 
   const isLowStock = (p) => Number(p.current_quantity || 0) <= Number(p.reorder_point || 0)
 
   const fmt = (n) => `KES ${Number(n).toLocaleString("en-KE", { minimumFractionDigits: 2 })}`
 
-  const totalUnits = products.reduce((sum, p) => sum + Number(p.current_quantity || 0), 0)
-  const activeProducts = products.filter((p) => Number(p.current_quantity || 0) > 0).length
-  const lowStockProducts = products.filter((p) => isLowStock(p)).length
-  const unitsAtRisk = products
-    .filter((p) => isLowStock(p))
-    .reduce((sum, p) => sum + Number(p.current_quantity || 0), 0)
-  const totalValue = products.reduce((sum, p) => sum + Number(p.current_quantity || 0) * Number(p.buying_price || 0), 0)
+  const metrics = useMemo(() => {
+    const totalUnits = products.reduce((sum, p) => sum + Number(p.current_quantity || 0), 0)
+    const activeProducts = products.filter((p) => Number(p.current_quantity || 0) > 0).length
+    const lowStockProducts = products.filter((p) => isLowStock(p)).length
+    const unitsAtRisk = products
+      .filter((p) => isLowStock(p))
+      .reduce((sum, p) => sum + Number(p.current_quantity || 0), 0)
+    const totalValue = products.reduce((sum, p) => sum + Number(p.current_quantity || 0) * Number(p.buying_price || 0), 0)
+
+    return {
+      totalUnits,
+      activeProducts,
+      lowStockProducts,
+      unitsAtRisk,
+      totalValue
+    }
+  }, [products])
 
   return (
     <AppShell showHeader={false} className="pb-24" contentClassName="max-w-6xl space-y-4">
@@ -198,10 +217,10 @@ export default function Inventory() {
       <div className="space-y-4">
         {/* Metrics */}
         <div className={`grid gap-3 ${isOwnerOrManager ? "grid-cols-2 md:grid-cols-4" : "grid-cols-2 md:grid-cols-3"}`}>
-          <MetricCard label="Total units" value={totalUnits} tone="emerald" />
-          <MetricCard label="Active products" value={activeProducts} tone="sky" />
-          <MetricCard label="Units at risk" value={unitsAtRisk} sub={`${lowStockProducts} low stock`} tone="red" />
-          {isOwnerOrManager && <MetricCard label="Inventory value" value={fmt(totalValue)} tone="amber" monoSmall />}
+          <MetricCard label="Total units" value={metrics.totalUnits} tone="emerald" />
+          <MetricCard label="Active products" value={metrics.activeProducts} tone="sky" />
+          <MetricCard label="Units at risk" value={metrics.unitsAtRisk} sub={`${metrics.lowStockProducts} low stock`} tone="red" />
+          {isOwnerOrManager && <MetricCard label="Inventory value" value={fmt(metrics.totalValue)} tone="amber" monoSmall />}
         </div>
 
         <div className="bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden">
