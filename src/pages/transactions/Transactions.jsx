@@ -17,25 +17,29 @@ export default function Transactions() {
   const navigate = useNavigate()
   const { business: instantBusiness, initialized, signOut } = useInstantAuth()
   const { get, set } = useCache()
+  const { user } = useUser()
+  const { canViewAll, availableBranches, activeBranch, loading: branchLoading } = useBranchContext()
   const isOwnerOrManager = useIsOwnerOrManager()
-  const { canViewAll, availableBranches, loading: branchLoading } = useBranchContext()
   const [transactions, setTransactions] = useState([])
   const [filtered, setFiltered] = useState([])
-  const [filter, setFilter] = useState("all")
   const [search, setSearch] = useState("")
   const [dateFrom, setDateFrom] = useState(today())   // ← default: today
   const [dateTo, setDateTo] = useState(today())       // ← default: today
+  const [typeFilter, setTypeFilter] = useState("all")
   const [paymentFilter, setPaymentFilter] = useState("all")
   const [mobileFilterOpen, setMobileFilterOpen] = useState(false)
   const [selectedTx, setSelectedTx] = useState(null)
   const [localBranchId, setLocalBranchId] = useState(null)
+
+  // For cashiers, always use their assigned branch
+  const effectiveBranchId = isOwnerOrManager ? localBranchId : (user?.default_branch_id || activeBranch?.id)
 
   useEffect(() => {
     let active = true
 
     const hydrate = async () => {
       if (instantBusiness?.id && !branchLoading) {
-        const cacheKey = cacheKeyForTransactions(instantBusiness.id, localBranchId)
+        const cacheKey = cacheKeyForTransactions(instantBusiness.id, effectiveBranchId)
         const cachedTransactions = get(cacheKey)
 
         if (active && cachedTransactions) {
@@ -98,8 +102,8 @@ export default function Transactions() {
         .order("date", { ascending: false })
 
       // Apply branch filtering if a specific branch is selected
-      if (localBranchId) {
-        query = query.eq("branch_id", localBranchId)
+      if (effectiveBranchId) {
+        query = query.eq("branch_id", effectiveBranchId)
       }
 
       if (!active) return
@@ -119,7 +123,7 @@ export default function Transactions() {
         return { ...t, amount, display_name: name }
       })
 
-      set(cacheKeyForTransactions(businessId, localBranchId), enriched)
+      set(cacheKeyForTransactions(businessId, effectiveBranchId), enriched)
       setTransactions(enriched)
     } catch (error) {
       console.error("Failed to load transactions:", error)

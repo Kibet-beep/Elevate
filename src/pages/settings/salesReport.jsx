@@ -10,7 +10,9 @@ const EAT_OFFSET_MS = 3 * 60 * 60 * 1000
 
 export default function SalesReport() {
   const navigate = useNavigate()
-  const { canViewAll, availableBranches, loading: branchLoading } = useBranchContext()
+  const { user } = useUser()
+  const { canViewAll, availableBranches, activeBranch, loading: branchLoading } = useBranchContext()
+  const isOwnerOrManager = useIsOwnerOrManager()
   const goBack = () => {
     if (window.history.length > 1) {
       navigate(-1)
@@ -19,6 +21,9 @@ export default function SalesReport() {
     navigate("/settings", { replace: true })
   }
   const [searchParams] = useSearchParams()
+
+  // For cashiers, always use their assigned branch
+  const effectiveBranchId = isOwnerOrManager ? localBranchId : (user?.default_branch_id || activeBranch?.id)
   const todayIso = new Date().toISOString().split("T")[0]
 
   const [period, setPeriod] = useState("Day")
@@ -47,7 +52,7 @@ export default function SalesReport() {
 
   useEffect(() => {
     if (businessId && !branchLoading) fetchData()
-  }, [period, businessId, anchorDate, compareMode, compareType, compareDateA, compareDateB, localBranchId, branchLoading])
+  }, [period, businessId, anchorDate, compareMode, compareType, compareDateA, compareDateB, effectiveBranchId, branchLoading])
 
   const fetchUser = async () => {
     const { data: { user } } = await supabase.auth.getUser()
@@ -108,8 +113,8 @@ export default function SalesReport() {
       .lte("date", end)
       .order("date", { ascending: true })
 
-    if (localBranchId) {
-      query = query.eq("branch_id", localBranchId)
+    if (effectiveBranchId) {
+      query = query.eq("branch_id", effectiveBranchId)
     }
 
     const { data } = await query
@@ -283,33 +288,60 @@ export default function SalesReport() {
   // ── Table component ──
   const SalesTable = ({ rows, isDay }) => (
     <div className="overflow-x-auto">
-      <table className="w-full min-w-[620px]">
-        <thead>
-          <tr className="border-b border-zinc-800">
-            {isDay && <th className="text-left text-[10px] uppercase tracking-widest text-zinc-600 font-medium px-4 py-3">Time</th>}
-            <th className="text-left text-[10px] uppercase tracking-widest text-zinc-600 font-medium px-4 py-3">Product</th>
-            <th className="text-right text-[10px] uppercase tracking-widest text-zinc-600 font-medium px-4 py-3">Qty</th>
-            <th className="text-right text-[10px] uppercase tracking-widest text-zinc-600 font-medium px-4 py-3">Total</th>
-            {isDay && <th className="text-right text-[10px] uppercase tracking-widest text-zinc-600 font-medium px-4 py-3">Via</th>}
-          </tr>
-        </thead>
-        <tbody>
-          {rows.length === 0 ? (
-            <tr><td colSpan={isDay ? 5 : 4} className="px-4 py-8 text-center text-zinc-600 text-xs">No sales</td></tr>
-          ) : rows.map((row, i) => (
-            <tr key={i} className="border-b border-zinc-900 hover:bg-zinc-800/30 transition-colors">
-              {isDay && <td className="px-4 py-3 text-xs text-zinc-500 font-mono whitespace-nowrap">{row.time}</td>}
-              <td className="px-4 py-3">
-                <p className="text-white text-xs font-medium leading-tight">{row.name}</p>
-                <p className="text-zinc-600 text-[10px] font-mono mt-0.5">{row.sku}</p>
-              </td>
-              <td className="px-4 py-3 text-xs text-right font-mono text-zinc-400">{row.qty}</td>
-              <td className="px-4 py-3 text-xs text-right font-mono text-emerald-400 font-medium whitespace-nowrap">{fmtShort(row.total)}</td>
-              {isDay && <td className="px-4 py-3 text-[10px] text-right text-zinc-500">{accountLabel(row.payment)}</td>}
-            </tr>
-          ))}
-        </tbody>
-      </table>
+      {/* Mobile View */}
+      <div className="md:hidden">
+        {rows.length === 0 ? (
+          <div className="text-center py-8 px-4">
+            <p className="text-zinc-600 text-sm">No sales</p>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {rows.map((row, i) => (
+              <div key={i} className="bg-zinc-950/60 border border-zinc-800 rounded-xl p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-white text-xs font-medium leading-tight">{row.name}</p>
+                    <p className="text-zinc-600 text-[10px] font-mono mt-0.5">{row.sku}</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-emerald-400 text-xs font-mono whitespace-nowrap">{fmtShort(row.total)}</p>
+                    {isDay && <p className="text-zinc-500 text-[10px] mt-1">{accountLabel(row.payment)}</p>}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      )}
+      
+      {/* Desktop View */}
+      <div className="hidden md:block">
+        <table className="w-full min-w-[620px]">
+          <thead>
+            <tr className="border-b border-zinc-800">
+              {isDay && <th className="text-left text-[10px] uppercase tracking-widest text-zinc-600 font-medium px-4 py-3">Time</th>}
+              <th className="text-left text-[10px] uppercase tracking-widest text-zinc-600 font-medium px-4 py-3">Product</th>
+              <th className="text-right text-[10px] uppercase tracking-widest text-zinc-600 font-medium px-4 py-3">Qty</th>
+              <th className="text-right text-[10px] uppercase tracking-widest text-zinc-600 font-medium px-4 py-3">Total</th>
+              {isDay && <th className="text-right text-[10px] uppercase tracking-widest text-zinc-600 font-medium px-4 py-3">Via</th>}
+            </tr>}
+          </thead>
+          <tbody>
+            {rows.map((row, i) => (
+              <tr key={i} className="border-b border-zinc-900 hover:bg-zinc-800/30 transition-colors">
+                {isDay && <td className="px-4 py-3 text-xs text-zinc-500 font-mono whitespace-nowrap">{row.time}</td>}
+                <td className="px-4 py-3">
+                  <p className="text-white text-xs font-medium leading-tight">{row.name}</p>
+                  <p className="text-zinc-600 text-[10px] font-mono mt-0.5">{row.sku}</p>
+                </td>
+                <td className="px-4 py-3 text-xs text-right font-mono text-zinc-400">{row.qty}</td>
+                <td className="px-4 py-3 text-xs text-right font-mono text-emerald-400 font-medium whitespace-nowrap">{fmtShort(row.total)}</td>
+                {isDay && <td className="px-4 py-3 text-[10px] text-right text-zinc-500">{accountLabel(row.payment)}</td>}
+              </tr>}}
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   )
 

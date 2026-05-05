@@ -14,9 +14,10 @@ export default function Inventory() {
   const navigate = useNavigate()
   const { business: instantBusiness, initialized, signOut } = useInstantAuth()
   const { get, set } = useCache()
+  const { user } = useUser()
   const isOwner = useIsOwner()
   const isOwnerOrManager = useIsOwnerOrManager()
-  const { canViewAll, availableBranches, loading: branchLoading } = useBranchContext()
+  const { canViewAll, availableBranches, activeBranch, loading: branchLoading } = useBranchContext()
   const [products, setProducts] = useState([])
   const [filtered, setFiltered] = useState([])
   const [search, setSearch] = useState("")
@@ -27,12 +28,15 @@ export default function Inventory() {
   const [categories, setCategories] = useState([])
   const [localBranchId, setLocalBranchId] = useState(null)
 
+  // For cashiers, always use their assigned branch
+  const effectiveBranchId = isOwnerOrManager ? localBranchId : (user?.default_branch_id || activeBranch?.id)
+
   useEffect(() => {
     let active = true
 
     const hydrate = async () => {
       if (instantBusiness?.id && !branchLoading) {
-        const cacheKey = cacheKeyForProducts(instantBusiness.id, localBranchId)
+        const cacheKey = cacheKeyForProducts(instantBusiness.id, effectiveBranchId)
         const cachedProducts = get(cacheKey)
 
         if (active && cachedProducts) {
@@ -61,7 +65,7 @@ export default function Inventory() {
     return () => {
       active = false
     }
-  }, [instantBusiness?.id, initialized, localBranchId, branchLoading])
+  }, [instantBusiness?.id, initialized, effectiveBranchId, branchLoading])
 
   useEffect(() => {
     setProducts([])
@@ -113,8 +117,8 @@ export default function Inventory() {
         .order("name")
 
       // Apply branch filtering if a specific branch is selected
-      if (localBranchId) {
-        query = query.eq("branch_id", localBranchId)
+      if (effectiveBranchId) {
+        query = query.eq("branch_id", effectiveBranchId)
       }
 
       const { data } = await query
@@ -247,15 +251,10 @@ export default function Inventory() {
           {filtered.length === 0 ? (
             <div className="text-center py-16 px-4">
               <p className="text-zinc-600 text-sm">No products found</p>
-              <button
-                onClick={() => navigate("/inventory/new-stock")}
-                className="mt-4 bg-emerald-500 hover:bg-emerald-400 text-black text-xs font-semibold px-4 py-2 rounded-xl transition-colors"
-              >
-                Add your first product
-              </button>
             </div>
           ) : (
             <>
+              {/* Mobile View */}
               <div className="md:hidden p-2 space-y-2">
                 {filtered.map((p) => {
                   const low = isLowStock(p)
@@ -263,36 +262,40 @@ export default function Inventory() {
                   const reorder = Number(p.reorder_point || 0)
 
                   return (
-                    <button
-                      key={p.id}
-                      onClick={() => setSelectedProduct(p)}
-                      className="w-full text-left bg-zinc-950/60 border border-zinc-800 rounded-xl px-3 py-3"
-                    >
+                    <div key={p.id} className="bg-zinc-950/60 border border-zinc-800 rounded-xl p-4">
                       <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0">
+                        <div className="min-w-0 flex-1">
                           <p className="text-sm text-white font-medium truncate">{p.name}</p>
                           <p className="text-[11px] text-zinc-500 mt-0.5">SKU {p.sku_id} · {p.category || "-"}</p>
                         </div>
-                        <span
-                          className={`text-[10px] px-2 py-1 rounded-full font-medium ${
-                            low ? "bg-red-400/10 text-red-400" : "bg-emerald-500/10 text-emerald-400"
-                          }`}
-                        >
-                          {quantity === 0 ? "Out" : low ? "Low" : "Healthy"}
-                        </span>
+                        <div className="flex items-center gap-2">
+                          <span
+                            className={`text-[10px] px-2 py-1 rounded-full font-medium ${
+                              low ? "bg-red-400/10 text-red-400" : "bg-emerald-500/10 text-emerald-400"
+                            }`}
+                          >
+                            {quantity === 0 ? "Out" : low ? "Low" : "Healthy"}
+                          </span>
+                          <button
+                            onClick={() => navigate(`/inventory/product/${p.id}`)}
+                            className="bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-[11px] px-2 py-1 rounded-lg transition-colors"
+                          >
+                            View
+                          </button>
+                        </div>
                       </div>
-
                       <div className="mt-3 grid grid-cols-2 gap-2 text-[11px]">
                         <p className="text-zinc-500">Units <span className="text-zinc-200 font-mono">{quantity}</span></p>
                         <p className="text-zinc-500 text-right">Reorder <span className="text-zinc-300 font-mono">{reorder}</span></p>
                         <p className="text-zinc-500">Buying <span className="text-zinc-300 font-mono">{fmt(p.buying_price || 0)}</span></p>
                         <p className="text-zinc-500 text-right">Selling <span className="text-emerald-400 font-mono">{fmt(p.selling_price || 0)}</span></p>
                       </div>
-                    </button>
+                    </div>
                   )
                 })}
               </div>
 
+              {/* Desktop View */}
               <div className="hidden md:block overflow-x-auto">
                 <table className="w-full min-w-[920px]">
                   <thead className="sticky top-0 bg-zinc-900 z-10">
@@ -320,7 +323,7 @@ export default function Inventory() {
                         <tr
                           key={p.id}
                           onClick={() => navigate(`/inventory/product/${p.id}`)}
-                          className="border-b border-zinc-900 hover:bg-zinc-900/60 cursor-pointer transition-colors"
+                          className="border-b border-zinc-900 hover:bg-zinc-800/60 cursor-pointer transition-colors"
                         >
                           <td className="py-3 px-4 text-[11px] text-zinc-400 font-mono">{p.sku_id}</td>
                           <td className="py-3 px-4">

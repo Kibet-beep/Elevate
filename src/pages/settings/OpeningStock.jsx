@@ -15,6 +15,8 @@ export default function OpeningStock() {
     activeBranch,
     setActiveBranch,
     showAllBranches,
+    isOwner,
+    isManager,
     loading: branchLoading,
   } = useBranchContext()
   const [userId, setUserId] = useState(null)
@@ -22,7 +24,31 @@ export default function OpeningStock() {
   const [error, setError] = useState("")
   const [success, setSuccess] = useState(false)
   const [localBranchId, setLocalBranchId] = useState(null)
-  const resolvedBranchId = localBranchId || activeBranch?.id || null
+  const [viewMode, setViewMode] = useState('all')
+  const resolvedBranchId = localBranchId || activeBranch?.id || null;
+
+  // Product states
+  const [existingProducts, setExistingProducts] = useState([])
+  const [addedStock, setAddedStock] = useState([])
+  const [selectedProduct, setSelectedProduct] = useState(null)
+  const [productSearch, setProductSearch] = useState("")
+  const [name, setName] = useState("")
+  const [category, setCategory] = useState("")
+  const [quantity, setQuantity] = useState("")
+  const [unitCost, setUnitCost] = useState("")
+  const [sellingPrice, setSellingPrice] = useState("")
+  const [additionalCosts, setAdditionalCosts] = useState([])
+  const [openingDate, setOpeningDate] = useState("")
+  const [step, setStep] = useState(1)
+  const [isNewProduct, setIsNewProduct] = useState(true)
+  const defaultUnit = "pcs"
+  const reservedSkus = new Set()
+
+  const getAllBranchesLabel = () => {
+    if (isOwner) return "All Branches"
+    if (isManager) return "All My Branches"
+    return "All Branches"
+  }
 
   const categoryOptions = useMemo(() => {
     return Array.from(
@@ -353,28 +379,7 @@ export default function OpeningStock() {
               onChange={(e) => setOpeningDate(e.target.value)}
               className="w-full rounded-xl border border-zinc-800 bg-zinc-950 px-4 py-3 text-sm text-white outline-none transition-colors focus:border-emerald-500"
             />
-            {canViewAll && (
-              <select
-                value={viewMode === "all" ? "all" : activeBranch?.id || ""}
-                onChange={(e) => {
-                  if (e.target.value === "all") {
-                    showAllBranches()
-                  } else {
-                    const branch = availableBranches.find((item) => item.id === e.target.value)
-                    if (branch) setActiveBranch(branch)
-                  }
-                }}
-                className="appearance-none bg-zinc-800 border border-zinc-700 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-emerald-500 transition-colors cursor-pointer hover:bg-zinc-700"
-              >
-                <option value="all">{allBranchesLabel}</option>
-                {availableBranches.map((branch) => (
-                  <option key={branch.id} value={branch.id}>
-                    {branch.name} {branch.code ? `(${branch.code})` : ""}
-                  </option>
-                ))}
-              </select>
-            )}
-          </UiCard>
+                      </UiCard>
 
           {step === 1 && (
             <Section label="01 — Product Identity">
