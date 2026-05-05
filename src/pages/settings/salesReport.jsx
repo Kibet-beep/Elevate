@@ -10,7 +10,7 @@ const EAT_OFFSET_MS = 3 * 60 * 60 * 1000
 
 export default function SalesReport() {
   const navigate = useNavigate()
-  const { currentBranchId, viewMode, canViewAll, activeBranch, loading: branchLoading } = useBranchContext()
+  const { canViewAll, availableBranches, loading: branchLoading } = useBranchContext()
   const goBack = () => {
     if (window.history.length > 1) {
       navigate(-1)
@@ -38,6 +38,7 @@ export default function SalesReport() {
   )
   const [compareDateA, setCompareDateA] = useState(dateParam || todayIso)
   const [compareDateB, setCompareDateB] = useState(todayIso)
+  const [localBranchId, setLocalBranchId] = useState(null)
 
   useEffect(() => {
     if (dateParam) { setPeriod("Day"); setAnchorDate(dateParam) }
@@ -46,7 +47,7 @@ export default function SalesReport() {
 
   useEffect(() => {
     if (businessId && !branchLoading) fetchData()
-  }, [period, businessId, anchorDate, compareMode, compareType, compareDateA, compareDateB, currentBranchId, viewMode, branchLoading])
+  }, [period, businessId, anchorDate, compareMode, compareType, compareDateA, compareDateB, localBranchId, branchLoading])
 
   const fetchUser = async () => {
     const { data: { user } } = await supabase.auth.getUser()
@@ -107,8 +108,8 @@ export default function SalesReport() {
       .lte("date", end)
       .order("date", { ascending: true })
 
-    if (viewMode === 'branch' && currentBranchId) {
-      query = query.eq("branch_id", currentBranchId)
+    if (localBranchId) {
+      query = query.eq("branch_id", localBranchId)
     }
 
     const { data } = await query
@@ -329,12 +330,17 @@ export default function SalesReport() {
             <div>
               <h1 className="text-white font-bold text-xl tracking-tight">Sales Records</h1>
               <p className="text-zinc-500 text-xs mt-0.5">
-                {viewMode === 'branch' && activeBranch ? `${activeBranch.name} • ` : ''}{periodLabel(anchorDate)}
+                {localBranchId ? `${availableBranches.find(b => b.id === localBranchId)?.name} • ` : ''}{periodLabel(anchorDate)}
               </p>
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            {canViewAll && <BranchSelector />}
+              {canViewAll && (
+                <BranchSelector 
+                  onChange={(value) => setLocalBranchId(value === 'all' ? null : value)}
+                  value={localBranchId || 'all'}
+                />
+              )}
             <button
               onClick={() => setCompareMode(v => !v)}
               className={`text-xs font-medium px-3 py-2 rounded-xl transition-colors ${compareMode ? "bg-emerald-500 text-black" : "bg-zinc-800 text-zinc-400"}`}

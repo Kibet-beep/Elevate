@@ -10,38 +10,16 @@ export default function OpeningStock() {
   const { user: authUser } = useUser()
   const { businessId } = useCurrentBusiness()
   const {
-    currentBranchId,
-    viewMode,
     canViewAll,
-    activeBranch,
     availableBranches,
-    setActiveBranch,
-    showAllBranches,
-    isOwner,
     loading: branchLoading,
   } = useBranchContext()
   const [userId, setUserId] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
   const [success, setSuccess] = useState(false)
-
-  const [isNewProduct, setIsNewProduct] = useState(true)
-  const [existingProducts, setExistingProducts] = useState([])
-  const [selectedProduct, setSelectedProduct] = useState(null)
-  const [productSearch, setProductSearch] = useState("")
-  const [name, setName] = useState("")
-  const [category, setCategory] = useState("")
-
-  const [quantity, setQuantity] = useState("")
-  const [unitCost, setUnitCost] = useState("")
-  const [additionalCosts, setAdditionalCosts] = useState([])
-  const [sellingPrice, setSellingPrice] = useState("")
-  const [step, setStep] = useState(1)
-  const [openingDate, setOpeningDate] = useState(new Date().toISOString().split("T")[0])
-  const [addedStock, setAddedStock] = useState([])
-  const resolvedBranchId = currentBranchId || activeBranch?.id || null
-  const allBranchesLabel = isOwner ? "All Branches" : "All My Branches"
-  const defaultUnit = "pcs"
+  const [localBranchId, setLocalBranchId] = useState(null)
+  const resolvedBranchId = localBranchId
 
   const categoryOptions = useMemo(() => {
     return Array.from(
@@ -56,7 +34,7 @@ export default function OpeningStock() {
     if (businessId && authUser && !branchLoading) {
       fetchInitialData()
     }
-  }, [businessId, authUser, currentBranchId, viewMode, branchLoading])
+  }, [businessId, authUser, localBranchId, branchLoading])
 
   const fetchInitialData = async () => {
     setUserId(authUser.id)
@@ -68,8 +46,8 @@ export default function OpeningStock() {
       .not("is_active", "eq", false)
       .order("name")
 
-    if (viewMode === "branch" && resolvedBranchId) {
-      query = query.or(`branch_id.eq.${resolvedBranchId},branch_id.is.null`)
+    if (localBranchId) {
+      query = query.or(`branch_id.eq.${localBranchId},branch_id.is.null`)
     }
 
     const { data: productsData } = await query

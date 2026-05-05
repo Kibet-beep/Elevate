@@ -11,20 +11,16 @@ export default function HistoricalSales() {
   const { user: authUser } = useUser()
   const { businessId } = useCurrentBusiness()
   const {
-    currentBranchId,
-    viewMode,
     canViewAll,
-    activeBranch,
     availableBranches,
-    setActiveBranch,
-    showAllBranches,
-    isOwner,
     loading: branchLoading,
   } = useBranchContext()
 
   const [userId, setUserId] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
+  const [localBranchId, setLocalBranchId] = useState(null)
+  const resolvedBranchId = localBranchId
 
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split("T")[0])
   const [openingDate, setOpeningDate] = useState(null)
@@ -41,14 +37,12 @@ export default function HistoricalSales() {
   const [datesWithSales, setDatesWithSales] = useState({})
   const [todaysSales, setTodaysSales] = useState([])
 
-  const resolvedBranchId = currentBranchId || activeBranch?.id || null
-  const allBranchesLabel = isOwner ? "All Branches" : "All My Branches"
 
-  useEffect(() => {
+  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split("T")[0])
     if (businessId && authUser && !branchLoading) {
       fetchInitialData()
     }
-  }, [businessId, authUser, currentBranchId, viewMode, selectedDate, branchLoading])
+  }, [businessId, authUser, localBranchId, branchLoading])
 
   const fetchInitialData = async () => {
     try {
@@ -216,7 +210,7 @@ export default function HistoricalSales() {
       return
     }
 
-    if (canViewAll && viewMode !== "branch" && !resolvedBranchId) {
+    if (canViewAll && !localBranchId) {
       setError("Select a branch before recording a sale")
       return
     }
@@ -232,7 +226,7 @@ export default function HistoricalSales() {
       id: `${selectedDate}-${Date.now()}`,
       date: selectedDate,
       branchId: resolvedBranchId,
-      branchName: activeBranch?.name || "Unassigned branch",
+      branchName: availableBranches.find(b => b.id === localBranchId)?.name || "Unassigned branch",
       paymentAccount,
       subtotal,
       discountAmount,
@@ -409,8 +403,8 @@ export default function HistoricalSales() {
     <AppShell
       title="Backdated sales"
       subtitle={
-        activeBranch
-          ? `${activeBranch.name} · Backfill missed sales before final review`
+        localBranchId
+          ? `${availableBranches.find(b => b.id === localBranchId)?.name} · Backfill missed sales before final review`
           : "Backfill missed sales before final review"
       }
       showHeader={true}
@@ -427,18 +421,11 @@ export default function HistoricalSales() {
           </UiButton>
           {canViewAll && (
             <select
-              value={viewMode === "all" ? "all" : activeBranch?.id || ""}
-              onChange={(e) => {
-                if (e.target.value === "all") {
-                  showAllBranches()
-                } else {
-                  const branch = availableBranches.find((item) => item.id === e.target.value)
-                  if (branch) setActiveBranch(branch)
-                }
-              }}
+              value={localBranchId || 'all'}
+              onChange={(e) => setLocalBranchId(e.target.value === 'all' ? null : e.target.value)}
               className="cursor-pointer appearance-none rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-white transition-colors hover:bg-zinc-700 focus:border-emerald-500 focus:outline-none"
             >
-              <option value="all">{allBranchesLabel}</option>
+              <option value="all">All Branches</option>
               {availableBranches.map((branch) => (
                 <option key={branch.id} value={branch.id}>
                   {branch.name} {branch.code ? `(${branch.code})` : ""}

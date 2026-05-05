@@ -23,7 +23,7 @@ export default function Dashboard() {
   const { preloadTransactions, preloadProducts, preloadEmployees, preloadBusiness } = usePreloadData()
   const isOwnerOrManager = useIsOwnerOrManager()
   const isCashier = useIsCashier()
-  const { currentBranchId, viewMode, canViewAll, activeBranch, loading: branchLoading } = useBranchContext()
+  const { canViewAll, availableBranches, loading: branchLoading } = useBranchContext()
   const [business, setBusiness] = useState(null)
   const [stats, setStats] = useState({
     todaySales: 0,
@@ -35,6 +35,7 @@ export default function Dashboard() {
   const [selectedDay, setSelectedDay] = useState("All")
   const [periodTransactions, setPeriodTransactions] = useState([])
   const [todayTransactions, setTodayTransactions] = useState([])
+  const [localBranchId, setLocalBranchId] = useState(null)
   const [periodSummary, setPeriodSummary] = useState({
     totalSales: 0, totalExpenses: 0, net: 0, cash: 0, mpesa: 0, bank: 0,
   })
@@ -74,9 +75,9 @@ export default function Dashboard() {
     }
   }, [instantUser, instantBusiness, authUser])
 
-  useEffect(() => { if (business && !branchLoading) fetchPeriodData() }, [period, selectedDay, business, currentBranchId, viewMode, branchLoading])
-  useEffect(() => { if (business && !branchLoading) fetchTodayData() }, [business, currentBranchId, viewMode, branchLoading])
-  useEffect(() => { if (business && !branchLoading) fetchDashboardData() }, [business?.id, currentBranchId, viewMode, branchLoading])
+  useEffect(() => { if (business && !branchLoading) fetchPeriodData() }, [period, selectedDay, business, localBranchId, branchLoading])
+  useEffect(() => { if (business && !branchLoading) fetchTodayData() }, [business, localBranchId, branchLoading])
+  useEffect(() => { if (business && !branchLoading) fetchDashboardData() }, [business?.id, localBranchId, branchLoading])
 
   const getEATNow = () => new Date(Date.now() + EAT_OFFSET_MS)
 
@@ -159,7 +160,7 @@ export default function Dashboard() {
 
     const todayStart = getTodayStartUtcIsoEAT()
     const businessId = userData.business_id
-    const branchFilter = viewMode === 'branch' && currentBranchId ? currentBranchId : null
+    const branchFilter = localBranchId
 
     const todayTxnsQuery = supabase
       .from("transactions")
@@ -181,6 +182,7 @@ export default function Dashboard() {
       .eq("is_active", true)
       .limit(100)
 
+    // Apply branch filtering if a specific branch is selected
     if (branchFilter) {
       todayTxnsQuery.eq("branch_id", branchFilter)
       allTxnsQuery.eq("branch_id", branchFilter)
@@ -239,10 +241,10 @@ export default function Dashboard() {
       .select("type, payment_account, sale_items(total_amount), expenses(amount)")
       .eq("business_id", businessId)
 
-    // Apply branch filtering if in branch mode
-    if (viewMode === 'branch' && currentBranchId) {
-      baseTxnQuery.eq("branch_id", currentBranchId)
-      baseAllTxnQuery.eq("branch_id", currentBranchId)
+    // Apply branch filtering if a specific branch is selected
+    if (localBranchId) {
+      baseTxnQuery.eq("branch_id", localBranchId)
+      baseAllTxnQuery.eq("branch_id", localBranchId)
     }
 
     const [txnsResult, floatResult, allTxnsResult, transfersResult] = await Promise.all([
@@ -407,11 +409,16 @@ export default function Dashboard() {
           <h1 className="text-white text-xl sm:text-2xl font-semibold tracking-tight">Dashboard</h1>
           <p className="mt-1 text-zinc-400 text-xs sm:text-sm">
             {business?.name}
-            {viewMode === 'branch' && activeBranch ? ` • ${activeBranch.name}` : ''}
+            {localBranchId ? ` • ${availableBranches.find(b => b.id === localBranchId)?.name}` : ''}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          {canViewAll ? <BranchSelector /> : null}
+          {canViewAll ? (
+            <BranchSelector 
+              onChange={(value) => setLocalBranchId(value === 'all' ? null : value)}
+              value={localBranchId || 'all'}
+            />
+          ) : null}
           <UiButton variant="tertiary" size="sm" onClick={handleSignOut} className="text-zinc-400 hover:text-red-400">
             Sign out
           </UiButton>

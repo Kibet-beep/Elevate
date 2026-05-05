@@ -16,7 +16,7 @@ export default function Inventory() {
   const { get, set } = useCache()
   const isOwner = useIsOwner()
   const isOwnerOrManager = useIsOwnerOrManager()
-  const { currentBranchId, viewMode, canViewAll, activeBranch, loading: branchLoading } = useBranchContext()
+  const { canViewAll, availableBranches, loading: branchLoading } = useBranchContext()
   const [products, setProducts] = useState([])
   const [filtered, setFiltered] = useState([])
   const [search, setSearch] = useState("")
@@ -25,13 +25,14 @@ export default function Inventory() {
   const [mobileFilterOpen, setMobileFilterOpen] = useState(false)
   const [selectedProduct, setSelectedProduct] = useState(null)
   const [categories, setCategories] = useState([])
+  const [localBranchId, setLocalBranchId] = useState(null)
 
   useEffect(() => {
     let active = true
 
     const hydrate = async () => {
     if (instantBusiness?.id && !branchLoading) {
-      const cacheKey = cacheKeyForProducts(instantBusiness.id, currentBranchId)
+      const cacheKey = cacheKeyForProducts(instantBusiness.id, localBranchId)
       const cachedProducts = get(cacheKey)
 
       if (active && cachedProducts) {
@@ -57,7 +58,7 @@ export default function Inventory() {
     return () => {
       active = false
     }
-  }, [instantBusiness?.id, initialized, currentBranchId, viewMode, branchLoading])
+  }, [instantBusiness?.id, initialized, localBranchId, branchLoading])
 
   useEffect(() => {
     let result = products
@@ -102,9 +103,9 @@ export default function Inventory() {
         .eq("business_id", businessId)
         .order("name")
 
-      // Apply branch filtering if in branch mode
-      if (viewMode === 'branch' && currentBranchId) {
-        query = query.or(`branch_id.eq.${currentBranchId},branch_id.is.null`)
+      // Apply branch filtering if a specific branch is selected
+      if (localBranchId) {
+        query = query.or(`branch_id.eq.${localBranchId},branch_id.is.null`)
       }
 
       const { data } = await query
@@ -113,7 +114,7 @@ export default function Inventory() {
 
       const nextProducts = data || []
       // Use branch-aware cache key
-      const cacheKey = cacheKeyForProducts(businessId, currentBranchId)
+      const cacheKey = cacheKeyForProducts(businessId, localBranchId)
       set(cacheKey, nextProducts)
       setProducts(nextProducts)
       setFiltered(nextProducts)
@@ -152,11 +153,16 @@ export default function Inventory() {
           <p className="text-[10px] uppercase tracking-[0.24em] text-zinc-500">Store</p>
           <h1 className="text-white font-semibold text-xl sm:text-2xl tracking-tight">Inventory</h1>
           <p className="mt-1 text-zinc-400 text-xs sm:text-sm">
-            {instantBusiness?.name}{viewMode === 'branch' && activeBranch ? ` • ${activeBranch.name}` : ''} · Live inventory balances
+            {instantBusiness?.name}{localBranchId ? ` • ${availableBranches.find(b => b.id === localBranchId)?.name}` : ''} · Live inventory balances
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          {canViewAll && <BranchSelector />}
+          {canViewAll && (
+            <BranchSelector 
+              onChange={(value) => setLocalBranchId(value === 'all' ? null : value)}
+              value={localBranchId || 'all'}
+            />
+          )}
           <UiButton variant="tertiary" size="sm" onClick={signOut} className="text-zinc-400 hover:text-red-400">
             Sign out
           </UiButton>

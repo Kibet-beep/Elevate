@@ -18,7 +18,7 @@ export default function Transactions() {
   const { business: instantBusiness, initialized, signOut } = useInstantAuth()
   const { get, set } = useCache()
   const isOwnerOrManager = useIsOwnerOrManager()
-  const { currentBranchId, viewMode, canViewAll, activeBranch, loading: branchLoading } = useBranchContext()
+  const { canViewAll, availableBranches, loading: branchLoading } = useBranchContext()
   const [transactions, setTransactions] = useState([])
   const [filtered, setFiltered] = useState([])
   const [filter, setFilter] = useState("all")
@@ -28,13 +28,14 @@ export default function Transactions() {
   const [paymentFilter, setPaymentFilter] = useState("all")
   const [mobileFilterOpen, setMobileFilterOpen] = useState(false)
   const [selectedTx, setSelectedTx] = useState(null)
+  const [localBranchId, setLocalBranchId] = useState(null)
 
   useEffect(() => {
     let active = true
 
     const hydrate = async () => {
     if (instantBusiness?.id && !branchLoading) {
-      const cacheKey = cacheKeyForTransactions(instantBusiness.id, currentBranchId)
+      const cacheKey = cacheKeyForTransactions(instantBusiness.id, localBranchId)
       const cachedTransactions = get(cacheKey)
 
       if (active && cachedTransactions) {
@@ -57,7 +58,7 @@ export default function Transactions() {
     return () => {
       active = false
     }
-  }, [instantBusiness?.id, initialized, currentBranchId, viewMode, branchLoading])
+  }, [instantBusiness?.id, initialized, localBranchId, branchLoading])
 
   useEffect(() => {
     let result = transactions
@@ -94,9 +95,9 @@ export default function Transactions() {
         .eq("business_id", businessId)
         .order("date", { ascending: false })
 
-      // Apply branch filtering if in branch mode
-      if (viewMode === 'branch' && currentBranchId) {
-        query = query.eq("branch_id", currentBranchId)
+      // Apply branch filtering if a specific branch is selected
+      if (localBranchId) {
+        query = query.eq("branch_id", localBranchId)
       }
 
       if (!active) return
@@ -116,7 +117,7 @@ export default function Transactions() {
         return { ...t, amount, display_name: name }
       })
 
-      set(cacheKeyForTransactions(businessId, currentBranchId), enriched)
+      set(cacheKeyForTransactions(businessId, localBranchId), enriched)
       setTransactions(enriched)
     } catch (error) {
       console.error("Failed to load transactions:", error)
@@ -167,11 +168,16 @@ export default function Transactions() {
             <p className="text-[10px] uppercase tracking-[0.24em] text-zinc-500">Store</p>
             <h1 className="text-white text-xl sm:text-2xl font-semibold tracking-tight">Transactions</h1>
             <p className="mt-1 text-zinc-400 text-xs sm:text-sm">
-              {instantBusiness?.name}{viewMode === 'branch' && activeBranch ? ` • ${activeBranch.name}` : ''} · {filtered.length} transactions · {periodLabel()}
+              {instantBusiness?.name}{localBranchId ? ` • ${availableBranches.find(b => b.id === localBranchId)?.name}` : ''} · {filtered.length} transactions · {periodLabel()}
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            {canViewAll ? <BranchSelector /> : null}
+            {canViewAll ? (
+              <BranchSelector 
+                onChange={(value) => setLocalBranchId(value === 'all' ? null : value)}
+                value={localBranchId || 'all'}
+              />
+            ) : null}
             <UiButton variant="tertiary" size="sm" onClick={signOut} className="text-zinc-400 hover:text-red-400">
               Sign out
             </UiButton>
