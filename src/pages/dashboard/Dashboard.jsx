@@ -23,7 +23,7 @@ export default function Dashboard() {
   const { preloadTransactions, preloadProducts, preloadEmployees, preloadBusiness } = usePreloadData()
   const isOwnerOrManager = useIsOwnerOrManager()
   const isCashier = useIsCashier()
-  const { currentBranchId, viewMode, canViewAll, activeBranch } = useBranchContext()
+  const { currentBranchId, viewMode, canViewAll, activeBranch, loading: branchLoading } = useBranchContext()
   const [business, setBusiness] = useState(null)
   const [stats, setStats] = useState({
     todaySales: 0,
@@ -74,9 +74,9 @@ export default function Dashboard() {
     }
   }, [instantUser, instantBusiness, authUser])
 
-  useEffect(() => { if (business) fetchPeriodData() }, [period, selectedDay, business, currentBranchId, viewMode])
-  useEffect(() => { if (business) fetchTodayData() }, [business, currentBranchId, viewMode])
-  useEffect(() => { if (business) fetchDashboardData() }, [business?.id, currentBranchId, viewMode])
+  useEffect(() => { if (business && !branchLoading) fetchPeriodData() }, [period, selectedDay, business, currentBranchId, viewMode, branchLoading])
+  useEffect(() => { if (business && !branchLoading) fetchTodayData() }, [business, currentBranchId, viewMode, branchLoading])
+  useEffect(() => { if (business && !branchLoading) fetchDashboardData() }, [business?.id, currentBranchId, viewMode, branchLoading])
 
   const getEATNow = () => new Date(Date.now() + EAT_OFFSET_MS)
 

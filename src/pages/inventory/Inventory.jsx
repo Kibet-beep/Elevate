@@ -16,7 +16,7 @@ export default function Inventory() {
   const { get, set } = useCache()
   const isOwner = useIsOwner()
   const isOwnerOrManager = useIsOwnerOrManager()
-  const { currentBranchId, viewMode, canViewAll, activeBranch } = useBranchContext()
+  const { currentBranchId, viewMode, canViewAll, activeBranch, loading: branchLoading } = useBranchContext()
   const [products, setProducts] = useState([])
   const [filtered, setFiltered] = useState([])
   const [search, setSearch] = useState("")
@@ -30,7 +30,7 @@ export default function Inventory() {
     let active = true
 
     const hydrate = async () => {
-    if (instantBusiness?.id) {
+    if (instantBusiness?.id && !branchLoading) {
       const cacheKey = cacheKeyForProducts(instantBusiness.id, currentBranchId)
       const cachedProducts = get(cacheKey)
 
@@ -57,7 +57,7 @@ export default function Inventory() {
     return () => {
       active = false
     }
-  }, [instantBusiness?.id, initialized, currentBranchId, viewMode])
+  }, [instantBusiness?.id, initialized, currentBranchId, viewMode, branchLoading])
 
   useEffect(() => {
     let result = products

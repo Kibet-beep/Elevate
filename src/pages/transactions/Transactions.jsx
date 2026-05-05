@@ -18,7 +18,7 @@ export default function Transactions() {
   const { business: instantBusiness, initialized, signOut } = useInstantAuth()
   const { get, set } = useCache()
   const isOwnerOrManager = useIsOwnerOrManager()
-  const { currentBranchId, viewMode, canViewAll, activeBranch } = useBranchContext()
+  const { currentBranchId, viewMode, canViewAll, activeBranch, loading: branchLoading } = useBranchContext()
   const [transactions, setTransactions] = useState([])
   const [filtered, setFiltered] = useState([])
   const [filter, setFilter] = useState("all")
@@ -33,7 +33,7 @@ export default function Transactions() {
     let active = true
 
     const hydrate = async () => {
-    if (instantBusiness?.id) {
+    if (instantBusiness?.id && !branchLoading) {
       const cacheKey = cacheKeyForTransactions(instantBusiness.id, currentBranchId)
       const cachedTransactions = get(cacheKey)
 
@@ -57,7 +57,7 @@ export default function Transactions() {
     return () => {
       active = false
     }
-  }, [instantBusiness?.id, initialized, currentBranchId, viewMode])
+  }, [instantBusiness?.id, initialized, currentBranchId, viewMode, branchLoading])
 
   useEffect(() => {
     let result = transactions

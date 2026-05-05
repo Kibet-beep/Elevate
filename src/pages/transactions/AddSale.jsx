@@ -13,7 +13,7 @@ export default function AddSale() {
   const [searchParams] = useSearchParams()
   const { user: authUser } = useUser()
   const { businessId } = useCurrentBusiness()
-  const { currentBranchId, viewMode, canViewAll, activeBranch } = useBranchContext()
+  const { currentBranchId, viewMode, canViewAll, activeBranch, loading: branchLoading } = useBranchContext()
   const [userId, setUserId] = useState(null)
   const [products, setProducts] = useState([])
   const [cartItems, setCartItems] = useState([])
@@ -32,8 +32,10 @@ export default function AddSale() {
   const resolvedBranchId = currentBranchId || activeBranch?.id || null
 
   useEffect(() => {
-    fetchData()
-  }, [businessId, currentBranchId, viewMode, authUser, canViewAll])
+    if (!branchLoading) {
+      fetchData()
+    }
+  }, [businessId, currentBranchId, viewMode, authUser, canViewAll, branchLoading])
 
   const fetchData = async () => {
     if (!businessId || !authUser) return
