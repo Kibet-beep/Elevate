@@ -40,6 +40,10 @@ export default function Transactions() {
 
       if (active && cachedTransactions) {
         setTransactions(cachedTransactions)
+      } else if (active) {
+        // No cache: clear data immediately while fetching
+        setTransactions([])
+        setFiltered([])
       }
 
       await fetchTransactions(instantBusiness.id, active)

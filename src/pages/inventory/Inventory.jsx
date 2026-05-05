@@ -39,6 +39,11 @@ export default function Inventory() {
         setProducts(cachedProducts)
         setFiltered(cachedProducts)
         setCategories([...new Set(cachedProducts.map((p) => p.category).filter(Boolean))])
+      } else if (active) {
+        // No cache: clear data immediately while fetching
+        setProducts([])
+        setFiltered([])
+        setCategories([])
       }
 
       await fetchProducts(instantBusiness.id, active)
