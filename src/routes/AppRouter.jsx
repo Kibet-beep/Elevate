@@ -22,6 +22,7 @@ const AuthCallback = lazy(() => import("../pages/auth/AuthCallback"))
 const AddEmployees = lazy(() => import("../pages/onboarding/AddEmployees"))
 const Done = lazy(() => import("../pages/onboarding/Done"))
 const NewStock = lazy(() => import("../pages/inventory/NewStock"))
+const Products = lazy(() => import("../pages/inventory/Products"))
 const ProductDetail = lazy(() => import("../pages/inventory/ProductDetail"))
 const StockTake = lazy(() => import("../pages/inventory/StockTake"))
 const AddSale = lazy(() => import("../pages/transactions/AddSale"))
@@ -157,6 +158,16 @@ function AppRouterContent() {
           <AuthGuard>
             <Suspense fallback={<InstantLoadingFallback />}>
               <Inventory />
+            </Suspense>
+          </AuthGuard>
+        }
+      />
+      <Route
+        path="/products"
+        element={
+          <AuthGuard>
+            <Suspense fallback={<InstantLoadingFallback />}>
+              <Products />
             </Suspense>
           </AuthGuard>
         }

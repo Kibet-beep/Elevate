@@ -3,6 +3,7 @@ import { useState, useEffect, useMemo } from "react"
 import { supabase } from "../../lib/supabase"
 import { useNavigate } from "react-router-dom"
 import { useUser, useIsOwnerOrManager, useCurrentBusiness } from "../../hooks/useRole"
+import { useBranchContext } from "../../hooks/useBranchContext"
 import { AppShell, UiButton, UiCard, UiSectionTitle, CategorySelect } from "../../components/ui"
 
 export default function NewStock() {
@@ -10,11 +11,13 @@ export default function NewStock() {
   const { user: authUser } = useUser()
   const isOwnerOrManager = useIsOwnerOrManager()
   const { businessId } = useCurrentBusiness()
+  const { canViewAll, availableBranches, activeBranch, setActiveBranch, showAllBranches, loading: branchLoading } = useBranchContext()
   const [userId, setUserId] = useState(null)
   const [suppliers, setSuppliers] = useState([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
   const [success, setSuccess] = useState(false)
+  const [localBranchId, setLocalBranchId] = useState(null)
 
   // Product
   const [isNewProduct, setIsNewProduct] = useState(true)
@@ -61,7 +64,7 @@ export default function NewStock() {
 
     const { data: productsData } = await supabase
       .from("products")
-      .select("id, name, sku_id, selling_price, unit_of_measure")
+      .select("id, name, sku_id, selling_price, unit_of_measure, branch_id, branches!left(name, code)")
       .eq("business_id", businessId)
       .eq("is_active", true)
       .order("name")
@@ -132,10 +135,12 @@ export default function NewStock() {
 
     if (isNewProduct) {
       const sku = generateSKU(name)
+      const branchId = localBranchId || activeBranch?.id || null
       const { data: newProduct, error: productError } = await supabase
         .from("products")
         .insert({
           business_id: businessId,
+          branch_id: branchId,
           sku_id: sku,
           name,
           category: category || null,
@@ -265,6 +270,32 @@ export default function NewStock() {
                 <ToggleBtn active={isNewProduct} onClick={() => setIsNewProduct(true)}>New product</ToggleBtn>
                 <ToggleBtn active={!isNewProduct} onClick={() => setIsNewProduct(false)}>Existing product</ToggleBtn>
               </div>
+
+              {/* Branch Selection */}
+              {canViewAll && (
+                <div className="mb-5">
+                  <label className="text-zinc-400 text-xs mb-2 block">Branch</label>
+                  <select
+                    value={localBranchId || activeBranch?.id || ""}
+                    onChange={(e) => {
+                      if (e.target.value === "all") {
+                        setLocalBranchId(null)
+                      } else {
+                        setLocalBranchId(e.target.value)
+                      }
+                    }}
+                    className="w-full bg-zinc-900 border border-zinc-800 text-white rounded-xl px-4 py-3 text-sm outline-none focus:border-emerald-500 transition-colors"
+                  >
+                    <option value="">Select branch</option>
+                    {availableBranches.map(branch => (
+                      <option key={branch.id} value={branch.id}>
+                        {branch.name} {branch.code ? `(${branch.code})` : ""}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-zinc-600 text-xs mt-1.5">This branch will be associated with the SKU</p>
+                </div>
+              )}
 
               {isNewProduct ? (
                 <div className="space-y-4">

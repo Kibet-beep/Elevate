@@ -37,8 +37,7 @@ export default function HistoricalSales() {
   const [datesWithSales, setDatesWithSales] = useState({})
   const [todaysSales, setTodaysSales] = useState([])
 
-
-  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split("T")[0])
+  useEffect(() => {
     if (businessId && authUser && !branchLoading) {
       fetchInitialData()
     }
@@ -69,7 +68,7 @@ export default function HistoricalSales() {
         .not("is_active", "eq", false)
         .order("name")
 
-      if (viewMode === "branch" && resolvedBranchId) {
+      if (resolvedBranchId) {
         productsQuery = productsQuery.or(`branch_id.eq.${resolvedBranchId},branch_id.is.null`)
       }
 
@@ -448,7 +447,7 @@ export default function HistoricalSales() {
 
           {openingDate && (
             <>
-              {canViewAll && viewMode !== "branch" && !resolvedBranchId && (
+              {canViewAll && !resolvedBranchId && (
                 <UiCard className="space-y-3 border-amber-400/20 bg-amber-400/5 p-4">
                   <UiSectionTitle
                     title="Choose branch"
@@ -460,18 +459,11 @@ export default function HistoricalSales() {
                     </p>
                     <div className="shrink-0">
                       <select
-                        value={viewMode === "all" ? "all" : activeBranch?.id || ""}
-                        onChange={(e) => {
-                          if (e.target.value === "all") {
-                            showAllBranches()
-                          } else {
-                            const branch = availableBranches.find((item) => item.id === e.target.value)
-                            if (branch) setActiveBranch(branch)
-                          }
-                        }}
+                        value={localBranchId || "all"}
+                        onChange={(e) => setLocalBranchId(e.target.value === "all" ? null : e.target.value)}
                         className="cursor-pointer appearance-none rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-white transition-colors hover:bg-zinc-700 focus:border-emerald-500 focus:outline-none"
                       >
-                        <option value="all">{allBranchesLabel}</option>
+                        <option value="all">All Branches</option>
                         {availableBranches.map((branch) => (
                           <option key={branch.id} value={branch.id}>
                             {branch.name} {branch.code ? `(${branch.code})` : ""}
@@ -629,7 +621,7 @@ export default function HistoricalSales() {
                     </div>
                     <div className="flex justify-between text-sm">
                       <span className="text-zinc-500">Branch</span>
-                      <span className="text-zinc-200">{activeBranch?.name || "Select branch"}</span>
+                      <span className="text-zinc-200">{availableBranches.find((branch) => branch.id === localBranchId)?.name || "Select branch"}</span>
                     </div>
                     <div className="flex justify-between text-sm">
                       <span className="text-zinc-500">Payment</span>

@@ -34,27 +34,25 @@ export default function Transactions() {
     let active = true
 
     const hydrate = async () => {
-    if (instantBusiness?.id && !branchLoading) {
-      const cacheKey = cacheKeyForTransactions(instantBusiness.id, localBranchId)
-      const cachedTransactions = get(cacheKey)
+      if (instantBusiness?.id && !branchLoading) {
+        const cacheKey = cacheKeyForTransactions(instantBusiness.id, localBranchId)
+        const cachedTransactions = get(cacheKey)
 
-      if (active && cachedTransactions) {
-        setTransactions(cachedTransactions)
-      } else if (active) {
-        // No cache: clear data immediately while fetching
+        if (active && cachedTransactions) {
+          setTransactions(cachedTransactions)
+        } else if (active) {
+          setTransactions([])
+          setFiltered([])
+        }
+
+        await fetchTransactions(instantBusiness.id, active)
+        return
+      }
+
+      if (initialized && active) {
         setTransactions([])
         setFiltered([])
       }
-
-      await fetchTransactions(instantBusiness.id, active)
-      return
-    }
-
-    if (initialized && active) {
-      setTransactions([])
-      setFiltered([])
-    }
-
     }
 
     hydrate()

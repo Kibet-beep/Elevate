@@ -29,7 +29,7 @@ export default function ProductDetail() {
   const fetchProduct = async () => {
     const { data } = await supabase
       .from("products")
-      .select("*, suppliers(name)")
+      .select("*, suppliers(name), branches!left(name, code)")
       .eq("id", id)
       .single()
 
@@ -321,6 +321,7 @@ export default function ProductDetail() {
                 {[
                   { label: "Category", value: product?.category || "—" },
                   { label: "Unit of measure", value: product?.unit_of_measure || "—" },
+                  { label: "Branch", value: product?.branches ? `${product.branches.name}${product.branches.code ? ` (${product.branches.code})` : ""}` : "—" },
                   { label: "Reorder point", value: product?.reorder_point },
                   { label: "Supplier", value: product?.suppliers?.name || "—" },
                   { label: "Added on", value: new Date(product?.created_at).toLocaleDateString("en-KE") },

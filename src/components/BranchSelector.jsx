@@ -1,7 +1,8 @@
 import { ChevronDown } from "lucide-react"
+import { memo, useMemo } from "react"
 import { useBranchContext } from "../hooks/useBranchContext"
 
-export function BranchSelector({ className = "", onChange = null, value = null, viewMode = null }) {
+function BranchSelectorComponent({ className = "", onChange = null, value = null, viewMode = null }) {
   const { 
     activeBranch, 
     viewMode: globalViewMode, 
@@ -20,13 +21,35 @@ export function BranchSelector({ className = "", onChange = null, value = null, 
   const currentValue = value !== null ? value : (currentViewMode === 'all' ? 'all' : activeBranch?.id || '')
   const hasLocalControl = onChange !== null
 
-  if (loading || !canViewAll) return null
-
-  const getAllBranchesLabel = () => {
+  // Memoize expensive calculations
+  const allBranchesLabel = useMemo(() => {
     if (isOwner) return "All Branches"
     if (isManager) return "All My Branches"
     return "All Branches"
-  }
+  }, [isOwner, isManager])
+
+  const branchOptions = useMemo(() => {
+    if (loading) {
+      return [<option key="loading" value="">Loading branches...</option>]
+    }
+    if (!canViewAll) {
+      return [<option key="no-access" value="">No branch access</option>]
+    }
+    
+    const options = [
+      <option key="all" value="all">{allBranchesLabel}</option>
+    ]
+    
+    availableBranches.forEach(branch => {
+      options.push(
+        <option key={branch.id} value={branch.id}>
+          {branch.name} {branch.code && `(${branch.code})`}
+        </option>
+      )
+    })
+    
+    return options
+  }, [loading, canViewAll, allBranchesLabel, availableBranches])
 
   const handleChange = (e) => {
     if (hasLocalControl) {
@@ -48,14 +71,12 @@ export function BranchSelector({ className = "", onChange = null, value = null, 
       <select
         value={currentValue}
         onChange={handleChange}
-        className="appearance-none bg-zinc-800 border border-zinc-700 text-white rounded-lg px-3 py-2 pr-8 text-sm focus:outline-none focus:border-emerald-500 transition-colors cursor-pointer hover:bg-zinc-700"
+        disabled={loading || !canViewAll}
+        className={`appearance-none bg-zinc-800 border border-zinc-700 text-white rounded-lg px-3 py-2 pr-8 text-sm focus:outline-none focus:border-emerald-500 transition-colors ${
+          loading || !canViewAll ? 'cursor-not-allowed opacity-50' : 'cursor-pointer hover:bg-zinc-700'
+        }`}
       >
-        <option value="all">{getAllBranchesLabel()}</option>
-        {availableBranches.map(branch => (
-          <option key={branch.id} value={branch.id}>
-            {branch.name} {branch.code && `(${branch.code})`}
-          </option>
-        ))}
+        {branchOptions}
       </select>
       
       {/* Custom dropdown arrow */}
@@ -65,3 +86,5 @@ export function BranchSelector({ className = "", onChange = null, value = null, 
     </div>
   )
 }
+
+export const BranchSelector = memo(BranchSelectorComponent)

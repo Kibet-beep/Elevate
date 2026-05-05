@@ -31,31 +31,29 @@ export default function Inventory() {
     let active = true
 
     const hydrate = async () => {
-    if (instantBusiness?.id && !branchLoading) {
-      const cacheKey = cacheKeyForProducts(instantBusiness.id, localBranchId)
-      const cachedProducts = get(cacheKey)
+      if (instantBusiness?.id && !branchLoading) {
+        const cacheKey = cacheKeyForProducts(instantBusiness.id, localBranchId)
+        const cachedProducts = get(cacheKey)
 
-      if (active && cachedProducts) {
-        setProducts(cachedProducts)
-        setFiltered(cachedProducts)
-        setCategories([...new Set(cachedProducts.map((p) => p.category).filter(Boolean))])
-      } else if (active) {
-        // No cache: clear data immediately while fetching
+        if (active && cachedProducts) {
+          setProducts(cachedProducts)
+          setFiltered(cachedProducts)
+          setCategories([...new Set(cachedProducts.map((p) => p.category).filter(Boolean))])
+        } else if (active) {
+          setProducts([])
+          setFiltered([])
+          setCategories([])
+        }
+
+        await fetchProducts(instantBusiness.id, active)
+        return
+      }
+
+      if (initialized && active) {
         setProducts([])
         setFiltered([])
         setCategories([])
       }
-
-      await fetchProducts(instantBusiness.id, active)
-      return
-    }
-
-    if (initialized && active) {
-      setProducts([])
-      setFiltered([])
-      setCategories([])
-    }
-
     }
 
     hydrate()
@@ -64,6 +62,12 @@ export default function Inventory() {
       active = false
     }
   }, [instantBusiness?.id, initialized, localBranchId, branchLoading])
+
+  useEffect(() => {
+    setProducts([])
+    setFiltered([])
+    setCategories([])
+  }, [localBranchId])
 
   useEffect(() => {
     let result = products
@@ -103,14 +107,14 @@ export default function Inventory() {
     try {
       let query = supabase
         .from("products")
-        .select("id, name, sku_id, category, current_quantity, reorder_point, buying_price, selling_price, unit_of_measure, branch_id")
+        .select("id, name, sku_id, category, current_quantity, reorder_point, buying_price, selling_price, unit_of_measure, branch_id, branches!left(name, code)")
         .not("is_active", "eq", false)
         .eq("business_id", businessId)
         .order("name")
 
       // Apply branch filtering if a specific branch is selected
       if (localBranchId) {
-        query = query.or(`branch_id.eq.${localBranchId},branch_id.is.null`)
+        query = query.eq("branch_id", localBranchId)
       }
 
       const { data } = await query
@@ -174,12 +178,15 @@ export default function Inventory() {
         </div>
       </div>
 
-        <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-2">
+        <div className="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-2">
           <UiButton variant="secondary" size="md" onClick={() => navigate("/inventory/stock-take")} className="w-full justify-center">
             Stock take
           </UiButton>
           <UiButton variant="primary" size="md" onClick={() => navigate("/inventory/new-stock")} className="w-full justify-center">
             + New stock
+          </UiButton>
+          <UiButton variant="tertiary" size="md" onClick={() => navigate("/products")} className="w-full justify-center">
+            View All Products
           </UiButton>
         </div>
       </div>

@@ -46,6 +46,12 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true)
   const [periodLoading, setPeriodLoading] = useState(false)
   const [accessIssue, setAccessIssue] = useState("")
+  
+  // Clear today's activity immediately when branch changes
+  useEffect(() => {
+    setTodayTransactions([])
+    setTodaySummary({ totalSales: 0, totalExpenses: 0, net: 0, cash: 0, mpesa: 0 })
+  }, [localBranchId])
 
   const setBusinessFromProfile = (profile, fallbackBusiness) => {
     const resolvedBusiness = fallbackBusiness || profile?.businesses || null
@@ -56,6 +62,7 @@ export default function Dashboard() {
       userName: profile?.full_name || resolvedBusiness.userName || "",
     }
     setBusiness(nextBusiness)
+
     return nextBusiness
   }
 

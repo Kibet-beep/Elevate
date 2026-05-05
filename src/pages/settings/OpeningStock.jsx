@@ -12,6 +12,9 @@ export default function OpeningStock() {
   const {
     canViewAll,
     availableBranches,
+    activeBranch,
+    setActiveBranch,
+    showAllBranches,
     loading: branchLoading,
   } = useBranchContext()
   const [userId, setUserId] = useState(null)
@@ -19,7 +22,7 @@ export default function OpeningStock() {
   const [error, setError] = useState("")
   const [success, setSuccess] = useState(false)
   const [localBranchId, setLocalBranchId] = useState(null)
-  const resolvedBranchId = localBranchId
+  const resolvedBranchId = localBranchId || activeBranch?.id || null
 
   const categoryOptions = useMemo(() => {
     return Array.from(
@@ -41,7 +44,7 @@ export default function OpeningStock() {
 
     let query = supabase
       .from("products")
-      .select("id, name, sku_id, selling_price, unit_of_measure, category, branch_id")
+      .select("id, name, sku_id, selling_price, unit_of_measure, category, branch_id, branches!left(name, code)")
       .eq("business_id", businessId)
       .not("is_active", "eq", false)
       .order("name")
@@ -380,6 +383,32 @@ export default function OpeningStock() {
                 <ToggleBtn active={isNewProduct} onClick={() => setIsNewProduct(true)}>New product</ToggleBtn>
                 <ToggleBtn active={!isNewProduct} onClick={() => setIsNewProduct(false)}>Existing product</ToggleBtn>
               </div>
+
+              {/* Branch Selection */}
+              {canViewAll && (
+                <div className="mb-5">
+                  <label className="text-zinc-400 text-xs mb-2 block">Branch</label>
+                  <select
+                    value={localBranchId || activeBranch?.id || ""}
+                    onChange={(e) => {
+                      if (e.target.value === "all") {
+                        setLocalBranchId(null)
+                      } else {
+                        setLocalBranchId(e.target.value)
+                      }
+                    }}
+                    className="w-full bg-zinc-900 border border-zinc-800 text-white rounded-xl px-4 py-3 text-sm outline-none focus:border-emerald-500 transition-colors"
+                  >
+                    <option value="">Select branch</option>
+                    {availableBranches.map(branch => (
+                      <option key={branch.id} value={branch.id}>
+                        {branch.name} {branch.code ? `(${branch.code})` : ""}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-zinc-600 text-xs mt-1.5">This branch will be associated with SKU</p>
+                </div>
+              )}
 
               {isNewProduct ? (
                 <div className="space-y-4">

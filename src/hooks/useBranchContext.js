@@ -3,6 +3,10 @@ import { supabase } from "../lib/supabase"
 import { useUser, useCurrentBusiness } from "./useRole"
 import { useInstantAuth } from "./useInstantAuth"
 
+// Cache for branch data to avoid repeated queries
+const branchCache = new Map()
+const CACHE_DURATION = 5 * 60 * 1000 // 5 minutes
+
 export function useBranchContext() {
   const { user } = useUser()
   const { businessId } = useCurrentBusiness()
@@ -28,6 +32,24 @@ export function useBranchContext() {
     
     const fetchBranches = async () => {
       try {
+        const cacheKey = `${user.id}-${businessId}-${isOwner ? 'owner' : 'user'}`
+        const cached = branchCache.get(cacheKey)
+        
+        // Return cached data if still valid
+        if (cached && (Date.now() - cached.timestamp) < CACHE_DURATION) {
+          setAvailableBranches(cached.branches)
+          if (cached.branches?.length > 0) {
+            const defaultBranch = cached.branches.find(b => b.id === user.default_branch_id) || cached.branches[0]
+            setActiveBranch(defaultBranch)
+            setViewMode('branch')
+          } else {
+            setActiveBranch(null)
+            setViewMode('all')
+          }
+          setLoading(false)
+          return
+        }
+        
         let query = supabase
           .from('branches')
           .select('*')
@@ -57,6 +79,12 @@ export function useBranchContext() {
         const { data: branches } = await query
         
         setAvailableBranches(branches || [])
+        
+        // Cache the results
+        branchCache.set(cacheKey, {
+          branches: branches || [],
+          timestamp: Date.now()
+        })
         
         // Set default branch for all users (owners, managers, cashiers)
         if (branches?.length > 0) {
@@ -97,6 +125,11 @@ export function useBranchContext() {
   }
 
   const refreshBranches = () => {
+    // Clear cache for current user when refreshing
+    if (user?.id && businessId) {
+      const cacheKey = `${user.id}-${businessId}-${isOwner ? 'owner' : 'user'}`
+      branchCache.delete(cacheKey)
+    }
     setRefreshToken((current) => current + 1)
   }
   

@@ -1,0 +1,295 @@
+// src/pages/inventory/Products.jsx
+import { useState, useEffect } from "react"
+import { supabase } from "../../lib/supabase"
+import { useNavigate } from "react-router-dom"
+import { AppShell, UiButton } from "../../components/ui"
+import { useBranchContext } from "../../hooks/useBranchContext"
+import { useCache } from "../../hooks/useCache"
+import { useInstantAuth } from "../../hooks/useInstantAuth"
+
+export default function Products() {
+  const navigate = useNavigate()
+  const { business: instantBusiness, initialized } = useInstantAuth()
+  const { get, set } = useCache()
+  const { canViewAll, availableBranches, loading: branchLoading } = useBranchContext()
+  const [products, setProducts] = useState([])
+  const [filtered, setFiltered] = useState([])
+  const [search, setSearch] = useState("")
+  const [categoryFilter, setCategoryFilter] = useState("all")
+  const [branchFilter, setBranchFilter] = useState("all")
+  const [statusFilter, setStatusFilter] = useState("all")
+  const [categories, setCategories] = useState([])
+  const [localBranchId, setLocalBranchId] = useState(null)
+
+  useEffect(() => {
+    let active = true
+
+    const hydrate = async () => {
+      if (instantBusiness?.id && !branchLoading) {
+        const cacheKey = `products_all_${instantBusiness.id}`
+        const cachedProducts = get(cacheKey)
+
+        if (active && cachedProducts) {
+          setProducts(cachedProducts)
+          setFiltered(cachedProducts)
+          setCategories([...new Set(cachedProducts.map((p) => p.category).filter(Boolean))])
+        } else if (active) {
+          setProducts([])
+          setFiltered([])
+          setCategories([])
+        }
+
+        await fetchProducts(instantBusiness.id, active)
+        return
+      }
+
+      if (initialized && active) {
+        setProducts([])
+        setFiltered([])
+        setCategories([])
+      }
+    }
+
+    hydrate()
+
+    return () => {
+      active = false
+    }
+  }, [instantBusiness?.id, initialized, branchLoading])
+
+  useEffect(() => {
+    let result = products
+    if (search) {
+      result = result.filter(p =>
+        (p.name || "").toLowerCase().includes(search.toLowerCase()) ||
+        (p.sku_id || "").toLowerCase().includes(search.toLowerCase())
+      )
+    }
+    if (categoryFilter !== "all") {
+      result = result.filter((p) => p.category === categoryFilter)
+    }
+    if (branchFilter !== "all") {
+      result = result.filter((p) => p.branch_id === branchFilter)
+    }
+    if (statusFilter !== "all") {
+      if (statusFilter === "active") {
+        result = result.filter((p) => Number(p.current_quantity || 0) > 0)
+      } else if (statusFilter === "low") {
+        result = result.filter((p) => Number(p.current_quantity || 0) <= Number(p.reorder_point || 0))
+      } else if (statusFilter === "out") {
+        result = result.filter((p) => Number(p.current_quantity || 0) === 0)
+      }
+    }
+
+    setFiltered(result)
+  }, [search, categoryFilter, branchFilter, statusFilter, products])
+
+  const fetchProducts = async (businessId, active = true) => {
+    if (!businessId) {
+      setProducts([])
+      setFiltered([])
+      setCategories([])
+      return
+    }
+
+    try {
+      const { data } = await supabase
+        .from("products")
+        .select("id, name, sku_id, category, current_quantity, reorder_point, buying_price, selling_price, unit_of_measure, branch_id, branches!left(name, code)")
+        .not("is_active", "eq", false)
+        .eq("business_id", businessId)
+        .order("name")
+
+      if (!active) return
+
+      const nextProducts = data || []
+      const cacheKey = `products_all_${businessId}`
+      set(cacheKey, nextProducts)
+      setProducts(nextProducts)
+      setFiltered(nextProducts)
+
+      const cats = [...new Set(nextProducts.map((p) => p.category).filter(Boolean))]
+      setCategories(cats)
+    } catch (error) {
+      console.error("Failed to load products:", error)
+    }
+  }
+
+  const fmt = (n) => `KES ${Number(n).toLocaleString("en-KE", { minimumFractionDigits: 2 })}`
+
+  const totalProducts = products.length
+  const activeProducts = products.filter((p) => Number(p.current_quantity || 0) > 0).length
+  const lowStockProducts = products.filter((p) => Number(p.current_quantity || 0) <= Number(p.reorder_point || 0)).length
+  const outOfStockProducts = products.filter((p) => Number(p.current_quantity || 0) === 0).length
+
+  return (
+    <AppShell
+      title="Products"
+      subtitle="Complete product catalog across all branches"
+      contentClassName="max-w-7xl"
+      right={<UiButton variant="secondary" size="sm" onClick={() => navigate("/inventory")}>← Back to Inventory</UiButton>}
+    >
+      <div className="space-y-4">
+        {/* Metrics */}
+        <div className="grid gap-3 grid-cols-2 md:grid-cols-4">
+          <MetricCard label="Total products" value={totalProducts} tone="emerald" />
+          <MetricCard label="In stock" value={activeProducts} tone="sky" />
+          <MetricCard label="Low stock" value={lowStockProducts} tone="amber" />
+          <MetricCard label="Out of stock" value={outOfStockProducts} tone="red" />
+        </div>
+
+        {/* Filters */}
+        <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4">
+          <div className="flex flex-col md:flex-row gap-3">
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search by name or SKU..."
+              className="flex-1 bg-zinc-950 border border-zinc-700 text-white rounded-xl px-4 py-3 text-sm outline-none focus:border-emerald-500 transition-colors placeholder:text-zinc-600"
+            />
+            <select
+              value={categoryFilter}
+              onChange={(e) => setCategoryFilter(e.target.value)}
+              className="bg-zinc-950 border border-zinc-700 text-zinc-300 rounded-xl px-4 py-3 text-sm outline-none focus:border-emerald-500"
+            >
+              <option value="all">All categories</option>
+              {categories.map((cat) => (
+                <option key={cat} value={cat}>
+                  {cat}
+                </option>
+              ))}
+            </select>
+            {canViewAll && (
+              <select
+                value={branchFilter}
+                onChange={(e) => setBranchFilter(e.target.value)}
+                className="bg-zinc-950 border border-zinc-700 text-zinc-300 rounded-xl px-4 py-3 text-sm outline-none focus:border-emerald-500"
+              >
+                <option value="all">All branches</option>
+                {availableBranches.map((branch) => (
+                  <option key={branch.id} value={branch.id}>
+                    {branch.name} {branch.code ? `(${branch.code})` : ""}
+                  </option>
+                ))}
+              </select>
+            )}
+            <select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+              className="bg-zinc-950 border border-zinc-700 text-zinc-300 rounded-xl px-4 py-3 text-sm outline-none focus:border-emerald-500"
+            >
+              <option value="all">All status</option>
+              <option value="active">In stock</option>
+              <option value="low">Low stock</option>
+              <option value="out">Out of stock</option>
+            </select>
+          </div>
+        </div>
+
+        {/* Products Table */}
+        <div className="bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden">
+          <div className="px-4 py-3 border-b border-zinc-800">
+            <p className="text-white text-sm font-medium">Product Catalog ({filtered.length} products)</p>
+          </div>
+
+          {filtered.length === 0 ? (
+            <div className="text-center py-16 px-4">
+              <p className="text-zinc-600 text-sm">No products found</p>
+            </div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[1000px]">
+                <thead className="sticky top-0 bg-zinc-900 z-10">
+                  <tr className="text-left text-[10px] uppercase tracking-wider text-zinc-500 border-b border-zinc-800">
+                    <th className="py-3 px-4 font-medium">SKU</th>
+                    <th className="py-3 px-4 font-medium">Product</th>
+                    <th className="py-3 px-4 font-medium">Category</th>
+                    <th className="py-3 px-4 font-medium">Branch</th>
+                    <th className="py-3 px-4 font-medium text-right">Stock</th>
+                    <th className="py-3 px-4 font-medium text-right">Buying</th>
+                    <th className="py-3 px-4 font-medium text-right">Selling</th>
+                    <th className="py-3 px-4 font-medium text-right">Margin</th>
+                    <th className="py-3 px-4 font-medium">Status</th>
+                    <th className="py-3 px-4 font-medium text-right">Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filtered.map((p) => {
+                    const quantity = Number(p.current_quantity || 0)
+                    const reorder = Number(p.reorder_point || 0)
+                    const buying = Number(p.buying_price || 0)
+                    const selling = Number(p.selling_price || 0)
+                    const margin = selling - buying
+                    const marginPct = selling > 0 ? (margin / selling) * 100 : 0
+                    const isLowStock = quantity <= reorder
+                    const isOutOfStock = quantity === 0
+
+                    return (
+                      <tr
+                        key={p.id}
+                        onClick={() => navigate(`/inventory/product/${p.id}`)}
+                        className="border-b border-zinc-900 hover:bg-zinc-800/60 cursor-pointer transition-colors"
+                      >
+                        <td className="py-3 px-4 text-[11px] text-zinc-400 font-mono">{p.sku_id}</td>
+                        <td className="py-3 px-4">
+                          <p className="text-sm text-white font-medium leading-tight">{p.name}</p>
+                        </td>
+                        <td className="py-3 px-4 text-xs text-zinc-400">{p.category || "-"}</td>
+                        <td className="py-3 px-4 text-xs text-zinc-400">
+                          {p.branches ? `${p.branches.name}${p.branches.code ? ` (${p.branches.code})` : ""}` : "-"}
+                        </td>
+                        <td className="py-3 px-4 text-xs text-right font-mono text-zinc-200">{quantity}</td>
+                        <td className="py-3 px-4 text-xs text-right font-mono text-zinc-300">{fmt(buying)}</td>
+                        <td className="py-3 px-4 text-xs text-right font-mono text-emerald-400">{fmt(selling)}</td>
+                        <td className="py-3 px-4 text-xs text-right font-mono text-zinc-200">{fmt(margin)}</td>
+                        <td className="py-3 px-4">
+                          <span
+                            className={`text-[10px] px-2 py-1 rounded-full font-medium ${
+                              isOutOfStock ? "bg-red-400/10 text-red-400" : 
+                              isLowStock ? "bg-amber-400/10 text-amber-400" : 
+                              "bg-emerald-500/10 text-emerald-400"
+                            }`}
+                          >
+                            {isOutOfStock ? "Out" : isLowStock ? "Low" : "In Stock"}
+                          </span>
+                        </td>
+                        <td className="py-3 px-4 text-right">
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              navigate(`/inventory/product/${p.id}`)
+                            }}
+                            className="bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-[11px] px-2 py-1 rounded-lg transition-colors"
+                          >
+                            View
+                          </button>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </div>
+    </AppShell>
+  )
+}
+
+function MetricCard({ label, value, tone = "emerald" }) {
+  const toneClass = {
+    emerald: "before:bg-emerald-400",
+    sky: "before:bg-sky-400",
+    amber: "before:bg-amber-400",
+    red: "before:bg-red-400",
+  }[tone]
+
+  return (
+    <div className={`relative overflow-hidden bg-zinc-900 border border-zinc-800 rounded-xl p-3 before:content-[''] before:absolute before:top-0 before:left-0 before:right-0 before:h-[2px] ${toneClass}`}>
+      <p className="text-zinc-500 text-[10px] uppercase tracking-wide mb-1">{label}</p>
+      <p className="font-bold font-mono text-white text-xl">{value}</p>
+    </div>
+  )
+}
