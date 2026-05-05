@@ -3,6 +3,7 @@ import { useState, useEffect } from "react"
 import { supabase } from "../../lib/supabase"
 import { useNavigate } from "react-router-dom"
 import FloatingBottomNav from "../../components/layout/FloatingBottomNav"
+import { AppShell, UiButton } from "../../components/ui"
 import { useIsOwner, useIsOwnerOrManager } from "../../hooks/useRole"
 import { useCache } from "../../hooks/useCache"
 import { useInstantAuth } from "../../hooks/useInstantAuth"
@@ -11,7 +12,7 @@ import { BranchSelector } from "../../components/BranchSelector"
 
 export default function Inventory() {
   const navigate = useNavigate()
-  const { business: instantBusiness, initialized } = useInstantAuth()
+  const { business: instantBusiness, initialized, signOut } = useInstantAuth()
   const { get, set } = useCache()
   const isOwner = useIsOwner()
   const isOwnerOrManager = useIsOwnerOrManager()
@@ -144,19 +145,35 @@ export default function Inventory() {
   const totalValue = products.reduce((sum, p) => sum + Number(p.current_quantity || 0) * Number(p.buying_price || 0), 0)
 
   return (
-    <div className="min-h-screen bg-zinc-950 pb-24">
-      {/* Header */}
-      <div className="border-b border-zinc-800 px-6 py-5 flex items-center justify-between">
+    <AppShell showHeader={false} className="pb-24" contentClassName="max-w-6xl space-y-4">
+      <div className="rounded-2xl border border-zinc-800 bg-zinc-900/80 p-4 sm:p-5 shadow-lg shadow-black/10">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-white font-bold text-xl">Stock Register</h1>
-          <p className="text-zinc-500 text-xs">
-            {viewMode === 'branch' && activeBranch ? `${activeBranch.name} • ` : ''}Live inventory balances
+          <p className="text-[10px] uppercase tracking-[0.24em] text-zinc-500">Store</p>
+          <h1 className="text-white font-semibold text-xl sm:text-2xl tracking-tight">Inventory</h1>
+          <p className="mt-1 text-zinc-400 text-xs sm:text-sm">
+            {instantBusiness?.name}{viewMode === 'branch' && activeBranch ? ` • ${activeBranch.name}` : ''} · Live inventory balances
           </p>
         </div>
-        {canViewAll && <BranchSelector />}
+        <div className="flex flex-wrap items-center gap-2">
+          {canViewAll && <BranchSelector />}
+          <UiButton variant="tertiary" size="sm" onClick={signOut} className="text-zinc-400 hover:text-red-400">
+            Sign out
+          </UiButton>
+        </div>
       </div>
 
-      <div className="px-6 py-4 space-y-4">
+        <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-2">
+          <UiButton variant="secondary" size="md" onClick={() => navigate("/inventory/stock-take")} className="w-full justify-center">
+            Stock take
+          </UiButton>
+          <UiButton variant="primary" size="md" onClick={() => navigate("/inventory/new-stock")} className="w-full justify-center">
+            + New stock
+          </UiButton>
+        </div>
+      </div>
+
+      <div className="space-y-4">
         {/* Metrics */}
         <div className={`grid gap-3 ${isOwnerOrManager ? "grid-cols-2 md:grid-cols-4" : "grid-cols-2 md:grid-cols-3"}`}>
           <MetricCard label="Total units" value={totalUnits} tone="emerald" />
@@ -328,22 +345,6 @@ export default function Inventory() {
         </div>
       </div>
 
-      {/* Bottom nav */}
-      <div className="md:hidden fixed bottom-24 left-4 right-4 z-30 grid grid-cols-2 gap-2">
-        <button
-          onClick={() => navigate("/inventory/stock-take")}
-          className="bg-zinc-900/95 border border-zinc-800 text-zinc-200 rounded-xl py-3 text-sm font-medium"
-        >
-          Stock take
-        </button>
-        <button
-          onClick={() => navigate("/inventory/new-stock")}
-          className="bg-emerald-500 text-black rounded-xl py-3 text-sm font-semibold"
-        >
-          + New stock
-        </button>
-      </div>
-
       <FloatingBottomNav active="inventory" />
 
       {mobileFilterOpen && (
@@ -456,7 +457,7 @@ export default function Inventory() {
           </div>
         </div>
       )}
-    </div>
+    </AppShell>
   )
 }
 

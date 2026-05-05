@@ -399,6 +399,27 @@ export default function Dashboard() {
     navigateInstant("/")
   }
 
+  const pageHeader = (
+    <div className="rounded-2xl border border-zinc-800 bg-zinc-900/80 p-4 sm:p-5 shadow-lg shadow-black/10">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <p className="text-[10px] uppercase tracking-[0.24em] text-zinc-500">Store</p>
+          <h1 className="text-white text-xl sm:text-2xl font-semibold tracking-tight">Dashboard</h1>
+          <p className="mt-1 text-zinc-400 text-xs sm:text-sm">
+            {business?.name}
+            {viewMode === 'branch' && activeBranch ? ` • ${activeBranch.name}` : ''}
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          {canViewAll ? <BranchSelector /> : null}
+          <UiButton variant="tertiary" size="sm" onClick={handleSignOut} className="text-zinc-400 hover:text-red-400">
+            Sign out
+          </UiButton>
+        </div>
+      </div>
+    </div>
+  )
+
   const fmt = (n) => `KES ${Number(n).toLocaleString("en-KE", { minimumFractionDigits: 2 })}`
 
   const pendingActions = useMemo(() => {
@@ -569,19 +590,12 @@ export default function Dashboard() {
   if (isCashier) {
     return (
       <AppShell
-        title="Elevate"
-        subtitle={business?.name}
         className="pb-28"
         showHeader={false}
         contentClassName="max-w-lg space-y-4"
-        right={(
-          <>
-            <UiButton variant="tertiary" size="sm" onClick={handleSignOut} className="text-zinc-500 hover:text-red-400">
-              Sign out
-            </UiButton>
-          </>
-        )}
       >
+          {pageHeader}
+
           <div>
             <h2 className="text-white text-xl font-bold">Good {getGreeting()}, {business?.userName?.split(" ")[0]}</h2>
             <p className="text-zinc-500 text-sm mt-1">
@@ -606,20 +620,12 @@ export default function Dashboard() {
   // ── OWNER / MANAGER VIEW ──
   return (
     <AppShell
-      title="Elevate"
-      subtitle={`${business?.name}${viewMode === 'branch' && activeBranch ? ` • ${activeBranch.name}` : ''}`}
       className="pb-28"
-      showHeader={true}
+      showHeader={false}
       contentClassName="max-w-5xl space-y-6"
-      right={(
-        <div className="flex items-center gap-3">
-          <BranchSelector />
-          <UiButton variant="tertiary" size="sm" onClick={handleSignOut} className="text-zinc-500 hover:text-red-400">
-            Sign out
-          </UiButton>
-        </div>
-      )}
     >
+
+        {pageHeader}
 
         <div>
           <h2 className="text-white text-2xl font-bold">Good {getGreeting()}, {business?.userName?.split(" ")[0]}</h2>

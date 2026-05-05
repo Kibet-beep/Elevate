@@ -15,7 +15,7 @@ const today = () => new Date().toISOString().split("T")[0]
 
 export default function Transactions() {
   const navigate = useNavigate()
-  const { business: instantBusiness, initialized } = useInstantAuth()
+  const { business: instantBusiness, initialized, signOut } = useInstantAuth()
   const { get, set } = useCache()
   const isOwnerOrManager = useIsOwnerOrManager()
   const { currentBranchId, viewMode, canViewAll, activeBranch } = useBranchContext()
@@ -158,13 +158,37 @@ export default function Transactions() {
 
   return (
     <AppShell
-      title="Transactions"
-      subtitle={`${viewMode === 'branch' && activeBranch ? `${activeBranch.name} · ` : ''}${filtered.length} transactions · ${periodLabel()}`}
-      showHeader={true}
-      right={canViewAll ? <BranchSelector /> : null}
+      showHeader={false}
+      contentClassName="max-w-6xl space-y-4 pb-28"
     >
+      <div className="rounded-2xl border border-zinc-800 bg-zinc-900/80 p-4 sm:p-5 shadow-lg shadow-black/10">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="text-[10px] uppercase tracking-[0.24em] text-zinc-500">Store</p>
+            <h1 className="text-white text-xl sm:text-2xl font-semibold tracking-tight">Transactions</h1>
+            <p className="mt-1 text-zinc-400 text-xs sm:text-sm">
+              {instantBusiness?.name}{viewMode === 'branch' && activeBranch ? ` • ${activeBranch.name}` : ''} · {filtered.length} transactions · {periodLabel()}
+            </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            {canViewAll ? <BranchSelector /> : null}
+            <UiButton variant="tertiary" size="sm" onClick={signOut} className="text-zinc-400 hover:text-red-400">
+              Sign out
+            </UiButton>
+          </div>
+        </div>
+
+        <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-2">
+          <UiButton variant="secondary" size="md" onClick={() => navigate("/transactions/add-expense")} className="w-full justify-center">
+            + Expense
+          </UiButton>
+          <UiButton variant="primary" size="md" onClick={() => navigate("/transactions/add-sale")} className="w-full justify-center">
+            + Sale
+          </UiButton>
+        </div>
+      </div>
+
       <div className="space-y-4">
-        
         {/* Summary cards — scoped to filtered period */}
         <div className="grid grid-cols-3 gap-3">
           <div className="bg-zinc-900 border border-zinc-800 rounded-xl p-3">
@@ -484,16 +508,6 @@ export default function Transactions() {
             )}
           </div>
         )}
-      </div>
-
-      {/* Mobile FABs */}
-      <div className="md:hidden fixed bottom-24 left-4 right-4 z-30 grid grid-cols-2 gap-2">
-        <button onClick={() => navigate("/transactions/add-expense")} className="bg-zinc-900/95 border border-zinc-800 text-zinc-200 rounded-xl py-3 text-sm font-medium">
-          + Expense
-        </button>
-        <button onClick={() => navigate("/transactions/add-sale")} className="bg-emerald-500 text-black rounded-xl py-3 text-sm font-semibold">
-          + Sale
-        </button>
       </div>
 
       <FloatingBottomNav active="transactions" />
