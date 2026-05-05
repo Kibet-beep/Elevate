@@ -12,10 +12,10 @@ export const PAGE_PERMISSIONS = {
   
   // Inventory
   "/inventory": [ROLES.OWNER, ROLES.MANAGER, ROLES.CASHIER],
-  "/inventory/new-stock": [ROLES.OWNER, ROLES.MANAGER],
+  "/inventory/new-stock": [ROLES.OWNER, ROLES.MANAGER, ROLES.CASHIER],
   "/inventory/product/:id": [ROLES.OWNER, ROLES.MANAGER, ROLES.CASHIER],
-  "/inventory/stock-take": [ROLES.OWNER, ROLES.MANAGER],
-  "/inventory/stocktake": [ROLES.OWNER, ROLES.MANAGER],
+  "/inventory/stock-take": [ROLES.OWNER, ROLES.MANAGER, ROLES.CASHIER],
+  "/inventory/stocktake": [ROLES.OWNER, ROLES.MANAGER, ROLES.CASHIER],
   
   // Transactions
   "/transactions": [ROLES.OWNER, ROLES.MANAGER, ROLES.CASHIER],

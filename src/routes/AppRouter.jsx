@@ -165,7 +165,7 @@ function AppRouterContent() {
         path="/inventory/new-stock"
         element={
           <AuthGuard>
-            <RoleGuard roles={[ROLES.OWNER, ROLES.MANAGER]}>
+            <RoleGuard roles={[ROLES.OWNER, ROLES.MANAGER, ROLES.CASHIER]}>
               <Suspense fallback={<InstantLoadingFallback />}>
                 <NewStock />
               </Suspense>
@@ -187,7 +187,7 @@ function AppRouterContent() {
         path="/inventory/stock-take"
         element={
           <AuthGuard>
-            <RoleGuard roles={[ROLES.OWNER, ROLES.MANAGER]}>
+            <RoleGuard roles={[ROLES.OWNER, ROLES.MANAGER, ROLES.CASHIER]}>
               <Suspense fallback={<InstantLoadingFallback />}>
                 <StockTake />
               </Suspense>
