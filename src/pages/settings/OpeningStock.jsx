@@ -18,6 +18,7 @@ export default function OpeningStock() {
     setActiveBranch,
     showAllBranches,
     isOwner,
+    loading: branchLoading,
   } = useBranchContext()
   const [userId, setUserId] = useState(null)
   const [loading, setLoading] = useState(false)
@@ -52,10 +53,10 @@ export default function OpeningStock() {
   }, [existingProducts, addedStock])
 
   useEffect(() => {
-    if (businessId && authUser) {
+    if (businessId && authUser && !branchLoading) {
       fetchInitialData()
     }
-  }, [businessId, authUser, currentBranchId, viewMode])
+  }, [businessId, authUser, currentBranchId, viewMode, branchLoading])
 
   const fetchInitialData = async () => {
     setUserId(authUser.id)

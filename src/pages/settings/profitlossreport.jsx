@@ -10,7 +10,7 @@ const EAT_OFFSET_MS = 3 * 60 * 60 * 1000
 
 export default function ProfitLossReport() {
   const navigate = useNavigate()
-  const { currentBranchId, viewMode, canViewAll, activeBranch } = useBranchContext()
+  const { currentBranchId, viewMode, canViewAll, activeBranch, loading: branchLoading } = useBranchContext()
   const goBack = () => {
     if (window.history.length > 1) {
       navigate(-1)
@@ -28,8 +28,8 @@ export default function ProfitLossReport() {
   }, [])
 
   useEffect(() => {
-    if (businessId) fetchData()
-  }, [period, businessId, currentBranchId, viewMode])
+    if (businessId && !branchLoading) fetchData()
+  }, [period, businessId, currentBranchId, viewMode, branchLoading])
 
   const fetchUser = async () => {
     const { data: { user } } = await supabase.auth.getUser()

@@ -19,6 +19,7 @@ export default function HistoricalSales() {
     setActiveBranch,
     showAllBranches,
     isOwner,
+    loading: branchLoading,
   } = useBranchContext()
 
   const [userId, setUserId] = useState(null)
@@ -44,10 +45,10 @@ export default function HistoricalSales() {
   const allBranchesLabel = isOwner ? "All Branches" : "All My Branches"
 
   useEffect(() => {
-    if (businessId && authUser) {
+    if (businessId && authUser && !branchLoading) {
       fetchInitialData()
     }
-  }, [businessId, authUser, currentBranchId, viewMode, selectedDate])
+  }, [businessId, authUser, currentBranchId, viewMode, selectedDate, branchLoading])
 
   const fetchInitialData = async () => {
     try {
