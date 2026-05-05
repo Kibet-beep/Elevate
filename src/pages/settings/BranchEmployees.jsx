@@ -23,9 +23,12 @@ export default function BranchEmployees() {
   const [targetBranchId, setTargetBranchId] = useState("")
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
+  const [success, setSuccess] = useState(false)
+  const [successMessage, setSuccessMessage] = useState("")
 
   const branchIdFromNavigation = location.state?.branchId || null
   const branchNameFromNavigation = location.state?.branchName || null
+  const currentBranchName = branchNameFromNavigation || activeBranch?.name || "All branches"
 
   // Only allow access if user has branch access
   useEffect(() => {
@@ -88,6 +91,18 @@ export default function BranchEmployees() {
 
     if (!fullName || !email || !password) {
       setError("Name, email and password are required")
+      return
+    }
+
+    // Email validation
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+    if (!emailRegex.test(email)) {
+      setError("Invalid email format")
+      return
+    }
+
+    if (password.length < 6) {
+      setError("Password must be at least 6 characters")
       return
     }
 
@@ -159,12 +174,15 @@ export default function BranchEmployees() {
     if (result.error) {
       setError(result.error)
     } else {
+      setSuccessMessage(`${fullName} has been added to the team`)
+      setSuccess(true)
       setFullName("")
       setEmail("")
       setPassword("")
       setRole("cashier")
       setAdding(false)
       fetchEmployees()
+      setTimeout(() => setSuccess(false), 3000)
     }
 
     setLoading(false)
@@ -212,23 +230,46 @@ export default function BranchEmployees() {
     >
       <div className="space-y-4">
         {error && <p className="text-red-400 text-sm bg-red-400/10 px-3 py-2 rounded-lg">{error}</p>}
+        {success && <p className="text-emerald-400 text-sm bg-emerald-400/10 px-3 py-2 rounded-lg">{successMessage}</p>}
+
+        {/* Scope Badge */}
+        <UiCard className="p-3 bg-zinc-800/50 border-zinc-700/50">
+          <p className="text-zinc-500 text-xs uppercase tracking-wider">Current scope</p>
+          <p className="text-white text-sm font-semibold mt-1">{currentBranchName}</p>
+        </UiCard>
+
+        <UiCard className="p-4">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <p className="text-zinc-500 text-xs uppercase tracking-wider">Branch scope</p>
+              <h2 className="text-white text-lg font-semibold mt-1">{currentBranchName}</h2>
+              <p className="text-zinc-500 text-sm mt-1">Add staff, assign roles, and keep access aligned with the selected branch.</p>
+            </div>
+            <span className="inline-flex w-fit rounded-full bg-emerald-500/10 px-3 py-1 text-xs font-medium text-emerald-300">
+              {employees.length} employee{employees.length === 1 ? "" : "s"}
+            </span>
+          </div>
+        </UiCard>
 
         {adding && (
           <UiCard className="p-4 space-y-3">
             <h2 className="text-white font-semibold text-sm">New employee</h2>
             {[
               { label: "Full name", value: fullName, setter: setFullName, placeholder: "Jane Wanjiku" },
-              { label: "Email", value: email, setter: setEmail, placeholder: "jane@business.com" },
+              { label: "Email", value: email, setter: setEmail, placeholder: "jane@business.com", type: "email" },
             ].map((f, i) => (
               <div key={i}>
-                <label className="text-zinc-400 text-xs mb-1 block">{f.label}</label>
+                <label className="text-zinc-400 text-xs mb-1 block">{f.label} {f.label === "Email" && <span className="text-red-400">*</span>}</label>
                 <input type={f.type || "text"} value={f.value} onChange={e => f.setter(e.target.value)}
                   placeholder={f.placeholder}
                   className="w-full bg-zinc-800 border border-zinc-700 text-white rounded-xl px-4 py-3 text-sm outline-none focus:border-emerald-500 transition-colors placeholder:text-zinc-600" />
+                {f.label === "Email" && email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) && 
+                  <p className="text-red-400 text-xs mt-1">Invalid email format</p>
+                }
               </div>
             ))}
             <div>
-              <label className="text-zinc-400 text-xs mb-1 block">Temporary password</label>
+              <label className="text-zinc-400 text-xs mb-1 block">Temporary password <span className="text-red-400">*</span></label>
               <input
                 type="password"
                 value={password}
@@ -236,6 +277,7 @@ export default function BranchEmployees() {
                 placeholder="Min 6 characters"
                 className="w-full bg-zinc-800 border border-zinc-700 text-white rounded-xl px-4 py-3 text-sm outline-none focus:border-emerald-500 transition-colors placeholder:text-zinc-600"
               />
+              {password && password.length < 6 && <p className="text-red-400 text-xs mt-1">Password must be at least 6 characters</p>}
             </div>
             <div>
               <label className="text-zinc-400 text-xs mb-1 block">Role</label>
@@ -268,7 +310,12 @@ export default function BranchEmployees() {
                 </select>
               </div>
             )}
-            <UiButton variant="primary" className="w-full" onClick={handleAddEmployee} disabled={loading}>
+            <UiButton 
+              variant="primary" 
+              className="w-full" 
+              onClick={handleAddEmployee} 
+              disabled={loading || !fullName || !email || !password || password.length < 6 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || !targetBranchId || (canViewAll && viewMode !== 'branch' && !targetBranchId)}
+            >
               {loading ? "Adding..." : "Add employee"}
             </UiButton>
           </UiCard>
@@ -297,6 +344,9 @@ export default function BranchEmployees() {
                   emp.is_active ? "bg-emerald-500/10 text-emerald-400" : "bg-red-500/10 text-red-400"
                 }`}>
                   {emp.is_active ? "Active" : "Inactive"}
+                </span>
+                <span className="text-xs px-2.5 py-1 rounded-full font-medium bg-zinc-800 text-zinc-400 capitalize">
+                  {emp.role}
                 </span>
                 {emp.id !== authUser.id && (
                   <button 

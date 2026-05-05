@@ -28,6 +28,7 @@ const AddSale = lazy(() => import("../pages/transactions/AddSale"))
 const AddExpense = lazy(() => import("../pages/transactions/AddExpense"))
 const AddTransfer = lazy(() => import("../pages/transactions/AddTransfer"))
 const Business = lazy(() => import("../pages/settings/Business"))
+const BusinessSettings = lazy(() => import("../pages/settings/BusinessSettings"))
 const General = lazy(() => import("../pages/settings/General"))
 const OpeningStock = lazy(() => import("../pages/settings/OpeningStock"))
 const HistoricalSales = lazy(() => import("../pages/settings/HistoricalSales"))
@@ -306,24 +307,25 @@ function AppRouterContent() {
           <AuthGuard>
             <RoleGuard roles={[ROLES.OWNER, ROLES.MANAGER]}>
               <Suspense fallback={<InstantLoadingFallback />}>
-                <Business />
+                <BusinessSettings />
               </Suspense>
             </RoleGuard>
           </AuthGuard>
         }
       />
       <Route
-        path="/settings/general"
+        path="/settings/business-settings"
         element={
           <AuthGuard>
             <RoleGuard roles={[ROLES.OWNER, ROLES.MANAGER]}>
               <Suspense fallback={<InstantLoadingFallback />}>
-                <General />
+                <BusinessSettings />
               </Suspense>
             </RoleGuard>
           </AuthGuard>
         }
       />
+      <Route path="/settings/general" element={<Navigate to="/settings/business" replace />} />
       <Route
         path="/settings/opening-stock"
         element={

@@ -17,6 +17,7 @@ export default function BranchDetail() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState("")
+  const [saved, setSaved] = useState(false)
   const [editing, setEditing] = useState(false)
   const [name, setName] = useState("")
   const [code, setCode] = useState("")
@@ -100,6 +101,8 @@ export default function BranchDetail() {
       await refreshBranches?.()
       await loadBranch()
       setEditing(false)
+      setSaved(true)
+      setTimeout(() => setSaved(false), 1800)
     } catch (err) {
       setError(err.message || "Failed to update branch")
     } finally {
@@ -131,7 +134,7 @@ export default function BranchDetail() {
   }
 
   const handleDelete = async () => {
-    if (!confirm(`Delete ${branch?.name}? This cannot be undone.`)) return
+    if (!confirm(`Delete ${branch?.name}? This action cannot be undone.`)) return
 
     setSaving(true)
     setError("")
@@ -139,7 +142,7 @@ export default function BranchDetail() {
     try {
       const { error: deleteError } = await supabase
         .from("branches")
-        .delete()
+        .update({ status: "archived" })
         .eq("id", id)
 
       if (deleteError) throw deleteError
@@ -182,7 +185,7 @@ export default function BranchDetail() {
   return (
     <AppShell
       title="Branch Details"
-      subtitle={branch.name}
+      subtitle={`${branch.name} · Manage profile, status, and people in one place`}
       showHeader={true}
       right={(
         <div className="flex w-full flex-wrap items-stretch gap-1.5 sm:w-auto sm:items-center sm:gap-3">
@@ -196,6 +199,32 @@ export default function BranchDetail() {
     >
       <div className="space-y-4">
         {error && <p className="text-red-400 text-sm bg-red-400/10 px-3 py-2 rounded-lg">{error}</p>}
+        {saved && <p className="text-emerald-400 text-sm bg-emerald-400/10 px-3 py-2 rounded-lg">Saved successfully</p>}
+
+        {/* Scope Badge */}
+        <UiCard className="p-3 bg-zinc-800/50 border-zinc-700/50">
+          <p className="text-zinc-500 text-xs uppercase tracking-wider">Current scope</p>
+          <p className="text-white text-sm font-semibold mt-1">{branch.name}</p>
+        </UiCard>
+
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+          <UiCard className="p-4">
+            <p className="text-zinc-500 text-xs">Employees</p>
+            <p className="text-white text-2xl font-semibold mt-1">{assignedCount}</p>
+          </UiCard>
+          <UiCard className="p-4">
+            <p className="text-zinc-500 text-xs">Status</p>
+            <p className={`text-2xl font-semibold mt-1 ${branch.is_active ? "text-emerald-400" : "text-red-400"}`}>{branch.is_active ? "Live" : "Paused"}</p>
+          </UiCard>
+          <UiCard className="p-4">
+            <p className="text-zinc-500 text-xs">Code</p>
+            <p className="text-white text-lg font-semibold mt-2 break-all">{branch.code || "—"}</p>
+          </UiCard>
+          <UiCard className="p-4">
+            <p className="text-zinc-500 text-xs">Branch ID</p>
+            <p className="text-white text-xs font-mono mt-2 break-all">{branch.id}</p>
+          </UiCard>
+        </div>
 
         <UiCard className="p-4 space-y-4">
           <div className="flex items-start justify-between gap-4">
@@ -207,6 +236,22 @@ export default function BranchDetail() {
               {branch.is_active ? "Active" : "Inactive"}
             </span>
           </div>
+
+          {!editing && (
+            <div className="grid gap-3 md:grid-cols-2">
+              <div className="rounded-xl border border-zinc-800 bg-zinc-950 p-4">
+                <p className="text-zinc-500 text-xs uppercase tracking-wider">Contact</p>
+                <div className="mt-3 space-y-1 text-sm">
+                  <p className="text-white">{branch.phone || "No phone"}</p>
+                  <p className="text-zinc-400 break-all">{branch.email || "No email"}</p>
+                </div>
+              </div>
+              <div className="rounded-xl border border-zinc-800 bg-zinc-950 p-4">
+                <p className="text-zinc-500 text-xs uppercase tracking-wider">Address</p>
+                <p className="mt-3 text-sm text-zinc-200">{branch.address || "No address set"}</p>
+              </div>
+            </div>
+          )}
 
           {editing ? (
             <div className="space-y-3">
@@ -241,21 +286,6 @@ export default function BranchDetail() {
             </div>
           ) : null}
         </UiCard>
-
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <UiCard className="p-4">
-            <p className="text-zinc-500 text-xs">Employees</p>
-            <p className="text-white text-2xl font-semibold mt-1">{assignedCount}</p>
-          </UiCard>
-          <UiCard className="p-4">
-            <p className="text-zinc-500 text-xs">Branch code</p>
-            <p className="text-white text-2xl font-semibold mt-1">{branch.code || "-"}</p>
-          </UiCard>
-          <UiCard className="p-4">
-            <p className="text-zinc-500 text-xs">Branch id</p>
-            <p className="text-white text-xs font-mono mt-2 break-all">{branch.id}</p>
-          </UiCard>
-        </div>
 
         <UiCard className="p-4 space-y-3">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">

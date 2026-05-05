@@ -81,7 +81,7 @@ export default function EmployeeDetails() {
     try {
       const { error } = await supabase
         .from("users")
-        .delete()
+        .update({ is_active: false })
         .eq("id", id)
 
       if (error) throw error

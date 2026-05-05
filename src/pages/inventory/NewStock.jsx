@@ -1,9 +1,9 @@
 // src/pages/inventory/NewStock.jsx
-import { useState, useEffect } from "react"
+import { useState, useEffect, useMemo } from "react"
 import { supabase } from "../../lib/supabase"
 import { useNavigate } from "react-router-dom"
 import { useUser, useIsOwnerOrManager, useCurrentBusiness } from "../../hooks/useRole"
-import { AppShell, UiButton, UiCard, UiSectionTitle } from "../../components/ui"
+import { AppShell, UiButton, UiCard, UiSectionTitle, CategorySelect } from "../../components/ui"
 
 export default function NewStock() {
   const navigate = useNavigate()
@@ -23,7 +23,6 @@ export default function NewStock() {
   const [productSearch, setProductSearch] = useState("")
   const [name, setName] = useState("")
   const [category, setCategory] = useState("")
-  const [unit, setUnit] = useState("")
 
   // Sourcing
   const [sourcingType, setSourcingType] = useState("local")
@@ -37,6 +36,11 @@ export default function NewStock() {
   // Pricing
   const [sellingPrice, setSellingPrice] = useState("")
   const [composerStep, setComposerStep] = useState(1)
+  const defaultUnit = "pcs"
+
+  const categoryOptions = useMemo(() => {
+    return Array.from(new Set(existingProducts.map((product) => product.category).filter(Boolean))).sort((a, b) => String(a).localeCompare(String(b)))
+  }, [existingProducts])
 
   useEffect(() => {
     if (businessId && authUser) {
@@ -135,7 +139,7 @@ export default function NewStock() {
           sku_id: sku,
           name,
           category: category || null,
-          unit_of_measure: unit || null,
+          unit_of_measure: defaultUnit,
           buying_price: landedCostPerUnit,
           selling_price: parseFloat(sellingPrice),
           vat_type: vatType,
@@ -146,6 +150,7 @@ export default function NewStock() {
 
       if (productError) { setError(productError.message); setLoading(false); return }
       productId = newProduct.id
+      setExistingProducts((current) => [...current, newProduct])
     } else {
       await supabase
         .from("products")
@@ -180,7 +185,7 @@ export default function NewStock() {
   const resetForm = () => {
     setSuccess(false)
     setComposerStep(1)
-    setName(""); setCategory(""); setUnit("")
+    setName(""); setCategory("")
     setQuantity(""); setTotalPurchaseCost(""); setShippingClearingCost("")
     setAdditionalCosts([]); setSupplierId("")
     setSellingPrice(""); setSelectedProduct(null)
@@ -267,14 +272,14 @@ export default function NewStock() {
                     <Input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Nike Air Max 90 Black Size 40" />
                     {name && <p className="text-zinc-600 text-xs mt-1.5 font-mono tracking-wide">SKU auto-generated on save</p>}
                   </Field>
-                  <div className="grid grid-cols-2 gap-3">
-                    <Field label="Category">
-                      <Input value={category} onChange={e => setCategory(e.target.value)} placeholder="Sneakers" />
-                    </Field>
-                    <Field label="Unit">
-                      <Input value={unit} onChange={e => setUnit(e.target.value)} placeholder="pcs" />
-                    </Field>
-                  </div>
+                  <CategorySelect
+                    label="Category"
+                    value={category}
+                    onChange={setCategory}
+                    options={categoryOptions}
+                    placeholder="Type or choose a category"
+                  />
+                  <p className="text-[11px] text-zinc-600">Unit is managed centrally and defaults to pcs for now.</p>
                 </div>
               ) : (
                 <div className="space-y-3">

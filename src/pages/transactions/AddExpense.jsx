@@ -42,8 +42,13 @@ export default function AddExpense() {
   }, [businessId, authUser])
 
   const handleSubmit = async () => {
+    const amountNum = parseFloat(amount) || 0
     if (!category || !amount) {
       setError("Category and amount are required")
+      return
+    }
+    if (amountNum <= 0) {
+      setError("Amount must be greater than zero")
       return
     }
     setLoading(true)
@@ -156,8 +161,9 @@ export default function AddExpense() {
 
             <div className="grid gap-4 sm:grid-cols-2">
               <div>
-                <label className="text-zinc-400 text-xs mb-1 block">Amount (KES)</label>
+                <label className="text-zinc-400 text-xs mb-1 block">Amount (KES) <span className="text-red-400">*</span></label>
                 <input type="number" value={amount} onChange={e => setAmount(e.target.value)} placeholder="0.00" className="w-full bg-zinc-950 border border-zinc-800 text-white rounded-xl px-4 py-3 text-sm outline-none focus:border-emerald-500 transition-colors placeholder:text-zinc-600" />
+                {amount && parseFloat(amount) <= 0 && <p className="text-red-400 text-xs mt-1">Amount must be greater than zero</p>}
               </div>
               <div>
                 <label className="text-zinc-400 text-xs mb-1 block">Date</label>

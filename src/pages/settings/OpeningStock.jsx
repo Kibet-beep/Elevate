@@ -1,9 +1,9 @@
-import { useState, useEffect } from "react"
+import { useState, useEffect, useMemo } from "react"
 import { supabase } from "../../lib/supabase"
 import { useNavigate } from "react-router-dom"
 import { useUser, useCurrentBusiness } from "../../hooks/useRole"
 import { useBranchContext } from "../../hooks/useBranchContext"
-import { AppShell, UiButton, UiCard, UiSectionTitle } from "../../components/ui"
+import { AppShell, UiButton, UiCard, UiSectionTitle, CategorySelect } from "../../components/ui"
 
 export default function OpeningStock() {
   const navigate = useNavigate()
@@ -30,7 +30,6 @@ export default function OpeningStock() {
   const [productSearch, setProductSearch] = useState("")
   const [name, setName] = useState("")
   const [category, setCategory] = useState("")
-  const [unit, setUnit] = useState("")
 
   const [quantity, setQuantity] = useState("")
   const [unitCost, setUnitCost] = useState("")
@@ -41,6 +40,16 @@ export default function OpeningStock() {
   const [addedStock, setAddedStock] = useState([])
   const resolvedBranchId = currentBranchId || activeBranch?.id || null
   const allBranchesLabel = isOwner ? "All Branches" : "All My Branches"
+  const defaultUnit = "pcs"
+
+  const categoryOptions = useMemo(() => {
+    return Array.from(
+      new Set([
+        ...existingProducts.map((product) => product.category).filter(Boolean),
+        ...addedStock.map((item) => item.category).filter(Boolean),
+      ])
+    ).sort((a, b) => String(a).localeCompare(String(b)))
+  }, [existingProducts, addedStock])
 
   useEffect(() => {
     if (businessId && authUser) {
@@ -114,7 +123,6 @@ export default function OpeningStock() {
     setProductSearch("")
     setName("")
     setCategory("")
-    setUnit("")
     setQuantity("")
     setUnitCost("")
     setSellingPrice("")
@@ -136,7 +144,7 @@ export default function OpeningStock() {
         productId: selectedProduct?.id || null,
         productName: isNewProduct ? name.trim() : selectedProduct.name,
         category: isNewProduct ? (category || null) : selectedProduct?.category || null,
-        unit: isNewProduct ? (unit || null) : selectedProduct?.unit_of_measure || null,
+        unit: isNewProduct ? defaultUnit : selectedProduct?.unit_of_measure || defaultUnit,
         quantity: qty,
         unitCost: cost,
         landedCostPerUnit,
@@ -176,6 +184,7 @@ export default function OpeningStock() {
           buying_price: item.landedCostPerUnit,
           selling_price: item.sellingPrice,
           current_quantity: item.quantity,
+          unit_of_measure: item.unit || defaultUnit,
         }))
         .map((row) => ({
           ...row,
@@ -297,12 +306,12 @@ export default function OpeningStock() {
             <span className="text-emerald-400 text-4xl">âœ“</span>
           </div>
           <div>
-            <h2 className="text-white font-bold text-2xl tracking-tight">Opening stock saved</h2>
+            <h2 className="text-white font-bold text-2xl tracking-tight">Baseline saved</h2>
             <p className="text-zinc-500 text-sm mt-2">Baseline captured for {addedStock.length} products</p>
           </div>
           <div className="flex gap-3 pt-2">
             <button onClick={() => navigate("/settings/historical-sales")} className="flex-1 bg-emerald-500 hover:bg-emerald-400 text-black font-semibold rounded-xl py-3 text-sm transition-colors">
-              Continue to sales
+              Continue to backdated sales
             </button>
             <button onClick={() => navigate("/settings")} className="flex-1 bg-zinc-900 hover:bg-zinc-800 border border-zinc-700 text-white font-medium rounded-xl py-3 text-sm transition-colors">
               Back to settings
@@ -315,7 +324,7 @@ export default function OpeningStock() {
 
   return (
     <AppShell
-      title="Opening stock"
+      title="Reorientation stock"
       subtitle={`Step ${step} of 4 · Product → Opening qty → Pricing → Review`}
       contentClassName="max-w-6xl"
       right={<UiButton variant="tertiary" size="sm" onClick={goBack}>← Back</UiButton>}
@@ -399,14 +408,14 @@ export default function OpeningStock() {
                     <Input value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Premium Rice 50kg" />
                     {name && <p className="text-zinc-600 text-xs mt-1.5 font-mono tracking-wide">SKU auto-generated on save</p>}
                   </Field>
-                  <div className="grid grid-cols-2 gap-3">
-                    <Field label="Category">
-                      <Input value={category} onChange={e => setCategory(e.target.value)} placeholder="Grains" />
-                    </Field>
-                    <Field label="Unit">
-                      <Input value={unit} onChange={e => setUnit(e.target.value)} placeholder="bag, kg, unit" />
-                    </Field>
-                  </div>
+                  <CategorySelect
+                    label="Category"
+                    value={category}
+                    onChange={setCategory}
+                    options={categoryOptions}
+                    placeholder="Type or choose a category"
+                  />
+                  <p className="text-[11px] text-zinc-600">Unit is managed centrally and defaults to pcs for now.</p>
                 </div>
               ) : (
                 <div className="space-y-3">

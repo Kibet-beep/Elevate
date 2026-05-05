@@ -100,7 +100,14 @@ export default function AddSale() {
     }
 
     setCartItems(
-      cartItems.map((item) => (item.product_id === productId ? { ...item, quantity: qty } : item))
+      cartItems.map((item) => {
+        if (item.product_id === productId) {
+          // Prevent exceeding available stock
+          const validQty = Math.min(qty, item.max_quantity)
+          return { ...item, quantity: validQty }
+        }
+        return item
+      })
     )
   }
 

@@ -306,6 +306,7 @@ export default function HistoricalSales() {
       setShowPendingReview(false)
       resetComposer()
       await fetchInitialData()
+      navigate("/settings", { replace: true })
     } catch (err) {
       setError(err.message || "Failed to submit transactions")
     } finally {
@@ -318,7 +319,7 @@ export default function HistoricalSales() {
   if (showPendingReview) {
     return (
       <AppShell
-        title="Complete transactions"
+        title="Finalize onboarding"
         subtitle="Review staged sales before final submission"
         contentClassName="max-w-6xl"
         right={
@@ -395,7 +396,7 @@ export default function HistoricalSales() {
               onClick={handleSubmit}
               disabled={loading || pendingTransactions.length === 0}
             >
-              {loading ? "Submitting..." : "Submit"}
+              {loading ? "Submitting..." : "Submit & finish"}
             </UiButton>
           </div>
         </div>
@@ -405,11 +406,11 @@ export default function HistoricalSales() {
 
   return (
     <AppShell
-      title="Historical sales"
+      title="Backdated sales"
       subtitle={
         activeBranch
-          ? `${activeBranch.name} · Backdate sales with the regular sale flow`
-          : "Backdate sales with the regular sale flow"
+          ? `${activeBranch.name} · Backfill missed sales before final review`
+          : "Backfill missed sales before final review"
       }
       showHeader={true}
       contentClassName="max-w-6xl"
@@ -908,25 +909,6 @@ export default function HistoricalSales() {
             </UiButton>
           </UiCard>
         </div>
-      </div>
-
-      <div className="fixed bottom-24 left-4 right-4 z-30 space-y-2 md:hidden">
-        <UiButton
-          variant="primary"
-          className="w-full"
-          onClick={handleRecordSale}
-          disabled={loading || cartItems.length === 0 || !openingDate}
-        >
-          {loading ? "Recording..." : `Record sale · ${fmt(total)}`}
-        </UiButton>
-        <UiButton
-          variant="secondary"
-          className="w-full"
-          onClick={() => setShowPendingReview(true)}
-          disabled={loading || pendingTransactions.length === 0}
-        >
-          Complete transactions
-        </UiButton>
       </div>
     </AppShell>
   )

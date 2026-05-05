@@ -1,5 +1,5 @@
 // src/pages/dashboard/Dashboard.jsx
-import { useState, useEffect } from "react"
+import { useState, useEffect, useMemo } from "react"
 import { supabase } from "../../lib/supabase"
 import { useNavigate } from "react-router-dom"
 import FloatingBottomNav from "../../components/layout/FloatingBottomNav"
@@ -401,6 +401,44 @@ export default function Dashboard() {
 
   const fmt = (n) => `KES ${Number(n).toLocaleString("en-KE", { minimumFractionDigits: 2 })}`
 
+  const pendingActions = useMemo(() => {
+    const actions = []
+
+    if (stats.lowStock > 0) {
+      actions.push({
+        title: "Low stock",
+        detail: `${stats.lowStock} item${stats.lowStock === 1 ? "" : "s"} need review`,
+        tone: "red",
+      })
+    }
+
+    if (todaySummary.totalSales === 0) {
+      actions.push({
+        title: "No sales yet",
+        detail: "Record the first sale of the day",
+        tone: "amber",
+      })
+    }
+
+    if (todaySummary.totalExpenses > todaySummary.totalSales) {
+      actions.push({
+        title: "Expenses ahead of sales",
+        detail: `${Number(todaySummary.totalExpenses - todaySummary.totalSales).toLocaleString("en-KE", { minimumFractionDigits: 2 })} gap today`,
+        tone: "amber",
+      })
+    }
+
+    if (stats.totalRevenue === 0) {
+      actions.push({
+        title: "Setup still incomplete",
+        detail: "Add products to start tracking revenue",
+        tone: "zinc",
+      })
+    }
+
+    return actions.slice(0, 3)
+  }, [stats.lowStock, stats.totalRevenue, todaySummary.totalExpenses, todaySummary.totalSales])
+
   const QuickActions = () => (
     <div className="flex flex-wrap gap-2">
       <UiButton variant="primary" size="sm" onClick={() => navigateInstant("/transactions/add-sale")}>
@@ -483,26 +521,45 @@ export default function Dashboard() {
         </div>
       </div>
 
-      <div className="border-t border-zinc-800 pt-3">
-        <p className="text-zinc-500 text-xs mb-3">Current balances (accumulated)</p>
-        <div className="space-y-2">
-          {[
-            { label: "💵 Cash in hand", value: todaySummary.cash },
-            { label: "📱 M-Pesa", value: todaySummary.mpesa },
-          ].map((acc, i) => (
-            <div key={i} className="flex items-center justify-between bg-zinc-800 rounded-xl px-4 py-3">
-              <p className="text-zinc-300 text-sm">{acc.label}</p>
-              <p className={`text-sm font-mono font-bold ${acc.value >= 0 ? "text-emerald-400" : "text-red-400"}`}>
-                {fmt(acc.value)}
-              </p>
-            </div>
-          ))}
-          <div className="flex items-center justify-between bg-zinc-800 rounded-xl px-4 py-3 border border-zinc-700">
-            <p className="text-white font-semibold text-sm">Total</p>
-            <p className="text-emerald-400 text-sm font-mono font-bold">
-              {fmt(todaySummary.cash + todaySummary.mpesa)}
+      <div className="border-t border-zinc-800 pt-3 space-y-3">
+        <p className="text-zinc-500 text-xs">Business pulse</p>
+        <div className="grid grid-cols-2 gap-2">
+          <div className="rounded-xl bg-zinc-800 px-4 py-3">
+            <p className="text-zinc-500 text-[11px] mb-1">Transactions today</p>
+            <p className="text-white text-sm font-semibold">{stats.transactions}</p>
+          </div>
+          <div className="rounded-xl bg-zinc-800 px-4 py-3">
+            <p className="text-zinc-500 text-[11px] mb-1">Low stock alerts</p>
+            <p className={`text-sm font-semibold ${stats.lowStock > 0 ? "text-red-400" : "text-emerald-400"}`}>
+              {stats.lowStock}
             </p>
           </div>
+        </div>
+        <div className="rounded-xl bg-zinc-800 px-4 py-3 border border-zinc-700">
+          <p className="text-zinc-500 text-[11px] mb-1">Pending actions</p>
+          {pendingActions.length > 0 ? (
+            <div className="space-y-2">
+              {pendingActions.map((action, index) => (
+                <div key={index} className="flex items-start justify-between gap-3 rounded-lg bg-zinc-900/80 px-3 py-2">
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-white">{action.title}</p>
+                    <p className="text-[11px] text-zinc-500">{action.detail}</p>
+                  </div>
+                  <span className={`shrink-0 rounded-full px-2 py-1 text-[10px] font-medium uppercase tracking-wider ${
+                    action.tone === "red"
+                      ? "bg-red-500/10 text-red-400"
+                      : action.tone === "amber"
+                      ? "bg-amber-500/10 text-amber-400"
+                      : "bg-zinc-700 text-zinc-300"
+                  }`}>
+                    {action.tone === "red" ? "Now" : action.tone === "amber" ? "Soon" : "Info"}
+                  </span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-emerald-400 text-sm">All caught up</p>
+          )}
         </div>
       </div>
     </div>

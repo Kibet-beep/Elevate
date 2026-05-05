@@ -39,7 +39,19 @@ export default function General() {
     if (businessId) fetchData()
   }, [businessId, fetchData])
 
+  const validateSettings = () => {
+    if (vatRate < 0 || vatRate > 100) return "VAT rate must be between 0 and 100"
+    if (lowStockThreshold <= 0) return "Low stock threshold must be greater than zero"
+    if (financialYearStart < 1 || financialYearStart > 12) return "Financial year start must be a valid month"
+    return null
+  }
+
   const handleSave = async () => {
+    const validationError = validateSettings()
+    if (validationError) {
+      setError(validationError)
+      return
+    }
     setSaving(true)
     setError("")
     const { error } = await supabase
@@ -66,16 +78,18 @@ export default function General() {
 
         <UiCard className="p-4 space-y-4">
           <div>
-            <label className="text-zinc-400 text-xs mb-1 block">VAT rate (%)</label>
-            <input type="number" value={vatRate} onChange={e => setVatRate(e.target.value)}
+            <label className="text-zinc-400 text-xs mb-1 block">VAT rate (%) <span className="text-red-400">*</span></label>
+            <input type="number" min="0" max="100" value={vatRate} onChange={e => setVatRate(e.target.value)}
               className="w-full bg-zinc-800 border border-zinc-700 text-white rounded-xl px-4 py-3 text-sm outline-none focus:border-emerald-500 transition-colors" />
-            <p className="text-zinc-600 text-xs mt-1">Default is 16% (Kenya standard rate)</p>
+            <p className="text-zinc-600 text-xs mt-1">Default is 16% (Kenya standard rate). Must be 0-100.</p>
+            {(vatRate < 0 || vatRate > 100) && <p className="text-red-400 text-xs mt-1">VAT rate must be between 0 and 100</p>}
           </div>
           <div>
-            <label className="text-zinc-400 text-xs mb-1 block">Low stock threshold</label>
-            <input type="number" value={lowStockThreshold} onChange={e => setLowStockThreshold(e.target.value)}
+            <label className="text-zinc-400 text-xs mb-1 block">Low stock threshold <span className="text-red-400">*</span></label>
+            <input type="number" min="1" value={lowStockThreshold} onChange={e => setLowStockThreshold(e.target.value)}
               className="w-full bg-zinc-800 border border-zinc-700 text-white rounded-xl px-4 py-3 text-sm outline-none focus:border-emerald-500 transition-colors" />
             <p className="text-zinc-600 text-xs mt-1">Alert when any product falls below this quantity</p>
+            {lowStockThreshold <= 0 && <p className="text-red-400 text-xs mt-1">Low stock threshold must be greater than zero</p>}
           </div>
           <div>
             <label className="text-zinc-400 text-xs mb-1 block">Financial year starts</label>
@@ -88,7 +102,12 @@ export default function General() {
           </div>
         </UiCard>
 
-        <UiButton variant="primary" className="w-full" onClick={handleSave} disabled={saving}>
+        <UiButton 
+          variant="primary" 
+          className="w-full" 
+          onClick={handleSave} 
+          disabled={saving || (vatRate < 0 || vatRate > 100) || lowStockThreshold <= 0}
+        >
           {saving ? "Saving..." : "Save changes"}
         </UiButton>
       </div>
