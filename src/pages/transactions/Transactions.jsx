@@ -38,25 +38,18 @@ export default function Transactions() {
     let active = true
 
     const hydrate = async () => {
-      if (instantBusiness?.id && !branchLoading) {
-        const cacheKey = cacheKeyForTransactions(instantBusiness.id, effectiveBranchId)
-        const cachedTransactions = get(cacheKey)
+      if (!instantBusiness?.id || branchLoading) return
 
-        if (active && cachedTransactions) {
-          setTransactions(cachedTransactions)
-        } else if (active) {
-          setTransactions([])
-          setFiltered([])
-        }
+      const cacheKey = cacheKeyForTransactions(instantBusiness.id, effectiveBranchId)
+      const cachedTransactions = get(cacheKey)
 
-        await fetchTransactions(instantBusiness.id, active)
-        return
+      // Show cached data immediately
+      if (cachedTransactions && active) {
+        setTransactions(cachedTransactions)
       }
 
-      if (initialized && active) {
-        setTransactions([])
-        setFiltered([])
-      }
+      // Always fetch fresh in background
+      await fetchTransactions(instantBusiness.id, active)
     }
 
     hydrate()
@@ -64,7 +57,7 @@ export default function Transactions() {
     return () => {
       active = false
     }
-  }, [instantBusiness?.id, initialized, localBranchId, branchLoading])
+  }, [instantBusiness?.id, initialized, effectiveBranchId, branchLoading])
 
   useEffect(() => {
     let result = transactions

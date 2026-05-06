@@ -1,5 +1,5 @@
 // src/pages/inventory/Inventory.jsx
-import { useState, useEffect, useMemo, useCallback } from "react"
+import { useState, useEffect, useMemo, useCallback, useRef } from "react"
 import { supabase } from "../../lib/supabase"
 import { useNavigate } from "react-router-dom"
 import FloatingBottomNav from "../../components/layout/FloatingBottomNav"
@@ -38,6 +38,7 @@ export default function Inventory() {
   const [selectedProduct, setSelectedProduct] = useState(null)
   const [categories, setCategories] = useState([])
   const [localBranchId, setLocalBranchId] = useState(null)
+  const prevBranchId = useRef(undefined)
 
   // For cashiers, always use their assigned branch
   const effectiveBranchId = isOwnerOrManager ? localBranchId : (user?.default_branch_id || activeBranch?.id)
@@ -148,9 +149,16 @@ export default function Inventory() {
   }, [hydrate])
 
   useEffect(() => {
-    setProducts([])
-    setFiltered([])
-    setCategories([])
+    if (prevBranchId.current === undefined) {
+      prevBranchId.current = localBranchId
+      return // skip on first mount
+    }
+    if (prevBranchId.current !== localBranchId) {
+      prevBranchId.current = localBranchId
+      setProducts([])
+      setFiltered([])
+      setCategories([])
+    }
   }, [localBranchId])
 
   const filteredProducts = useMemo(() => {

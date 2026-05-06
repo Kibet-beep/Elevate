@@ -77,6 +77,7 @@ export default function Dashboard() {
       preloadProducts(instantBusiness.id)
       preloadEmployees(instantBusiness.id)
       preloadBusiness(instantBusiness.id)
+      fetchDashboardData()
     } else if (authUser) {
       fetchDashboardData()
     }
