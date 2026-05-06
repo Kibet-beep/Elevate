@@ -6,6 +6,23 @@ import { useInstantAuth } from "./useInstantAuth"
 // Cache for branch data to avoid repeated queries
 const branchCache = new Map()
 const BRANCH_CACHE_TTL_MS = 5 * 60 * 1000
+const branchSelectionStore = new Map()
+const BRANCH_SELECTION_EVENT = "elevate:branch-selection-changed"
+
+function buildSelectionKey(userId, businessId, role) {
+  return `${userId || "anon"}:${businessId || "none"}:${role || "unknown"}`
+}
+
+function setStoredSelection(selectionKey, payload) {
+  branchSelectionStore.set(selectionKey, payload)
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(
+      new CustomEvent(BRANCH_SELECTION_EVENT, {
+        detail: { selectionKey, ...payload },
+      })
+    )
+  }
+}
 
 export function useBranchContext() {
   const { user, userRole } = useUser()
@@ -13,6 +30,7 @@ export function useBranchContext() {
   const { initialized, business } = useInstantAuth()
   const resolvedBusinessId = businessId || business?.id || null
   const resolvedRole = userRole || user?.role || null
+  const selectionKey = buildSelectionKey(user?.id, resolvedBusinessId, resolvedRole)
   
   const [activeBranch, setActiveBranch] = useState(null)
   const [viewMode, setViewMode] = useState('all') // 'all' | 'branch'
@@ -28,6 +46,22 @@ export function useBranchContext() {
   const canViewAll = isOwner
 
   const applyDefaultBranch = (branches) => {
+    const storedSelection = branchSelectionStore.get(selectionKey)
+    if (storedSelection?.viewMode === 'all' && isOwner) {
+      setActiveBranch(null)
+      setViewMode('all')
+      return
+    }
+
+    if (storedSelection?.branchId) {
+      const storedBranch = branches.find((branch) => branch.id === storedSelection.branchId)
+      if (storedBranch) {
+        setActiveBranch(storedBranch)
+        setViewMode('branch')
+        return
+      }
+    }
+
     if (branches.length === 0) {
       setActiveBranch(null)
       setViewMode(isOwner ? 'all' : 'branch')
@@ -98,6 +132,32 @@ useEffect(() => {
   fetchBranches()
 }, [user?.id, userRole, user?.default_branch_id, resolvedBusinessId, initialized])
 
+  useEffect(() => {
+    if (typeof window === "undefined") return
+
+    const handleSelectionChanged = (event) => {
+      const detail = event?.detail
+      if (!detail || detail.selectionKey !== selectionKey) return
+
+      if (detail.viewMode === "all" && isOwner) {
+        setActiveBranch(null)
+        setViewMode("all")
+        return
+      }
+
+      if (detail.branchId) {
+        const selected = availableBranches.find((branch) => branch.id === detail.branchId)
+        if (selected) {
+          setActiveBranch(selected)
+          setViewMode("branch")
+        }
+      }
+    }
+
+    window.addEventListener(BRANCH_SELECTION_EVENT, handleSelectionChanged)
+    return () => window.removeEventListener(BRANCH_SELECTION_EVENT, handleSelectionChanged)
+  }, [selectionKey, availableBranches, isOwner])
+
   // Handle manual refresh without infinite loop
   useEffect(() => {
     if (refreshToken > 0 && user?.id && resolvedBusinessId && initialized) {
@@ -108,12 +168,14 @@ useEffect(() => {
   const selectBranch = (branch) => {
     setActiveBranch(branch)
     setViewMode('branch')
+    setStoredSelection(selectionKey, { viewMode: 'branch', branchId: branch?.id || null })
   }
   
   const showAllBranches = () => {
     if (isOwner) {
       setActiveBranch(null)
       setViewMode('all')
+      setStoredSelection(selectionKey, { viewMode: 'all', branchId: null })
     }
   }
 

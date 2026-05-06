@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react"
+import { useState, useEffect, useMemo, useRef } from "react"
 import { supabase } from "../../lib/supabase"
 import { useNavigate } from "react-router-dom"
 import { useUser, useCurrentBusiness } from "../../hooks/useRole"
@@ -47,6 +47,7 @@ export default function OpeningStock() {
   const [openingDate, setOpeningDate] = useState("")
   const [step, setStep] = useState(1)
   const [isNewProduct, setIsNewProduct] = useState(true)
+  const previousBranchIdRef = useRef(null)
   const defaultUnit = "pcs"
   const reservedSkus = new Set()
 
@@ -70,6 +71,25 @@ export default function OpeningStock() {
       fetchInitialData()
     }
   }, [businessId, authUser, resolvedBranchId, branchLoading, canViewAll])
+
+  useEffect(() => {
+    const previousBranchId = previousBranchIdRef.current
+    if (!previousBranchId) {
+      previousBranchIdRef.current = resolvedBranchId
+      return
+    }
+
+    if (resolvedBranchId && previousBranchId !== resolvedBranchId) {
+      // Prevent cross-branch contamination when owner switches branch scope.
+      setSelectedProduct(null)
+      setProductSearch("")
+      setAddedStock([])
+      setStep(1)
+      setError("")
+    }
+
+    previousBranchIdRef.current = resolvedBranchId
+  }, [resolvedBranchId])
 
   const fetchInitialData = async () => {
     if (canViewAll && !resolvedBranchId) {
@@ -160,6 +180,11 @@ export default function OpeningStock() {
     if (isNewProduct && !name) { setError("Product name is required"); return }
     if (!isNewProduct && !selectedProduct) { setError("Please select a product"); return }
     if (!sellingPrice) { setError("Selling price is required"); return }
+    if (!resolvedBranchId) { setError("Select a branch before adding stock"); return }
+    if (!isNewProduct && selectedProduct?.branch_id && selectedProduct.branch_id !== resolvedBranchId) {
+      setError("Selected product does not belong to the active branch")
+      return
+    }
 
     setAddedStock([
       ...addedStock,
@@ -230,8 +255,21 @@ export default function OpeningStock() {
 
       if (existingItems.length > 0) {
         const updateResults = await Promise.all(
-          existingItems.map((item) =>
-            supabase
+          existingItems.map(async (item) => {
+            const { data: scopedProduct, error: scopeError } = await supabase
+              .from("products")
+              .select("id")
+              .eq("id", item.productId)
+              .eq("business_id", businessId)
+              .eq("branch_id", branchId)
+              .maybeSingle()
+
+            if (scopeError) throw scopeError
+            if (!scopedProduct) {
+              throw new Error(`Product "${item.productName}" does not belong to the selected branch`)
+            }
+
+            return supabase
               .from("products")
               .update({
                 current_quantity: item.quantity,
@@ -239,7 +277,9 @@ export default function OpeningStock() {
                 selling_price: item.sellingPrice,
               })
               .eq("id", item.productId)
-          )
+              .eq("business_id", businessId)
+              .eq("branch_id", branchId)
+          })
         )
 
         const failedUpdate = updateResults.find((result) => result.error)
