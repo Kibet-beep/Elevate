@@ -10,7 +10,7 @@ const EAT_OFFSET_MS = 3 * 60 * 60 * 1000
 
 export default function ProfitLossReport() {
   const navigate = useNavigate()
-  const { canViewAll, availableBranches, loading: branchLoading } = useBranchContext()
+  const { canViewAll, availableBranches, effectiveBranchId, loading: branchLoading } = useBranchContext()
   const goBack = () => {
     if (window.history.length > 1) {
       navigate(-1)
@@ -22,7 +22,6 @@ export default function ProfitLossReport() {
   const [businessId, setBusinessId] = useState(null)
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
-  const [localBranchId, setLocalBranchId] = useState(null)
 
   useEffect(() => {
     fetchUser()
@@ -30,7 +29,7 @@ export default function ProfitLossReport() {
 
   useEffect(() => {
     if (businessId && !branchLoading) fetchData()
-  }, [period, businessId, localBranchId, branchLoading])
+  }, [period, businessId, effectiveBranchId, branchLoading])
 
   const fetchUser = async () => {
     const { data: { user } } = await supabase.auth.getUser()
@@ -92,9 +91,9 @@ export default function ProfitLossReport() {
       .gte("date", start)
       .lte("date", end)
 
-    if (localBranchId) {
-      salesQuery = salesQuery.eq("branch_id", localBranchId)
-      expenseQuery = expenseQuery.eq("branch_id", localBranchId)
+    if (effectiveBranchId) {
+      salesQuery = salesQuery.eq("branch_id", effectiveBranchId)
+      expenseQuery = expenseQuery.eq("branch_id", effectiveBranchId)
     }
 
     // Sales
@@ -176,13 +175,12 @@ export default function ProfitLossReport() {
             </button>
             <h1 className="text-white font-bold text-2xl tracking-tight">Profit & Loss</h1>
             <p className="text-zinc-500 text-sm mt-1">
-              {localBranchId ? `${availableBranches.find(b => b.id === localBranchId)?.name} • ` : ''}{periodLabel()}
+              {effectiveBranchId ? `${availableBranches.find(b => b.id === effectiveBranchId)?.name} • ` : ''}{periodLabel()}
             </p>
           </div>
           {canViewAll ? (
             <BranchSelector 
-              onChange={(value) => setLocalBranchId(value === 'all' ? null : value)}
-              value={localBranchId || 'all'}
+              value={effectiveBranchId || 'all'}
             />
           ) : null}
         </div>

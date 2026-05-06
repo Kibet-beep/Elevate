@@ -32,13 +32,11 @@ function BranchSelectorComponent({ className = "", onChange = null, value = null
     if (loading) {
       return [<option key="loading" value="">Loading branches...</option>]
     }
-    if (!canViewAll) {
-      return [<option key="no-access" value="">No branch access</option>]
+    const options = []
+
+    if (canViewAll) {
+      options.push(<option key="all" value="all">{allBranchesLabel}</option>)
     }
-    
-    const options = [
-      <option key="all" value="all">{allBranchesLabel}</option>
-    ]
     
     availableBranches.forEach(branch => {
       options.push(
@@ -71,9 +69,9 @@ function BranchSelectorComponent({ className = "", onChange = null, value = null
       <select
         value={currentValue}
         onChange={handleChange}
-        disabled={loading || !canViewAll}
+        disabled={loading || (!canViewAll && !hasLocalControl)}
         className={`appearance-none bg-zinc-800 border border-zinc-700 text-white rounded-lg px-3 py-2 pr-8 text-sm focus:outline-none focus:border-emerald-500 transition-colors ${
-          loading || !canViewAll ? 'cursor-not-allowed opacity-50' : 'cursor-pointer hover:bg-zinc-700'
+          loading || (!canViewAll && !hasLocalControl) ? 'cursor-not-allowed opacity-50' : 'cursor-pointer hover:bg-zinc-700'
         }`}
       >
         {branchOptions}

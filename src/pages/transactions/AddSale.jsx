@@ -7,6 +7,8 @@ import { useBranchContext } from "../../hooks/useBranchContext"
 import { AppShell, UiButton, UiCard, UiSectionTitle } from "../../components/ui"
 import PaymentIcon from "../../components/ui/PaymentIcon"
 import { BranchSelector } from "../../components/BranchSelector"
+import { enqueue } from "../../lib/outbox"
+import { runSync } from "../../lib/syncEngine"
 
 export default function AddSale() {
   const navigate = useNavigate()
@@ -150,53 +152,36 @@ export default function AddSale() {
     setLoading(true)
     setError("")
 
-    const { data: txn, error: txnError } = await supabase
-      .from("transactions")
-        .insert({
-          business_id: businessId,
-          branch_id: viewMode === "branch" ? resolvedBranchId : null,
-          type: "sale",
-        transaction_type_tag: "income",
-        payment_account: paymentAccount,
-        account_code: "4100",
-        date: new Date(`${saleDate}T12:00:00Z`).toISOString(),
-        created_by: userId,
-      })
-      .select()
-      .single()
+    // Generate a client-side ID immediately — this prevents duplicates
+    // even if the request is retried multiple times
+    const transactionId = crypto.randomUUID()
 
-    if (txnError) {
-      setError(txnError.message)
-      setLoading(false)
-      return
+    const transaction = {
+      id:                   transactionId,
+      business_id:          businessId,
+      branch_id:            viewMode === "branch" ? resolvedBranchId : null,
+      type:                 "sale",
+      transaction_type_tag: "income",
+      payment_account:      paymentAccount,
+      account_code:         "4100",
+      date:                 new Date(`${saleDate}T12:00:00Z`).toISOString(),
+      created_by:           userId,
     }
 
-    const items = cartItems.map((item) => ({
-      transaction_id: txn.id,
-      product_id: item.product_id,
-      quantity: item.quantity,
-      unit_price: item.unit_price,
-      total_amount: item.unit_price * item.quantity,
-      vat_applied: item.vat_type !== "exempt" ? 1 : 0,
+    const saleItems = cartItems.map(item => ({
+      product_id:       item.product_id,
+      quantity:         item.quantity,
+      unit_price:       item.unit_price,
+      total_amount:     item.unit_price * item.quantity,
+      vat_applied:      item.vat_type !== "exempt" ? 1 : 0,
       etims_receipt_no: etimsNo || null,
     }))
 
-    const { error: itemsError } = await supabase.from("sale_items").insert(items)
+    // Queue the operation — data is now safe even if offline
+    enqueue("CREATE_SALE", { transaction, saleItems })
 
-    if (itemsError) {
-      setError(itemsError.message)
-      setLoading(false)
-      return
-    }
-
-    const updates = cartItems.map((item) =>
-      supabase.rpc("decrement_stock", {
-        product_id: item.product_id,
-        amount: item.quantity,
-      })
-    )
-
-    await Promise.all(updates)
+    // Try to sync immediately if online
+    await runSync()
 
     setSuccess(true)
     setLoading(false)

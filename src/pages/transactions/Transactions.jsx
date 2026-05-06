@@ -1,5 +1,5 @@
 // src/pages/transactions/Transactions.jsx
-import { useState, useEffect } from "react"
+import { useState, useEffect, useMemo, useCallback } from "react"
 import { supabase } from "../../lib/supabase"
 import { useNavigate } from "react-router-dom"
 import FloatingBottomNav from "../../components/layout/FloatingBottomNav"
@@ -18,7 +18,7 @@ export default function Transactions() {
   const { business: instantBusiness, initialized, signOut } = useInstantAuth()
   const { get, set } = useCache()
   const { user } = useUser()
-  const { canViewAll, availableBranches, activeBranch, loading: branchLoading } = useBranchContext()
+  const { canViewAll, availableBranches, effectiveBranchId, loading: branchLoading } = useBranchContext()
   const isOwnerOrManager = useIsOwnerOrManager()
   const [transactions, setTransactions] = useState([])
   const [filtered, setFiltered] = useState([])
@@ -29,23 +29,37 @@ export default function Transactions() {
   const [paymentFilter, setPaymentFilter] = useState("all")
   const [mobileFilterOpen, setMobileFilterOpen] = useState(false)
   const [selectedTx, setSelectedTx] = useState(null)
-  const [localBranchId, setLocalBranchId] = useState(null)
 
-  // For cashiers, always use their assigned branch
-  const effectiveBranchId = isOwnerOrManager ? localBranchId : (user?.default_branch_id || activeBranch?.id)
+  // Block the query until the branch is resolved for non-owners
+  const readyToFetch = !branchLoading && (canViewAll || !!effectiveBranchId)
 
   useEffect(() => {
     let active = true
 
     const hydrate = async () => {
-      if (!instantBusiness?.id || branchLoading) return
+      if (!instantBusiness?.id || branchLoading || !readyToFetch) return
 
       const cacheKey = cacheKeyForTransactions(instantBusiness.id, effectiveBranchId)
-      const cachedTransactions = get(cacheKey)
+      const cachedTransactions = get(cacheKey) || []
 
-      // Show cached data immediately
-      if (cachedTransactions && active) {
-        setTransactions(cachedTransactions)
+      // Merge any pending outbox sales into the cached list so they show immediately
+      try {
+        const raw = localStorage.getItem('elevate:outbox')
+        const outbox = raw ? JSON.parse(raw) : []
+        const pendingSales = outbox
+          .filter(item => item.status === 'pending' && item.type === 'CREATE_SALE')
+          .map(item => ({
+            ...item.payload.transaction,
+            amount: item.payload.saleItems.reduce((s, i) => s + i.unit_price * i.quantity, 0),
+            display_name: `${item.payload.saleItems.length} item(s) — pending sync`,
+            sale_items: item.payload.saleItems,
+            syncStatus: 'pending',
+          }))
+
+        const merged = [...pendingSales, ...cachedTransactions]
+        if (active) setTransactions(merged)
+      } catch {
+        if (active && cachedTransactions.length) setTransactions(cachedTransactions)
       }
 
       // Always fetch fresh in background
@@ -80,8 +94,11 @@ export default function Transactions() {
     setFiltered(result)
   }, [typeFilter, search, dateFrom, dateTo, paymentFilter, transactions])
 
-  const fetchTransactions = async (businessId, active = true) => {
+  const fetchTransactions = useCallback(async (businessId, active = true) => {
     if (!businessId) return
+
+    // Cashier's branch not loaded yet — wait
+    if (!readyToFetch) return
 
     try {
       let query = supabase
@@ -97,6 +114,10 @@ export default function Transactions() {
       // Apply branch filtering if a specific branch is selected
       if (effectiveBranchId) {
         query = query.eq("branch_id", effectiveBranchId)
+      } else if (!isOwnerOrManager) {
+        // Cashier with no resolved branch — return nothing, never all branches
+        setTransactions([]); setFiltered([])
+        return []
       }
 
       if (!active) return
@@ -121,7 +142,7 @@ export default function Transactions() {
     } catch (error) {
       console.error("Failed to load transactions:", error)
     }
-  }
+  }, [effectiveBranchId, isOwnerOrManager, readyToFetch])
 
   const cacheKeyForTransactions = (businessId, branchId = null) => {
   if (branchId) {
@@ -167,16 +188,11 @@ export default function Transactions() {
             <p className="text-[10px] uppercase tracking-[0.24em] text-zinc-500">Store</p>
             <h1 className="text-white text-xl sm:text-2xl font-semibold tracking-tight">Transactions</h1>
             <p className="mt-1 text-zinc-400 text-xs sm:text-sm">
-              {instantBusiness?.name}{localBranchId ? ` • ${availableBranches.find(b => b.id === localBranchId)?.name}` : ''} · {filtered.length} transactions · {periodLabel()}
+              {instantBusiness?.name}{effectiveBranchId ? ` • ${availableBranches.find(b => b.id === effectiveBranchId)?.name}` : ''} · {filtered.length} transactions · {periodLabel()}
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            {canViewAll ? (
-              <BranchSelector 
-                onChange={(value) => setLocalBranchId(value === 'all' ? null : value)}
-                value={localBranchId || 'all'}
-              />
-            ) : null}
+            {canViewAll ? <BranchSelector value={effectiveBranchId || "all"} /> : null}
             <UiButton variant="tertiary" size="sm" onClick={signOut} className="text-zinc-400 hover:text-red-400">
               Sign out
             </UiButton>
@@ -374,9 +390,16 @@ export default function Transactions() {
                       </p>
                     </div>
                     <div className="mt-2 flex items-center justify-between">
-                      <span className={`text-[10px] px-2 py-1 rounded-full font-medium ${t.type === "sale" ? "bg-emerald-500/10 text-emerald-400" : "bg-red-400/10 text-red-400"}`}>
-                        {t.type === "sale" ? "Sale" : "Expense"}
-                      </span>
+                      <div className="flex items-center gap-2">
+                        <span className={`text-[10px] px-2 py-1 rounded-full font-medium ${t.type === "sale" ? "bg-emerald-500/10 text-emerald-400" : "bg-red-400/10 text-red-400"}`}>
+                          {t.type === "sale" ? "Sale" : "Expense"}
+                        </span>
+                        {t.syncStatus === 'pending' && (
+                          <span className="text-[10px] px-2 py-1 rounded-full bg-amber-400/10 text-amber-400 font-medium">
+                            ⏳ Pending sync
+                          </span>
+                        )}
+                      </div>
                       <p className={`text-[11px] font-mono ${t.balance >= 0 ? "text-zinc-300" : "text-red-400"}`}>
                         Balance: {fmt(t.balance)}
                       </p>
@@ -413,9 +436,16 @@ export default function Transactions() {
                           {new Date(t.date).toLocaleDateString("en-KE")}
                         </td>
                         <td className="py-3 px-4">
-                          <span className={`text-[10px] px-2 py-1 rounded-full font-medium ${t.type === "sale" ? "bg-emerald-500/10 text-emerald-400" : "bg-red-400/10 text-red-400"}`}>
-                            {t.type === "sale" ? "Sale" : "Expense"}
-                          </span>
+                          <div className="flex items-center gap-2">
+                            <span className={`text-[10px] px-2 py-1 rounded-full font-medium ${t.type === "sale" ? "bg-emerald-500/10 text-emerald-400" : "bg-red-400/10 text-red-400"}`}>
+                              {t.type === "sale" ? "Sale" : "Expense"}
+                            </span>
+                            {t.syncStatus === 'pending' && (
+                              <span className="text-[10px] px-2 py-1 rounded-full bg-amber-400/10 text-amber-400 font-medium">
+                                ⏳ Pending sync
+                              </span>
+                            )}
+                          </div>
                         </td>
                         <td className="py-3 px-4 text-sm text-white font-medium">{t.display_name}</td>
                         <td className="py-3 px-4 text-xs text-zinc-400">

@@ -4,6 +4,10 @@ import { supabase } from "../../lib/supabase"
 import { useNavigate } from "react-router-dom"
 import { useCurrentBusiness } from "../../hooks/useRole"
 import { useInstantAuth } from "../../hooks/useInstantAuth"
+import { useBranchContext } from "../../hooks/useBranchContext"
+import { enqueue } from "../../lib/outbox"
+import { runSync } from "../../lib/syncEngine"
+import { BranchSelector } from "../../components/BranchSelector"
 
 function classifyABC(products) {
   if (!products.length) return {}
@@ -157,24 +161,46 @@ export default function StockTake() {
   const [selectedVarianceId, setSelectedVarianceId] = useState(null)
   const { user } = useInstantAuth()
   const { businessId } = useCurrentBusiness()
+  const { canViewAll, currentBranchId, activeBranch, loading: branchLoading } = useBranchContext()
+  const resolvedBranchId = currentBranchId || activeBranch?.id || null
 
-  useEffect(() => { if (businessId && user?.id) fetchInitialData(businessId, user.id) }, [businessId, user?.id])
+  useEffect(() => {
+    if (!branchLoading && businessId && user?.id) {
+      fetchInitialData(businessId, user.id)
+    }
+  }, [businessId, user?.id, branchLoading, resolvedBranchId])
 
   const fetchInitialData = async (resolvedBusinessId, resolvedUserId) => {
     if (!resolvedBusinessId || !resolvedUserId) return
+    if (canViewAll && !resolvedBranchId) {
+      setError("Select a branch before running a stock take")
+      setAllProducts([])
+      setProducts([])
+      return
+    }
+    if (!resolvedBranchId) {
+      setError("Your branch is not assigned yet. Contact the owner.")
+      setAllProducts([])
+      setProducts([])
+      return
+    }
+
     setUserId(resolvedUserId)
+    setError("")
 
     const [productsResult, pastResult] = await Promise.all([
       supabase
         .from("products")
         .select("id, name, sku_id, current_quantity, unit_of_measure, category, buying_price")
         .eq("business_id", resolvedBusinessId)
+        .eq("branch_id", resolvedBranchId)
         .eq("is_active", true)
         .order("name"),
       supabase
         .from("stock_takes")
         .select("*")
         .eq("business_id", resolvedBusinessId)
+        .eq("branch_id", resolvedBranchId)
         .order("created_at", { ascending: false })
         .limit(5),
     ])
@@ -214,15 +240,30 @@ export default function StockTake() {
   }
 
   const startCount = async () => {
+    if (!resolvedBranchId) {
+      setError("Branch is required to start stock take")
+      return
+    }
+
     setLoading(true)
     setError("")
-    const { data, error } = await supabase
-      .from("stock_takes")
-      .insert({ business_id: businessId, type, start_date: new Date().toISOString(), status: "counting", counted_by: userId })
-      .select()
-      .single()
-    if (error) { setError(error.message); setLoading(false); return }
-    setStockTakeId(data.id)
+
+    const newStockTakeId = crypto.randomUUID()
+
+    const stockTake = {
+      id: newStockTakeId,
+      business_id: businessId,
+      branch_id: resolvedBranchId,
+      type,
+      start_date: new Date().toISOString(),
+      status: "counting",
+      counted_by: userId,
+    }
+
+    enqueue("CREATE_STOCK_TAKE", { stockTake })
+    await runSync()
+
+    setStockTakeId(newStockTakeId)
     setStep("counting")
     setLoading(false)
   }
@@ -230,15 +271,17 @@ export default function StockTake() {
   const submitCounts = async () => {
     setLoading(true)
     setError("")
+
     const items = products.map((p) => ({
       stock_take_id: stockTakeId,
       product_id: p.id,
       expected_quantity: p.current_quantity,
       actual_quantity: parseFloat(counts[p.id] ?? p.current_quantity),
     }))
-    const { error: itemsError } = await supabase.from("stock_take_items").insert(items)
-    if (itemsError) { setError(itemsError.message); setLoading(false); return }
-    await supabase.from("stock_takes").update({ status: "variance_review" }).eq("id", stockTakeId)
+
+    enqueue("SUBMIT_STOCK_TAKE_COUNTS", { stockTakeId, items })
+    await runSync()
+
     setStep("review")
     setLoading(false)
   }
@@ -246,11 +289,14 @@ export default function StockTake() {
   const approveStockTake = async () => {
     setLoading(true)
     setError("")
-    const { error } = await supabase
-      .from("stock_takes")
-      .update({ status: "approved", approved_by: userId, end_date: new Date().toISOString() })
-      .eq("id", stockTakeId)
-    if (error) { setError(error.message); setLoading(false); return }
+
+    enqueue("APPROVE_STOCK_TAKE", {
+      stockTakeId,
+      approvedBy: userId,
+      endDate: new Date().toISOString(),
+    })
+    await runSync()
+
     setStep("done")
     setLoading(false)
   }
@@ -272,6 +318,9 @@ export default function StockTake() {
           </button>
           <h1 className="text-white font-bold text-2xl tracking-tight">Stock Take</h1>
           <p className="text-zinc-500 text-sm mt-1">Choose the type of count to run</p>
+          <div className="mt-3">
+            {canViewAll ? <BranchSelector /> : null}
+          </div>
         </div>
 
         <div className="px-5 max-w-2xl mx-auto space-y-4">

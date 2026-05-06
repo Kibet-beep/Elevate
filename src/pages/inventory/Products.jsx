@@ -13,7 +13,7 @@ export default function Products() {
   const navigate = useNavigate()
   const { business: instantBusiness, initialized } = useInstantAuth()
   const { get, set } = useCache()
-  const { canViewAll, availableBranches, loading: branchLoading } = useBranchContext()
+  const { canViewAll, availableBranches, effectiveBranchId, loading: branchLoading } = useBranchContext()
   
   // Create unified cache manager
   const cacheManager = useMemo(() => createCacheManager({ get, set }, { get: () => null, set: () => {} }), [get, set])
@@ -24,7 +24,6 @@ export default function Products() {
   const [branchFilter, setBranchFilter] = useState("all")
   const [statusFilter, setStatusFilter] = useState("all")
   const [categories, setCategories] = useState([])
-  const [localBranchId, setLocalBranchId] = useState(null)
 
   useEffect(() => {
     let active = true
@@ -37,7 +36,7 @@ export default function Products() {
         try {
           const result = await cacheManager.hydrateProducts(
             businessId,
-            null, // No branch filtering for Products page (shows all)
+            canViewAll ? null : effectiveBranchId,
             () => fetchProducts(businessId, active)
           )
 
@@ -46,9 +45,25 @@ export default function Products() {
           }
 
           const nextProducts = result.data || []
-          setProducts(nextProducts)
-          setFiltered(nextProducts)
-          setCategories([...new Set(nextProducts.map((p) => p.category).filter(Boolean))])
+          try {
+            const raw = localStorage.getItem('elevate:outbox')
+            const outbox = raw ? JSON.parse(raw) : []
+            const pendingProducts = outbox
+              .filter(item => item.status === 'pending' && item.type === 'CREATE_STOCK_ENTRY' && item.payload.isNewProduct)
+              .map(item => ({
+                ...item.payload.newProductData,
+                current_quantity: 0,
+                syncStatus: 'pending',
+              }))
+            const merged = [...pendingProducts, ...nextProducts]
+            setProducts(merged)
+            setFiltered(merged)
+            setCategories([...new Set(merged.map((p) => p.category).filter(Boolean))])
+          } catch {
+            setProducts(nextProducts)
+            setFiltered(nextProducts)
+            setCategories([...new Set(nextProducts.map((p) => p.category).filter(Boolean))])
+          }
           console.log(`Products loaded from ${result.source}`)
         } catch (error) {
           console.error('Products hydration failed:', error)
@@ -74,7 +89,7 @@ export default function Products() {
     return () => {
       active = false
     }
-  }, [instantBusiness?.id, initialized, branchLoading, cacheManager])
+  }, [instantBusiness?.id, initialized, branchLoading, cacheManager, canViewAll, effectiveBranchId])
 
   useEffect(() => {
     let result = products
@@ -87,7 +102,7 @@ export default function Products() {
     if (categoryFilter !== "all") {
       result = result.filter((p) => p.category === categoryFilter)
     }
-    if (branchFilter !== "all") {
+    if (canViewAll && branchFilter !== "all") {
       result = result.filter((p) => p.branch_id === branchFilter)
     }
     if (statusFilter !== "all") {
@@ -101,7 +116,7 @@ export default function Products() {
     }
 
     setFiltered(result)
-  }, [search, categoryFilter, branchFilter, statusFilter, products])
+  }, [search, categoryFilter, branchFilter, statusFilter, products, canViewAll])
 
   const fetchProducts = async (businessId, active = true) => {
     if (!businessId) {
@@ -112,12 +127,24 @@ export default function Products() {
     }
 
     try {
-      const { data } = await supabase
+      let query = supabase
         .from("products")
         .select("id, name, sku_id, category, current_quantity, reorder_point, buying_price, selling_price, unit_of_measure, branch_id, branches!left(name, code)")
         .not("is_active", "eq", false)
         .eq("business_id", businessId)
         .order("name")
+
+      if (!canViewAll) {
+        if (!effectiveBranchId) {
+          setProducts([])
+          setFiltered([])
+          setCategories([])
+          return []
+        }
+        query = query.eq("branch_id", effectiveBranchId)
+      }
+
+      const { data } = await query
 
       if (!active) return
 
@@ -132,7 +159,7 @@ export default function Products() {
       
       // Update cache in background (don't block)
       try {
-        cacheManager.setProducts(businessId, nextProducts, null) // null for all products
+        cacheManager.setProducts(businessId, nextProducts, canViewAll ? null : effectiveBranchId)
       } catch (cacheError) {
         console.warn('Cache update failed:', cacheError)
       }
@@ -155,7 +182,7 @@ export default function Products() {
   return (
     <AppShell
       title="Products"
-      subtitle="Complete product catalog across all branches"
+      subtitle={canViewAll ? "Complete product catalog across all branches" : "Product catalog for your branch"}
       contentClassName="max-w-7xl"
       right={<UiButton variant="secondary" size="sm" onClick={() => navigate("/inventory")}>← Back to Inventory</UiButton>}
     >

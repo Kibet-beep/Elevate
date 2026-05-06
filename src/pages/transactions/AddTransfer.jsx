@@ -3,7 +3,11 @@ import { useState, useEffect } from "react"
 import { supabase } from "../../lib/supabase"
 import { useNavigate } from "react-router-dom"
 import { useUser, useCurrentBusiness } from "../../hooks/useRole"
+import { useBranchContext } from "../../hooks/useBranchContext"
+import { BranchSelector } from "../../components/BranchSelector"
 import { AppShell, UiButton, UiCard, UiSectionTitle } from "../../components/ui"
+import { enqueue } from "../../lib/outbox"
+import { runSync } from "../../lib/syncEngine"
 
 const ACCOUNTS = ["cash", "mpesa", "bank"]
 
@@ -20,6 +24,7 @@ export default function AddTransfer() {
   const navigate = useNavigate()
   const { user: authUser } = useUser()
   const { businessId } = useCurrentBusiness()
+  const { canViewAll, currentBranchId, activeBranch, loading: branchLoading } = useBranchContext()
   const [userId, setUserId] = useState(null)
   const [fromAccount, setFromAccount] = useState("cash")
   const [toAccount, setToAccount] = useState("mpesa")
@@ -30,6 +35,7 @@ export default function AddTransfer() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
   const [success, setSuccess] = useState(false)
+  const resolvedBranchId = currentBranchId || activeBranch?.id || null
 
   useEffect(() => {
     if (businessId && authUser) {
@@ -102,6 +108,18 @@ export default function AddTransfer() {
 
   const handleSubmit = async () => {
     setError("")
+    if (branchLoading) {
+      setError("Loading branch context, please wait")
+      return
+    }
+    if (canViewAll && !resolvedBranchId) {
+      setError("Select a branch before recording a transfer")
+      return
+    }
+    if (!resolvedBranchId) {
+      setError("Your branch is not assigned yet. Contact the owner.")
+      return
+    }
 
     if (!amount) {
       setError("Amount is required")
@@ -118,49 +136,49 @@ export default function AddTransfer() {
 
     setLoading(true)
 
-    // Record the transfer
-    const { error: transferError } = await supabase.from("transfers").insert({
-      business_id: businessId,
-      from_account: fromAccount,
-      to_account: toAccount,
-      amount: amt,
-      transaction_cost: cost,
-      date: new Date(date).toISOString(),
-      note: note || null,
-      created_by: userId,
-    })
+    const transferId = crypto.randomUUID()
 
-    if (transferError) {
-      setError(transferError.message)
-      setLoading(false)
-      return
+    const transfer = {
+      id:               transferId,
+      business_id:      businessId,
+      branch_id:        resolvedBranchId,
+      from_account:     fromAccount,
+      to_account:       toAccount,
+      amount:           amt,
+      transaction_cost: cost,
+      date:             new Date(date).toISOString(),
+      note:             note || null,
+      created_by:       userId,
     }
 
-    // If there's a transaction cost, record it as an expense
+    // If there's a transaction cost, build the expense too
+    let costExpense = null
     if (cost > 0) {
-      const { data: txn, error: txnError } = await supabase
-        .from("transactions")
-        .insert({
-          business_id: businessId,
-          type: "expense",
+      const txnId = crypto.randomUUID()
+      costExpense = {
+        transaction: {
+          id:                   txnId,
+          business_id:          businessId,
+          branch_id:            resolvedBranchId,
+          type:                 "expense",
           transaction_type_tag: "operating_expense",
-          payment_account: fromAccount,
-          account_code: "6600",
-          date: new Date(date).toISOString(),
-          created_by: userId,
-        })
-        .select()
-        .single()
-
-      if (!txnError) {
-        await supabase.from("expenses").insert({
-          transaction_id: txn.id,
-          category: "Transfer cost",
-          amount: cost,
-          description: `Transfer cost: ${accountLabel(fromAccount)} → ${accountLabel(toAccount)}`,
-        })
+          payment_account:      fromAccount,
+          account_code:         "6600",
+          date:                 new Date(date).toISOString(),
+          created_by:           userId,
+        },
+        expense: {
+          transaction_id: txnId,
+          category:       "Transfer cost",
+          amount:         cost,
+          description:    `Transfer cost: ${accountLabel(fromAccount)} → ${accountLabel(toAccount)}`,
+        }
       }
     }
+
+    enqueue("CREATE_TRANSFER", { transfer, costExpense })
+
+    await runSync()
 
     setSuccess(true)
     setLoading(false)
@@ -199,7 +217,12 @@ export default function AddTransfer() {
       title="Transfer Funds"
       subtitle="Move money between accounts"
       contentClassName="max-w-6xl"
-      right={<UiButton variant="secondary" size="sm" onClick={() => navigate("/transactions")}>← Back</UiButton>}
+      right={
+        <div className="flex items-center gap-2">
+          <UiButton variant="secondary" size="sm" onClick={() => navigate("/transactions")}>← Back</UiButton>
+          {canViewAll ? <BranchSelector /> : null}
+        </div>
+      }
     >
       <div className="grid gap-4 lg:grid-cols-[1.35fr_0.65fr]">
         <div className="space-y-4">

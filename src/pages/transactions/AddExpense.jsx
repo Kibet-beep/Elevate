@@ -3,7 +3,11 @@ import { useState, useEffect } from "react"
 import { supabase } from "../../lib/supabase"
 import { useNavigate } from "react-router-dom"
 import { useUser, useCurrentBusiness } from "../../hooks/useRole"
+import { useBranchContext } from "../../hooks/useBranchContext"
+import { BranchSelector } from "../../components/BranchSelector"
 import { AppShell, UiButton, UiCard, UiSectionTitle } from "../../components/ui"
+import { enqueue } from "../../lib/outbox"
+import { runSync } from "../../lib/syncEngine"
 
 const EXPENSE_CATEGORIES = [
   "Rent", "Utilities", "Salaries & Wages", "Transport",
@@ -25,6 +29,7 @@ export default function AddExpense() {
   const navigate = useNavigate()
   const { user: authUser } = useUser()
   const { businessId } = useCurrentBusiness()
+  const { canViewAll, currentBranchId, activeBranch, loading: branchLoading } = useBranchContext()
   const [userId, setUserId] = useState(null)
   const [category, setCategory] = useState("")
   const [amount, setAmount] = useState("")
@@ -34,6 +39,7 @@ export default function AddExpense() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
   const [success, setSuccess] = useState(false)
+  const resolvedBranchId = currentBranchId || activeBranch?.id || null
 
   useEffect(() => {
     if (businessId && authUser) {
@@ -51,6 +57,20 @@ export default function AddExpense() {
       setError("Amount must be greater than zero")
       return
     }
+
+    if (branchLoading) {
+      setError("Loading branch context, please wait")
+      return
+    }
+    if (canViewAll && !resolvedBranchId) {
+      setError("Select a branch before recording an expense")
+      return
+    }
+    if (!resolvedBranchId) {
+      setError("Your branch is not assigned yet. Contact the owner.")
+      return
+    }
+
     setLoading(true)
     setError("")
 
@@ -59,40 +79,30 @@ export default function AddExpense() {
       : category === "Equipment" ? "asset_purchase"
       : "operating_expense"
 
-    const { data: txn, error: txnError } = await supabase
-      .from("transactions")
-      .insert({
-        business_id: businessId,
-        type: "expense",
-        transaction_type_tag: tag,
-        payment_account: paymentAccount,
-        account_code: accountCode,
-        date: new Date(date).toISOString(),
-        created_by: userId,
-      })
-      .select()
-      .single()
+    const transactionId = crypto.randomUUID()
 
-    if (txnError) {
-      setError(txnError.message)
-      setLoading(false)
-      return
+    const transaction = {
+      id:                   transactionId,
+      business_id:          businessId,
+      branch_id:            resolvedBranchId,
+      type:                 "expense",
+      transaction_type_tag: tag,
+      payment_account:      paymentAccount,
+      account_code:         accountCode,
+      date:                 new Date(date).toISOString(),
+      created_by:           userId,
     }
 
-    const { error: expError } = await supabase
-      .from("expenses")
-      .insert({
-        transaction_id: txn.id,
-        category,
-        amount: parseFloat(amount),
-        description: description || null,
-      })
-
-    if (expError) {
-      setError(expError.message)
-      setLoading(false)
-      return
+    const expense = {
+      transaction_id: transactionId,
+      category,
+      amount:         amountNum,
+      description:    description || null,
     }
+
+    enqueue("CREATE_EXPENSE", { transaction, expense })
+
+    await runSync()
 
     setSuccess(true)
     setLoading(false)
@@ -134,7 +144,12 @@ export default function AddExpense() {
       title="New Expense"
       subtitle="Record a business expense"
       contentClassName="max-w-6xl"
-      right={<UiButton variant="secondary" size="sm" onClick={() => navigate("/transactions")}>← Back</UiButton>}
+      right={
+        <div className="flex items-center gap-2">
+          <UiButton variant="secondary" size="sm" onClick={() => navigate("/transactions")}>← Back</UiButton>
+          {canViewAll ? <BranchSelector /> : null}
+        </div>
+      }
     >
       <div className="grid gap-4 lg:grid-cols-[1.35fr_0.65fr]">
         <div className="space-y-4">

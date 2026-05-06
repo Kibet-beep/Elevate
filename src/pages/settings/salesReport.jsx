@@ -3,6 +3,7 @@ import { useState, useEffect, useMemo } from "react"
 import { supabase } from "../../lib/supabase"
 import { useNavigate, useSearchParams } from "react-router-dom"
 import { useBranchContext } from "../../hooks/useBranchContext"
+import { useIsOwnerOrManager, useUser } from "../../hooks/useRole"
 import { BranchSelector } from "../../components/BranchSelector"
 
 const PERIODS = ["Day", "Week", "Month", "Quarter"]
@@ -11,7 +12,7 @@ const EAT_OFFSET_MS = 3 * 60 * 60 * 1000
 export default function SalesReport() {
   const navigate = useNavigate()
   const { user } = useUser()
-  const { canViewAll, availableBranches, activeBranch, loading: branchLoading } = useBranchContext()
+  const { canViewAll, availableBranches, effectiveBranchId, loading: branchLoading } = useBranchContext()
   const isOwnerOrManager = useIsOwnerOrManager()
   const goBack = () => {
     if (window.history.length > 1) {
@@ -22,8 +23,8 @@ export default function SalesReport() {
   }
   const [searchParams] = useSearchParams()
 
-  // For cashiers, always use their assigned branch
-  const effectiveBranchId = isOwnerOrManager ? localBranchId : (user?.default_branch_id || activeBranch?.id)
+  // Cashiers must always have a branch — block query if not resolved yet
+  const readyToFetch = !branchLoading && (canViewAll || !!effectiveBranchId)
   const todayIso = new Date().toISOString().split("T")[0]
 
   const [period, setPeriod] = useState("Day")
@@ -43,7 +44,6 @@ export default function SalesReport() {
   )
   const [compareDateA, setCompareDateA] = useState(dateParam || todayIso)
   const [compareDateB, setCompareDateB] = useState(todayIso)
-  const [localBranchId, setLocalBranchId] = useState(null)
 
   useEffect(() => {
     if (dateParam) { setPeriod("Day"); setAnchorDate(dateParam) }
@@ -51,8 +51,8 @@ export default function SalesReport() {
   }, [])
 
   useEffect(() => {
-    if (businessId && !branchLoading) fetchData()
-  }, [period, businessId, anchorDate, compareMode, compareType, compareDateA, compareDateB, effectiveBranchId, branchLoading])
+    if (businessId && !branchLoading && readyToFetch) fetchData()
+  }, [period, businessId, anchorDate, compareMode, compareType, compareDateA, compareDateB, effectiveBranchId, branchLoading, readyToFetch])
 
   const fetchUser = async () => {
     const { data: { user } } = await supabase.auth.getUser()
@@ -104,6 +104,9 @@ export default function SalesReport() {
   }
 
   const fetchTxnsByRange = async (start, end) => {
+    // Cashier's branch not loaded yet — wait
+    if (!readyToFetch) return []
+
     let query = supabase
       .from("transactions")
       .select(`id, branch_id, date, payment_account, sale_items(quantity, unit_price, total_amount, products(name, sku_id, category))`)
@@ -115,6 +118,9 @@ export default function SalesReport() {
 
     if (effectiveBranchId) {
       query = query.eq("branch_id", effectiveBranchId)
+    } else if (!isOwnerOrManager) {
+      // Cashier with no resolved branch — return nothing, never all branches
+      return []
     }
 
     const { data } = await query
@@ -362,16 +368,13 @@ export default function SalesReport() {
             <div>
               <h1 className="text-white font-bold text-xl tracking-tight">Sales Records</h1>
               <p className="text-zinc-500 text-xs mt-0.5">
-                {localBranchId ? `${availableBranches.find(b => b.id === localBranchId)?.name} • ` : ''}{periodLabel(anchorDate)}
+                {effectiveBranchId ? `${availableBranches.find(b => b.id === effectiveBranchId)?.name} • ` : ''}{periodLabel(anchorDate)}
               </p>
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
               {canViewAll && (
-                <BranchSelector 
-                  onChange={(value) => setLocalBranchId(value === 'all' ? null : value)}
-                  value={localBranchId || 'all'}
-                />
+                <BranchSelector value={effectiveBranchId || "all"} />
               )}
             <button
               onClick={() => setCompareMode(v => !v)}

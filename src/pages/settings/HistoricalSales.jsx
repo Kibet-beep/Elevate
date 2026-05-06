@@ -5,6 +5,7 @@ import PaymentIcon from "../../components/ui/PaymentIcon"
 import { useBranchContext } from "../../hooks/useBranchContext"
 import { useCurrentBusiness, useUser } from "../../hooks/useRole"
 import { supabase } from "../../lib/supabase"
+import { BranchSelector } from "../../components/BranchSelector"
 
 export default function HistoricalSales() {
   const navigate = useNavigate()
@@ -13,14 +14,14 @@ export default function HistoricalSales() {
   const {
     canViewAll,
     availableBranches,
+    effectiveBranchId,
     loading: branchLoading,
   } = useBranchContext()
 
   const [userId, setUserId] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
-  const [localBranchId, setLocalBranchId] = useState(null)
-  const resolvedBranchId = localBranchId
+  const resolvedBranchId = effectiveBranchId
 
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split("T")[0])
   const [openingDate, setOpeningDate] = useState(null)
@@ -41,7 +42,7 @@ export default function HistoricalSales() {
     if (businessId && authUser && !branchLoading) {
       fetchInitialData()
     }
-  }, [businessId, authUser, localBranchId, branchLoading])
+  }, [businessId, authUser, resolvedBranchId, branchLoading])
 
   const fetchInitialData = async () => {
     try {
@@ -61,6 +62,12 @@ export default function HistoricalSales() {
       setUserId(authUser.id)
       setError("")
 
+      if (canViewAll && !resolvedBranchId) {
+        setProducts([])
+        setError("Select a branch before recording historical sales")
+        return
+      }
+
       let productsQuery = supabase
         .from("products")
         .select("id, name, sku_id, selling_price, current_quantity, unit_of_measure, vat_type, branch_id")
@@ -69,7 +76,7 @@ export default function HistoricalSales() {
         .order("name")
 
       if (resolvedBranchId) {
-        productsQuery = productsQuery.or(`branch_id.eq.${resolvedBranchId},branch_id.is.null`)
+        productsQuery = productsQuery.eq("branch_id", resolvedBranchId)
       }
 
       const { data: productsData, error: productsError } = await productsQuery
@@ -209,7 +216,7 @@ export default function HistoricalSales() {
       return
     }
 
-    if (canViewAll && !localBranchId) {
+    if (canViewAll && !resolvedBranchId) {
       setError("Select a branch before recording a sale")
       return
     }
@@ -225,7 +232,7 @@ export default function HistoricalSales() {
       id: `${selectedDate}-${Date.now()}`,
       date: selectedDate,
       branchId: resolvedBranchId,
-      branchName: availableBranches.find(b => b.id === localBranchId)?.name || "Unassigned branch",
+      branchName: availableBranches.find(b => b.id === resolvedBranchId)?.name || "Unassigned branch",
       paymentAccount,
       subtotal,
       discountAmount,
@@ -402,8 +409,8 @@ export default function HistoricalSales() {
     <AppShell
       title="Backdated sales"
       subtitle={
-        localBranchId
-          ? `${availableBranches.find(b => b.id === localBranchId)?.name} · Backfill missed sales before final review`
+        resolvedBranchId
+          ? `${availableBranches.find(b => b.id === resolvedBranchId)?.name} · Backfill missed sales before final review`
           : "Backfill missed sales before final review"
       }
       showHeader={true}
@@ -419,18 +426,7 @@ export default function HistoricalSales() {
             Settings
           </UiButton>
           {canViewAll && (
-            <select
-              value={localBranchId || 'all'}
-              onChange={(e) => setLocalBranchId(e.target.value === 'all' ? null : e.target.value)}
-              className="cursor-pointer appearance-none rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-white transition-colors hover:bg-zinc-700 focus:border-emerald-500 focus:outline-none"
-            >
-              <option value="all">All Branches</option>
-              {availableBranches.map((branch) => (
-                <option key={branch.id} value={branch.id}>
-                  {branch.name} {branch.code ? `(${branch.code})` : ""}
-                </option>
-              ))}
-            </select>
+            <BranchSelector value={resolvedBranchId || "all"} />
           )}
         </div>
       }
@@ -457,20 +453,7 @@ export default function HistoricalSales() {
                     <p className="text-sm text-zinc-300">
                       Pick the branch you want to backdate sales for before submitting.
                     </p>
-                    <div className="shrink-0">
-                      <select
-                        value={localBranchId || "all"}
-                        onChange={(e) => setLocalBranchId(e.target.value === "all" ? null : e.target.value)}
-                        className="cursor-pointer appearance-none rounded-lg border border-zinc-700 bg-zinc-800 px-3 py-2 text-sm text-white transition-colors hover:bg-zinc-700 focus:border-emerald-500 focus:outline-none"
-                      >
-                        <option value="all">All Branches</option>
-                        {availableBranches.map((branch) => (
-                          <option key={branch.id} value={branch.id}>
-                            {branch.name} {branch.code ? `(${branch.code})` : ""}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
+                    <div className="shrink-0"><BranchSelector value={resolvedBranchId || "all"} /></div>
                   </div>
                 </UiCard>
               )}
@@ -621,7 +604,7 @@ export default function HistoricalSales() {
                     </div>
                     <div className="flex justify-between text-sm">
                       <span className="text-zinc-500">Branch</span>
-                      <span className="text-zinc-200">{availableBranches.find((branch) => branch.id === localBranchId)?.name || "Select branch"}</span>
+                      <span className="text-zinc-200">{availableBranches.find((branch) => branch.id === resolvedBranchId)?.name || "Select branch"}</span>
                     </div>
                     <div className="flex justify-between text-sm">
                       <span className="text-zinc-500">Payment</span>

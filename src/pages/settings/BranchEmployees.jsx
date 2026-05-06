@@ -4,13 +4,14 @@ import { useLocation, useNavigate } from "react-router-dom"
 import { useUser, useCurrentBusiness, useIsOwner, useIsManager } from "../../hooks/useRole"
 import { useBranchContext } from "../../hooks/useBranchContext"
 import { AppShell, UiButton, UiCard } from "../../components/ui"
+import { BranchSelector } from "../../components/BranchSelector"
 
 export default function BranchEmployees() {
   const navigate = useNavigate()
   const location = useLocation()
   const { user: authUser } = useUser()
   const { businessId } = useCurrentBusiness()
-  const { activeBranch, viewMode, canViewAll, availableBranches, loading: branchLoading, setActiveBranch, setViewMode } = useBranchContext()
+  const { activeBranch, viewMode, canViewAll, availableBranches, loading: branchLoading, setActiveBranch, setViewMode, effectiveBranchId } = useBranchContext()
   const isOwner = useIsOwner()
   const isManager = useIsManager()
   
@@ -53,24 +54,31 @@ export default function BranchEmployees() {
   }, [availableBranches, branchIdFromNavigation, branchLoading, canViewAll, navigate, setActiveBranch, setTargetBranchId, setViewMode, targetBranchId])
 
   useEffect(() => { 
-    if (businessId && (activeBranch || canViewAll)) {
+    if (businessId && !branchLoading) {
       fetchEmployees() 
     } 
-  }, [businessId, activeBranch, viewMode])
+  }, [businessId, activeBranch, viewMode, effectiveBranchId, branchLoading])
 
   const fetchEmployees = async () => {
+    if (!canViewAll && !effectiveBranchId) {
+      setEmployees([])
+      return
+    }
+
     let query = supabase
       .from("users")
       .select("*")
       .eq("business_id", businessId)
       .order("created_at")
 
-    // If in branch mode, filter by branch assignments
-    if (viewMode === 'branch' && activeBranch) {
+    const scopeBranchId = viewMode === 'branch' ? activeBranch?.id : effectiveBranchId
+
+    // If scoped to a branch, filter by assignments
+    if (scopeBranchId) {
       const { data: assignments } = await supabase
         .from("user_branch_assignments")
         .select("user_id")
-        .eq("branch_id", activeBranch.id)
+        .eq("branch_id", scopeBranchId)
         .eq("is_active", true)
 
       const userIds = assignments?.map(a => a.user_id) || []
@@ -224,6 +232,7 @@ export default function BranchEmployees() {
       right={(
         <div className="flex w-full flex-wrap items-stretch gap-1.5 sm:w-auto sm:items-center sm:gap-3 max-w-[calc(100vw-2rem)] sm:max-w-none">
           <UiButton variant="secondary" size="sm" onClick={goBack} className="flex-1 text-xs px-2 sm:flex-none sm:px-3" aria-label="Back">←</UiButton>
+          {canViewAll ? <BranchSelector /> : null}
           <UiButton variant="primary" size="sm" onClick={() => setAdding(!adding)} className="flex-1 text-xs px-2 sm:flex-none sm:px-3">{adding ? "Cancel" : "+ Add"}</UiButton>
         </div>
       )}
@@ -314,7 +323,7 @@ export default function BranchEmployees() {
               variant="primary" 
               className="w-full" 
               onClick={handleAddEmployee} 
-              disabled={loading || !fullName || !email || !password || password.length < 6 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || !targetBranchId || (canViewAll && viewMode !== 'branch' && !targetBranchId)}
+              disabled={loading || !fullName || !email || !password || password.length < 6 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || !(viewMode === 'branch' ? activeBranch?.id : targetBranchId)}
             >
               {loading ? "Adding..." : "Add employee"}
             </UiButton>

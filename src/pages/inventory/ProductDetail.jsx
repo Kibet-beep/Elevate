@@ -15,7 +15,7 @@ export default function ProductDetail() {
   const { id } = useParams()
   const { business: instantBusiness } = useInstantAuth()
   const isOwnerOrManager = useIsOwnerOrManager()
-  const { availableBranches } = useBranchContext()
+  const { canViewAll, availableBranches, effectiveBranchId } = useBranchContext()
   const { get, set, invalidate } = useCache()
   const { get: getPersistent, set: setPersistent } = usePersistentStorage()
   
@@ -44,11 +44,19 @@ export default function ProductDetail() {
   }, [id])
 
   const fetchProduct = async () => {
-    const { data } = await supabase
+    if (!instantBusiness?.id) return
+
+    let productQuery = supabase
       .from("products")
       .select("*, suppliers(name), branches!left(name, code)")
       .eq("id", id)
-      .single()
+      .eq("business_id", instantBusiness.id)
+
+    if (!canViewAll && effectiveBranchId) {
+      productQuery = productQuery.eq("branch_id", effectiveBranchId)
+    }
+
+    const { data } = await productQuery.single()
 
     setProduct(data)
     setName(data?.name || "")
@@ -82,7 +90,7 @@ export default function ProductDetail() {
     setSaving(true)
     setError("")
 
-    const { error } = await supabase
+    let updateQuery = supabase
       .from("products")
       .update({
         name,
@@ -93,6 +101,13 @@ export default function ProductDetail() {
         reorder_point: parseInt(reorderPoint),
       })
       .eq("id", id)
+      .eq("business_id", instantBusiness?.id)
+
+    if (!canViewAll && effectiveBranchId) {
+      updateQuery = updateQuery.eq("branch_id", effectiveBranchId)
+    }
+
+    const { error } = await updateQuery
 
     if (error) {
       setError(error.message)
@@ -105,7 +120,11 @@ export default function ProductDetail() {
 
   const handleDeactivate = async () => {
     if (!confirm("Remove this product from inventory?")) return
-    await supabase.from("products").update({ is_active: false }).eq("id", id)
+    let deactivateQuery = supabase.from("products").update({ is_active: false }).eq("id", id).eq("business_id", instantBusiness?.id)
+    if (!canViewAll && effectiveBranchId) {
+      deactivateQuery = deactivateQuery.eq("branch_id", effectiveBranchId)
+    }
+    await deactivateQuery
     navigate("/inventory")
   }
 

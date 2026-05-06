@@ -7,6 +7,7 @@ import { useCache } from "../../hooks/useCache"
 import { usePersistentStorage } from "../../hooks/usePersistentStorage"
 import { AppShell, UiButton, UiCard, UiSectionTitle, CategorySelect } from "../../components/ui"
 import { createCacheManager } from "../../lib/cacheManager"
+import { BranchSelector } from "../../components/BranchSelector"
 
 export default function OpeningStock() {
   const navigate = useNavigate()
@@ -16,8 +17,7 @@ export default function OpeningStock() {
     canViewAll,
     availableBranches,
     activeBranch,
-    setActiveBranch,
-    showAllBranches,
+    effectiveBranchId,
     isOwner,
     isManager,
     loading: branchLoading,
@@ -31,9 +31,7 @@ export default function OpeningStock() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
   const [success, setSuccess] = useState(false)
-  const [localBranchId, setLocalBranchId] = useState(null)
-  const [viewMode, setViewMode] = useState(isOwner ? 'all' : 'branch')
-  const resolvedBranchId = localBranchId || activeBranch?.id || null;
+  const resolvedBranchId = effectiveBranchId || activeBranch?.id || null
 
   // Product states
   const [existingProducts, setExistingProducts] = useState([])
@@ -71,9 +69,21 @@ export default function OpeningStock() {
     if (businessId && authUser && !branchLoading) {
       fetchInitialData()
     }
-  }, [businessId, authUser, localBranchId, branchLoading])
+  }, [businessId, authUser, resolvedBranchId, branchLoading, canViewAll])
 
   const fetchInitialData = async () => {
+    if (canViewAll && !resolvedBranchId) {
+      setExistingProducts([])
+      setError("Select a branch before setting opening stock")
+      return
+    }
+    if (!resolvedBranchId) {
+      setExistingProducts([])
+      setError("Your branch is not assigned yet. Contact the owner.")
+      return
+    }
+
+    setError("")
     setUserId(authUser.id)
 
     let query = supabase
@@ -83,9 +93,7 @@ export default function OpeningStock() {
       .not("is_active", "eq", false)
       .order("name")
 
-    if (localBranchId) {
-      query = query.or(`branch_id.eq.${localBranchId},branch_id.is.null`)
-    }
+    query = query.eq("branch_id", resolvedBranchId)
 
     const { data: productsData } = await query
     setExistingProducts(productsData || [])
@@ -176,12 +184,15 @@ export default function OpeningStock() {
     if (addedStock.length === 0) { setError("Add at least one product"); return }
     if (!openingDate) { setError("Select opening date"); return }
 
+    if (canViewAll && !resolvedBranchId) { setError("Select a branch before saving baseline"); return }
+    if (!resolvedBranchId) { setError("Your branch is not assigned yet. Contact the owner."); return }
+
     setLoading(true)
     setError("")
 
     try {
       const reservedSkus = new Set(existingProducts.map((product) => product.sku_id).filter(Boolean))
-      const branchId = viewMode === "branch" ? resolvedBranchId : null
+      const branchId = resolvedBranchId
       const stagedItems = addedStock.map((item, index) => ({ ...item, index }))
       const newItems = stagedItems.filter((item) => item.mode === "new")
       const existingItems = stagedItems.filter((item) => item.mode === "existing")
@@ -349,7 +360,12 @@ export default function OpeningStock() {
       title="Reorientation stock"
       subtitle={`Step ${step} of 4 · Product → Opening qty → Pricing → Review`}
       contentClassName="max-w-6xl"
-      right={<UiButton variant="tertiary" size="sm" onClick={goBack}>← Back</UiButton>}
+      right={
+        <div className="flex items-center gap-2">
+          <UiButton variant="tertiary" size="sm" onClick={goBack}>← Back</UiButton>
+          {canViewAll ? <BranchSelector /> : null}
+        </div>
+      }
     >
       <div className="grid gap-4 lg:grid-cols-[1.3fr_0.7fr]">
         <div className="space-y-4">
@@ -403,32 +419,8 @@ export default function OpeningStock() {
                 <ToggleBtn active={!isNewProduct} onClick={() => setIsNewProduct(false)}>Existing product</ToggleBtn>
               </div>
 
-              {/* Branch Selection */}
-              {canViewAll && (
-                <div className="mb-5">
-                  <label className="text-zinc-400 text-xs mb-2 block">Branch</label>
-                  <select
-                    value={localBranchId || activeBranch?.id || ""}
-                    onChange={(e) => {
-                      if (e.target.value === "all") {
-                        setLocalBranchId(null)
-                        setViewMode('all')
-                      } else {
-                        setLocalBranchId(e.target.value)
-                        setViewMode('branch')
-                      }
-                    }}
-                    className="w-full bg-zinc-900 border border-zinc-800 text-white rounded-xl px-4 py-3 text-sm outline-none focus:border-emerald-500 transition-colors"
-                  >
-                    <option value="">Select branch</option>
-                    {availableBranches.map(branch => (
-                      <option key={branch.id} value={branch.id}>
-                        {branch.name} {branch.code ? `(${branch.code})` : ""}
-                      </option>
-                    ))}
-                  </select>
-                  <p className="text-zinc-600 text-xs mt-1.5">This branch will be associated with SKU</p>
-                </div>
+              {canViewAll && !resolvedBranchId && (
+                <p className="text-amber-400 text-xs mb-3">Select a branch from the header before continuing.</p>
               )}
 
               {isNewProduct ? (

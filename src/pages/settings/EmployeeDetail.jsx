@@ -10,7 +10,7 @@ export default function EmployeeDetail() {
   const { id } = useParams()
   const { user: authUser } = useUser()
   const { businessId } = useCurrentBusiness()
-  const { availableBranches } = useBranchContext()
+  const { availableBranches, effectiveBranchId, canViewAll } = useBranchContext()
   const isOwner = useIsOwner()
   
   const [employee, setEmployee] = useState(null)
@@ -27,8 +27,8 @@ export default function EmployeeDetail() {
   const [isActive, setIsActive] = useState(true)
 
   useEffect(() => {
-    if (id) fetchEmployee()
-  }, [id])
+    if (id && businessId) fetchEmployee()
+  }, [id, businessId])
 
   const fetchEmployee = async () => {
     try {
@@ -36,6 +36,7 @@ export default function EmployeeDetail() {
         .from("users")
         .select("*")
         .eq("id", id)
+        .eq("business_id", businessId)
         .single()
 
       if (emp) {
@@ -52,7 +53,14 @@ export default function EmployeeDetail() {
           .eq("user_id", id)
           .eq("is_active", true)
 
-        setSelectedBranches(assignments?.map(a => a.branch_id) || [])
+        const assignedBranches = assignments?.map(a => a.branch_id) || []
+        if (!canViewAll && effectiveBranchId && !assignedBranches.includes(effectiveBranchId)) {
+          setError("You do not have access to this employee.")
+          setEmployee(null)
+          return
+        }
+
+        setSelectedBranches(assignedBranches)
       }
     } catch (error) {
       setError("Failed to load employee")
@@ -76,6 +84,7 @@ export default function EmployeeDetail() {
           is_active: isActive,
         })
         .eq("id", id)
+        .eq("business_id", businessId)
 
       if (updateError) throw updateError
 

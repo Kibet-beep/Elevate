@@ -11,6 +11,7 @@ import { useInstantAuth } from "../../hooks/useInstantAuth"
 import { useBranchContext } from "../../hooks/useBranchContext"
 import { BranchSelector } from "../../components/BranchSelector"
 
+const DASHBOARD_CACHE_KEY = 'elevate:dashboard:stats'
 const WEEK_DAYS = ["All", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 const OWNER_PERIODS = ["Week", "Month"]
 const EAT_OFFSET_MS = 3 * 60 * 60 * 1000
@@ -23,7 +24,7 @@ export default function Dashboard() {
   const { preloadTransactions, preloadProducts, preloadEmployees, preloadBusiness } = usePreloadData()
   const isOwnerOrManager = useIsOwnerOrManager()
   const isCashier = useIsCashier()
-  const { canViewAll, availableBranches, loading: branchLoading, activeBranch, viewMode } = useBranchContext()
+  const { canViewAll, availableBranches, loading: branchLoading, activeBranch, viewMode, effectiveBranchId } = useBranchContext()
   const [business, setBusiness] = useState(null)
   const [stats, setStats] = useState({
     todaySales: 0,
@@ -35,7 +36,6 @@ export default function Dashboard() {
   const [selectedDay, setSelectedDay] = useState("All")
   const [periodTransactions, setPeriodTransactions] = useState([])
   const [todayTransactions, setTodayTransactions] = useState([])
-  const [localBranchId, setLocalBranchId] = useState(null)
   const [periodSummary, setPeriodSummary] = useState({
     totalSales: 0, totalExpenses: 0, net: 0, cash: 0, mpesa: 0, bank: 0,
   })
@@ -51,7 +51,7 @@ export default function Dashboard() {
   useEffect(() => {
     setTodayTransactions([])
     setTodaySummary({ totalSales: 0, totalExpenses: 0, net: 0, cash: 0, mpesa: 0 })
-  }, [localBranchId])
+  }, [effectiveBranchId])
 
   const setBusinessFromProfile = (profile, fallbackBusiness) => {
     const resolvedBusiness = fallbackBusiness || profile?.businesses || null
@@ -83,9 +83,9 @@ export default function Dashboard() {
     }
   }, [instantUser, instantBusiness, authUser])
 
-  useEffect(() => { if (business && !branchLoading) fetchPeriodData() }, [period, selectedDay, business, localBranchId, branchLoading])
-  useEffect(() => { if (business && !branchLoading) fetchTodayData() }, [business, localBranchId, branchLoading])
-  useEffect(() => { if (business && !branchLoading) fetchDashboardData() }, [business?.id, localBranchId, branchLoading])
+  useEffect(() => { if (business && !branchLoading) fetchPeriodData() }, [period, selectedDay, business, effectiveBranchId, branchLoading])
+  useEffect(() => { if (business && !branchLoading) fetchTodayData() }, [business, effectiveBranchId, branchLoading])
+  useEffect(() => { if (business && !branchLoading) fetchDashboardData() }, [business?.id, effectiveBranchId, branchLoading])
 
   const getEATNow = () => new Date(Date.now() + EAT_OFFSET_MS)
 
@@ -147,6 +147,16 @@ export default function Dashboard() {
 
     setAccessIssue("")
 
+    // Show cached stats immediately while fetching
+    try {
+      const cached = localStorage.getItem(DASHBOARD_CACHE_KEY)
+      if (cached) {
+        const { stats: cachedStats, lowStockItems: cachedLowStock } = JSON.parse(cached)
+        setStats(cachedStats)
+        setLowStockItems(cachedLowStock)
+      }
+    } catch {}
+
     const { data: userData, error: userError } = await supabase
       .from("users")
       .select("business_id, full_name, businesses(*)")
@@ -168,7 +178,7 @@ export default function Dashboard() {
 
     const todayStart = getTodayStartUtcIsoEAT()
     const businessId = userData.business_id
-    const branchFilter = localBranchId
+    const branchFilter = effectiveBranchId
 
     const todayTxnsQuery = supabase
       .from("transactions")
@@ -225,6 +235,15 @@ export default function Dashboard() {
       lowStock: filteredLowStock.length,
     })
 
+    // Cache stats for offline display
+    try {
+      localStorage.setItem(DASHBOARD_CACHE_KEY, JSON.stringify({
+        stats: { todaySales, totalRevenue, transactions: todayTxns.length, lowStock: filteredLowStock.length },
+        lowStockItems: filteredLowStock,
+        cachedAt: Date.now(),
+      }))
+    } catch {}
+
     setLoading(false)
   }
 
@@ -250,10 +269,17 @@ export default function Dashboard() {
       .eq("business_id", businessId)
 
     // Apply branch filtering if a specific branch is selected
-    if (localBranchId) {
-      baseTxnQuery.eq("branch_id", localBranchId)
-      baseAllTxnQuery.eq("branch_id", localBranchId)
+    if (effectiveBranchId) {
+      baseTxnQuery.eq("branch_id", effectiveBranchId)
+      baseAllTxnQuery.eq("branch_id", effectiveBranchId)
     }
+
+    const transfersQuery = supabase
+      .from("transfers")
+      .select("*")
+      .eq("business_id", businessId)
+
+    if (effectiveBranchId) transfersQuery.eq("branch_id", effectiveBranchId)
 
     const [txnsResult, floatResult, allTxnsResult, transfersResult] = await Promise.all([
       baseTxnQuery,
@@ -263,10 +289,7 @@ export default function Dashboard() {
         .eq("business_id", businessId)
         .maybeSingle(),
       baseAllTxnQuery,
-      supabase
-        .from("transfers")
-        .select("*")
-        .eq("business_id", businessId),
+      transfersQuery,
     ])
 
     const txns = txnsResult?.data || []
@@ -326,8 +349,7 @@ export default function Dashboard() {
     const businessId = business.id
     const { start, end } = getPeriodRange()
 
-    const [txnsResult, floatResult, allTxnsResult, transfersResult] = await Promise.all([
-      supabase
+    const txnsQuery = supabase
         .from("transactions")
         .select(`id, type, payment_account, date,
           sale_items(total_amount, products(name)),
@@ -335,20 +357,33 @@ export default function Dashboard() {
         .eq("business_id", businessId)
         .gte("date", start)
         .lte("date", end)
-        .order("date", { ascending: false }),
+        .order("date", { ascending: false })
+
+    const allTxnsQuery = supabase
+        .from("transactions")
+        .select("type, payment_account, sale_items(total_amount), expenses(amount)")
+        .eq("business_id", businessId)
+
+    const transfersQuery = supabase
+        .from("transfers")
+        .select("*")
+        .eq("business_id", businessId)
+
+    if (effectiveBranchId) {
+      txnsQuery.eq("branch_id", effectiveBranchId)
+      allTxnsQuery.eq("branch_id", effectiveBranchId)
+      transfersQuery.eq("branch_id", effectiveBranchId)
+    }
+
+    const [txnsResult, floatResult, allTxnsResult, transfersResult] = await Promise.all([
+      txnsQuery,
       supabase
         .from("float_baseline")
         .select("*")
         .eq("business_id", businessId)
         .maybeSingle(),
-      supabase
-        .from("transactions")
-        .select("type, payment_account, sale_items(total_amount), expenses(amount)")
-        .eq("business_id", businessId),
-      supabase
-        .from("transfers")
-        .select("*")
-        .eq("business_id", businessId),
+      allTxnsQuery,
+      transfersQuery,
     ])
 
     const txns = txnsResult?.data || []
@@ -438,10 +473,7 @@ export default function Dashboard() {
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {canViewAll ? (
-            <BranchSelector 
-              onChange={(value) => setLocalBranchId(value === 'all' ? null : value)}
-              value={localBranchId || 'all'}
-            />
+            <BranchSelector />
           ) : null}
           <UiButton variant="tertiary" size="sm" onClick={handleSignOut} className="text-zinc-400 hover:text-red-400">
             Sign out

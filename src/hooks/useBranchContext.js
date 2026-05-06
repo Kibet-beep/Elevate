@@ -5,11 +5,14 @@ import { useInstantAuth } from "./useInstantAuth"
 
 // Cache for branch data to avoid repeated queries
 const branchCache = new Map()
+const BRANCH_CACHE_TTL_MS = 5 * 60 * 1000
 
 export function useBranchContext() {
-  const { user } = useUser()
+  const { user, userRole } = useUser()
   const { businessId } = useCurrentBusiness()
-  const { initialized } = useInstantAuth()
+  const { initialized, business } = useInstantAuth()
+  const resolvedBusinessId = businessId || business?.id || null
+  const resolvedRole = userRole || user?.role || null
   
   const [activeBranch, setActiveBranch] = useState(null)
   const [viewMode, setViewMode] = useState('all') // 'all' | 'branch'
@@ -17,104 +20,96 @@ export function useBranchContext() {
   const [loading, setLoading] = useState(true)
   const [refreshToken, setRefreshToken] = useState(0)
   
-  const isOwner = user?.role === 'owner'
-  const isManager = user?.role === 'manager'
-  // Only owners can see all branches
-  const canViewAll = isOwner
+  const isOwner = resolvedRole === 'owner'
+  const isManager = resolvedRole === 'manager'
+  const isCashier = resolvedRole === 'cashier'
   
-  // Fetch available branches for current user
-  useEffect(() => {
-    if (!user?.id || !businessId || !initialized) {
+  // Owners can toggle to "all branches" view. Managers and cashiers cannot.
+  const canViewAll = isOwner
+
+  const applyDefaultBranch = (branches) => {
+    if (branches.length === 0) {
+      setActiveBranch(null)
+      setViewMode(isOwner ? 'all' : 'branch')
+      return
+    }
+    // Prefer user's explicitly assigned default branch, fall back to first
+    const defaultBranch = branches.find(b => b.id === user?.default_branch_id) || branches[0]
+    setActiveBranch(defaultBranch)
+    setViewMode('branch')
+  }
+
+  const fetchBranches = async () => {
+  if (!user?.id || !resolvedBusinessId || !initialized) {
+    setLoading(false)
+    return
+  }
+
+  setLoading(true)
+
+  try {
+    const cacheKey = `${user.id}-${resolvedBusinessId}-${resolvedRole || 'unknown'}` 
+    const cached = branchCache.get(cacheKey)
+    
+    if (cached && Date.now() - cached.timestamp < BRANCH_CACHE_TTL_MS) {
+      setAvailableBranches(cached.branches)
+      applyDefaultBranch(cached.branches)
       setLoading(false)
       return
     }
     
-    const fetchBranches = async () => {
-      try {
-        const cacheKey = `${user.id}-${businessId}-${isOwner ? 'owner' : 'user'}`
-        const cached = branchCache.get(cacheKey)
-        
-        // Return cached data until it is explicitly refreshed
-        if (cached) {
-          setAvailableBranches(cached.branches)
-          if (cached.branches?.length > 0) {
-            const defaultBranch = cached.branches.find(b => b.id === user.default_branch_id) || cached.branches[0]
-            setActiveBranch(defaultBranch)
-            setViewMode('branch')
-          } else {
-            setActiveBranch(null)
-            setViewMode('all')
-          }
-          setLoading(false)
-          return
-        }
-        
-        let query = supabase
-          .from('branches')
-          .select('*')
-          .eq('business_id', businessId)
-          .eq('is_active', true)
-          .order('name')
-        
-        // Non-owners can only see their assigned branches
-        if (!isOwner) {
-          // For non-owners, get branches they're assigned to
-          const { data: assignments } = await supabase
-            .from('user_branch_assignments')
-            .select('branch_id')
-            .eq('user_id', user.id)
-            .eq('is_active', true)
-          
-          const branchIds = assignments?.map(a => a.branch_id) || []
-          if (branchIds.length === 0) {
-            setAvailableBranches([])
-            setLoading(false)
-            return
-          }
-          
-          query = query.in('id', branchIds)
-        }
-        
-        const { data: branches } = await query
-        
-        setAvailableBranches(branches || [])
-        
-        // Cache the results
-        branchCache.set(cacheKey, {
-          branches: branches || [],
-          timestamp: Date.now()
-        })
-        
-        // Set default branch for all users (owners, managers, cashiers)
-        if (branches?.length > 0) {
-          const defaultBranch = branches.find(b => b.id === user.default_branch_id) || branches[0]
-          setActiveBranch(defaultBranch)
-          // Cashiers and managers always stay in branch view - they cannot see all branches
-          // Only owners can switch to 'all' view
-          setViewMode(isOwner ? 'branch' : 'branch')
-        } else {
-          setActiveBranch(null)
-          // Only owners can be in 'all' view mode
-          setViewMode(isOwner ? 'all' : 'branch')
-        }
-        
-      } catch (error) {
-        console.error('Failed to fetch branches:', error)
-      } finally {
-        setLoading(false)
-      }
+    let branches = []
+
+    if (isOwner) {
+      // Owners see all active branches
+      const { data } = await supabase
+        .from('branches')
+        .select('*')
+        .eq('business_id', resolvedBusinessId)
+        .eq('is_active', true)
+        .order('name')
+      branches = data || []
+    } else {
+      // Managers and cashiers only see branches they're assigned to
+      const { data: assignments } = await supabase
+        .from('user_branch_assignments')
+        .select('branch_id, branches(*)')
+        .eq('user_id', user.id)
+        .eq('is_active', true)
+      
+      branches = (assignments || [])
+        .map(a => a.branches)
+        .filter(Boolean)
+        .filter(b => b.is_active)
     }
     
-    fetchBranches()
-  }, [user?.id, businessId, initialized, isOwner, user?.default_branch_id, refreshToken])
+    setAvailableBranches(branches)
+    branchCache.set(cacheKey, { branches, timestamp: Date.now() })
+    applyDefaultBranch(branches)
+    
+  } catch (error) {
+    console.error('Failed to fetch branches:', error)
+  } finally {
+    setLoading(false)
+  }
+}
+
+useEffect(() => {
+  fetchBranches()
+}, [user?.id, userRole, user?.default_branch_id, resolvedBusinessId, initialized])
+
+  // Handle manual refresh without infinite loop
+  useEffect(() => {
+    if (refreshToken > 0 && user?.id && resolvedBusinessId && initialized) {
+      fetchBranches()
+    }
+  }, [refreshToken])
   
-  // Handle branch selection
   const selectBranch = (branch) => {
     setActiveBranch(branch)
     setViewMode('branch')
   }
   
-  // Switch to all branches view (owners only)
   const showAllBranches = () => {
     if (isOwner) {
       setActiveBranch(null)
@@ -123,46 +118,40 @@ export function useBranchContext() {
   }
 
   const refreshBranches = () => {
-    // Clear cache for current user when refreshing
-    if (user?.id && businessId) {
-      const cacheKey = `${user.id}-${businessId}-${isOwner ? 'owner' : 'user'}`
+    if (user?.id && resolvedBusinessId) {
+      // Clear cache for this user and role
+      const cacheKey = `${user.id}-${resolvedBusinessId}-${resolvedRole || 'unknown'}`
       branchCache.delete(cacheKey)
     }
-    setRefreshToken((current) => current + 1)
+    setRefreshToken(t => t + 1)
   }
   
-  // Get current branch ID for queries
-  const getCurrentBranchId = () => {
-    return viewMode === 'branch' ? activeBranch?.id : null
-  }
+  const getCurrentBranchId = () => viewMode === 'branch' ? activeBranch?.id : null
+  const effectiveBranchId = canViewAll ? getCurrentBranchId() : (activeBranch?.id || null)
   
-  // Check if user has access to a specific branch
   const hasBranchAccess = (branchId) => {
     if (isOwner) return true
     return availableBranches.some(b => b.id === branchId)
   }
   
   return {
-    // State
     activeBranch,
     viewMode,
     availableBranches,
     loading,
-    
-    // Computed
     canViewAll,
     isOwner,
+    isManager,
+    isCashier,
     currentBranchId: getCurrentBranchId(),
     hasBranches: availableBranches.length > 0,
-    
-    // Actions
     setActiveBranch: selectBranch,
     setViewMode,
     showAllBranches,
     refreshBranches,
     hasBranchAccess,
-    
-    // Helpers
     getCurrentBranchId,
+    effectiveBranchId,
+    scopeMode: canViewAll && !effectiveBranchId ? 'all' : 'branch',
   }
 }

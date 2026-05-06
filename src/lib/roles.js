@@ -12,17 +12,17 @@ export const PAGE_PERMISSIONS = {
   
   // Inventory
   "/inventory": [ROLES.OWNER, ROLES.MANAGER, ROLES.CASHIER],
-  "/inventory/new-stock": [ROLES.OWNER, ROLES.MANAGER, ROLES.CASHIER],
+  "/inventory/new-stock": [ROLES.OWNER, ROLES.MANAGER],
   "/inventory/product/:id": [ROLES.OWNER, ROLES.MANAGER, ROLES.CASHIER],
-  "/inventory/stock-take": [ROLES.OWNER, ROLES.MANAGER, ROLES.CASHIER],
-  "/inventory/stocktake": [ROLES.OWNER, ROLES.MANAGER, ROLES.CASHIER],
+  "/inventory/stock-take": [ROLES.OWNER, ROLES.MANAGER],
+  "/inventory/stocktake": [ROLES.OWNER, ROLES.MANAGER],
   
   // Transactions
   "/transactions": [ROLES.OWNER, ROLES.MANAGER, ROLES.CASHIER],
   "/transactions/add-sale": [ROLES.OWNER, ROLES.MANAGER, ROLES.CASHIER],
   "/transactions/sale": [ROLES.OWNER, ROLES.MANAGER, ROLES.CASHIER],
-  "/transactions/add-expense": [ROLES.OWNER, ROLES.MANAGER, ROLES.CASHIER],
-  "/transactions/expense": [ROLES.OWNER, ROLES.MANAGER, ROLES.CASHIER],
+  "/transactions/add-expense": [ROLES.OWNER, ROLES.MANAGER],
+  "/transactions/expense": [ROLES.OWNER, ROLES.MANAGER],
   "/transactions/transfer": [ROLES.OWNER, ROLES.MANAGER],
   
   // Settings

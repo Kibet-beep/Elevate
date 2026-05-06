@@ -4,7 +4,7 @@ import { supabase } from "../../lib/supabase"
 import { useNavigate } from "react-router-dom"
 import FloatingBottomNav from "../../components/layout/FloatingBottomNav"
 import { AppShell, UiButton } from "../../components/ui"
-import { useIsOwner, useIsOwnerOrManager, useUser } from "../../hooks/useRole"
+import { useIsOwnerOrManager, useUser } from "../../hooks/useRole"
 import { useCache } from "../../hooks/useCache"
 import { usePersistentStorage } from "../../hooks/usePersistentStorage"
 import { useInstantAuth } from "../../hooks/useInstantAuth"
@@ -26,9 +26,8 @@ export default function Inventory() {
   // Create data initializer with auth dependencies
   const dataInitializer = useDataInitializer(cacheManager, { business: instantBusiness, initialized })
   const { user } = useUser()
-  const isOwner = useIsOwner()
   const isOwnerOrManager = useIsOwnerOrManager()
-  const { canViewAll, availableBranches, activeBranch, loading: branchLoading } = useBranchContext()
+  const { canViewAll, availableBranches, effectiveBranchId, loading: branchLoading } = useBranchContext()
   const [products, setProducts] = useState([])
   const [filtered, setFiltered] = useState([])
   const [search, setSearch] = useState("")
@@ -37,11 +36,12 @@ export default function Inventory() {
   const [mobileFilterOpen, setMobileFilterOpen] = useState(false)
   const [selectedProduct, setSelectedProduct] = useState(null)
   const [categories, setCategories] = useState([])
-  const [localBranchId, setLocalBranchId] = useState(null)
   const prevBranchId = useRef(undefined)
 
-  // For cashiers, always use their assigned branch
-  const effectiveBranchId = isOwnerOrManager ? localBranchId : (user?.default_branch_id || activeBranch?.id)
+  // Owners/managers can select a branch or see all.
+  // Cashiers are hard-locked to their assigned branch — no fallback to null.
+  // Block the query until the branch is resolved for non-owners
+  const readyToFetch = !branchLoading && (canViewAll || !!effectiveBranchId)
 
   // Use standardized cache keys from CacheKeys utility
 
@@ -54,6 +54,9 @@ export default function Inventory() {
       return []
     }
 
+    // Cashier's branch not loaded yet — wait
+    if (!readyToFetch) return []
+
     try {
       let query = supabase
         .from("products")
@@ -65,6 +68,10 @@ export default function Inventory() {
       // Apply branch filtering if a specific branch is selected
       if (effectiveBranchId) {
         query = query.eq("branch_id", effectiveBranchId)
+      } else if (!isOwnerOrManager) {
+        // Cashier with no resolved branch — return nothing, never all branches
+        setProducts([]); setFiltered([]); setCategories([])
+        return []
       }
 
       const { data } = await query
@@ -93,7 +100,7 @@ export default function Inventory() {
       console.error("Failed to load inventory products:", error)
       throw error
     }
-  }, [effectiveBranchId, localBranchId])
+  }, [effectiveBranchId, readyToFetch, canViewAll, isOwnerOrManager, cacheManager])
 
   const hydrate = useCallback(async () => {
     let active = true
@@ -102,7 +109,7 @@ export default function Inventory() {
       const businessId = instantBusiness?.id
       if (!businessId) return
 
-      if (!branchLoading) {
+      if (!branchLoading && readyToFetch) {
         try {
           const result = await cacheManager.hydrateProducts(
             businessId,
@@ -115,9 +122,26 @@ export default function Inventory() {
           }
 
           const nextProducts = result.data || []
-          setProducts(nextProducts)
-          setFiltered(nextProducts)
-          setCategories([...new Set(nextProducts.map((p) => p.category).filter(Boolean))])
+          // Merge pending new products from outbox
+          try {
+            const raw = localStorage.getItem('elevate:outbox')
+            const outbox = raw ? JSON.parse(raw) : []
+            const pendingProducts = outbox
+              .filter(item => item.status === 'pending' && item.type === 'CREATE_STOCK_ENTRY' && item.payload.isNewProduct)
+              .map(item => ({
+                ...item.payload.newProductData,
+                current_quantity: 0,
+                syncStatus: 'pending',
+              }))
+            const merged = [...pendingProducts, ...nextProducts]
+            setProducts(merged)
+            setFiltered(merged)
+            setCategories([...new Set(merged.map((p) => p.category).filter(Boolean))])
+          } catch {
+            setProducts(nextProducts)
+            setFiltered(nextProducts)
+            setCategories([...new Set(nextProducts.map((p) => p.category).filter(Boolean))])
+          }
           
           console.log(`Inventory loaded from ${result.source}`)
         } catch (error) {
@@ -142,7 +166,7 @@ export default function Inventory() {
     return () => {
       active = false
     }
-  }, [instantBusiness?.id, initialized, effectiveBranchId, branchLoading, cacheManager, fetchProducts])
+  }, [instantBusiness?.id, initialized, effectiveBranchId, branchLoading, readyToFetch, cacheManager, fetchProducts])
 
   useEffect(() => {
     hydrate()
@@ -150,16 +174,16 @@ export default function Inventory() {
 
   useEffect(() => {
     if (prevBranchId.current === undefined) {
-      prevBranchId.current = localBranchId
+      prevBranchId.current = effectiveBranchId
       return // skip on first mount
     }
-    if (prevBranchId.current !== localBranchId) {
-      prevBranchId.current = localBranchId
+    if (prevBranchId.current !== effectiveBranchId) {
+      prevBranchId.current = effectiveBranchId
       setProducts([])
       setFiltered([])
       setCategories([])
     }
-  }, [localBranchId])
+  }, [effectiveBranchId])
 
   const filteredProducts = useMemo(() => {
     let result = products
@@ -222,16 +246,11 @@ export default function Inventory() {
           <p className="text-[10px] uppercase tracking-[0.24em] text-zinc-500">Store</p>
           <h1 className="text-white font-semibold text-xl sm:text-2xl tracking-tight">Inventory</h1>
           <p className="mt-1 text-zinc-400 text-xs sm:text-sm">
-            {instantBusiness?.name}{localBranchId ? ` • ${availableBranches.find(b => b.id === localBranchId)?.name}` : ''} · Live inventory balances
+            {instantBusiness?.name}{effectiveBranchId ? ` • ${availableBranches.find(b => b.id === effectiveBranchId)?.name}` : ''} · Live inventory balances
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          {canViewAll && (
-            <BranchSelector 
-              onChange={(value) => setLocalBranchId(value === 'all' ? null : value)}
-              value={localBranchId || 'all'}
-            />
-          )}
+          {canViewAll ? <BranchSelector /> : null}
           <UiButton variant="tertiary" size="sm" onClick={signOut} className="text-zinc-400 hover:text-red-400">
             Sign out
           </UiButton>
@@ -364,7 +383,7 @@ export default function Inventory() {
                       <th className="py-3 px-4 font-medium">Status</th>
                       <th className="py-3 px-4 font-medium text-right">Buying</th>
                       <th className="py-3 px-4 font-medium text-right">Selling</th>
-                      {isOwner && <th className="py-3 px-4 font-medium text-right">Value</th>}
+                      {canViewAll && <th className="py-3 px-4 font-medium text-right">Value</th>}
                       <th className="py-3 px-4 font-medium text-right">Action</th>
                     </tr>
                   </thead>
@@ -399,7 +418,7 @@ export default function Inventory() {
                           </td>
                           <td className="py-3 px-4 text-xs text-right font-mono text-zinc-300">{fmt(p.buying_price || 0)}</td>
                           <td className="py-3 px-4 text-xs text-right font-mono text-emerald-400">{fmt(p.selling_price || 0)}</td>
-                          {isOwner && <td className="py-3 px-4 text-xs text-right font-mono text-zinc-200">{fmt(value)}</td>}
+                          {canViewAll && <td className="py-3 px-4 text-xs text-right font-mono text-zinc-200">{fmt(value)}</td>}
                           <td className="py-3 px-4 text-right">
                             <button
                               onClick={(e) => {
