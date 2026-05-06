@@ -1,12 +1,26 @@
 // src/pages/inventory/ProductDetail.jsx
-import { useState, useEffect } from "react"
+import { useState, useEffect, useMemo } from "react"
 import { supabase } from "../../lib/supabase"
 import { useNavigate, useParams } from "react-router-dom"
 import { AppShell, UiButton, UiCard, UiSectionTitle } from "../../components/ui"
+import { useIsOwnerOrManager } from "../../hooks/useRole"
+import { useBranchContext } from "../../hooks/useBranchContext"
+import { useCache } from "../../hooks/useCache"
+import { usePersistentStorage } from "../../hooks/usePersistentStorage"
+import { useInstantAuth } from "../../hooks/useInstantAuth"
+import { createCacheManager } from "../../lib/cacheManager"
 
 export default function ProductDetail() {
   const navigate = useNavigate()
   const { id } = useParams()
+  const { business: instantBusiness } = useInstantAuth()
+  const isOwnerOrManager = useIsOwnerOrManager()
+  const { availableBranches } = useBranchContext()
+  const { get, set, invalidate } = useCache()
+  const { get: getPersistent, set: setPersistent } = usePersistentStorage()
+  
+  // Create unified cache manager
+  const cacheManager = useMemo(() => createCacheManager({ get, set, invalidate }, { get: getPersistent, set: setPersistent }), [get, set, invalidate, getPersistent, setPersistent])
   const [product, setProduct] = useState(null)
   const [stockHistory, setStockHistory] = useState([])
   const [salesHistory, setSalesHistory] = useState([])
@@ -14,6 +28,9 @@ export default function ProductDetail() {
   const [editing, setEditing] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState("")
+  const [isModalOpen, setIsModalOpen] = useState(false)
+  const [isAssigning, setIsAssigning] = useState(false)
+  const [selectedBranch, setSelectedBranch] = useState("")
 
   const [name, setName] = useState("")
   const [category, setCategory] = useState("")
@@ -110,6 +127,52 @@ export default function ProductDetail() {
     const dateStr = d.toISOString().split("T")[0]
     navigate(`/settings/sales-report?date=${dateStr}`)
   }
+
+  const handleBranchAssignment = async () => {
+    if (!selectedBranch) {
+      setError("Please select a branch")
+      return
+    }
+
+    setIsAssigning(true)
+    setError("")
+
+    try {
+      const { error: updateError } = await supabase
+        .from("products")
+        .update({ 
+          branch_id: selectedBranch,
+          updated_at: new Date().toISOString()
+        })
+        .eq("id", id)
+
+      if (updateError) {
+        setError(updateError.message)
+      } else {
+        // Update local state for immediate feedback
+        setProduct(prev => ({
+          ...prev,
+          branch_id: selectedBranch,
+          branches: availableBranches.find(b => b.id === selectedBranch)
+        }))
+        
+        // Use unified cache invalidation
+        if (instantBusiness?.id) {
+          cacheManager.invalidateAfterBranchAssignment(instantBusiness.id, product?.branch_id, selectedBranch)
+        }
+        
+        // Close modal and reset on success
+        setIsModalOpen(false)
+        setSelectedBranch("")
+      }
+    } catch (err) {
+      setError(err.message || "Failed to assign branch")
+    } finally {
+      setIsAssigning(false)
+    }
+  }
+
+  const needsBranchAssignment = product && !product.branch_id
 
   if (loading) {
     return (
@@ -321,7 +384,24 @@ export default function ProductDetail() {
                 {[
                   { label: "Category", value: product?.category || "—" },
                   { label: "Unit of measure", value: product?.unit_of_measure || "—" },
-                  { label: "Branch", value: product?.branches ? `${product.branches.name}${product.branches.code ? ` (${product.branches.code})` : ""}` : "—" },
+                  { 
+                  label: "Branch", 
+                  value: product?.branches ? `${product.branches.name}${product.branches.code ? ` (${product.branches.code})` : ""}` : (
+                    needsBranchAssignment ? (
+                      <div className="flex items-center gap-2">
+                        <span className="text-red-400">Unassigned</span>
+                        {isOwnerOrManager && (
+                          <button
+                            onClick={() => setIsModalOpen(true)}
+                            className="text-xs bg-amber-500/10 text-amber-400 px-2 py-1 rounded-lg hover:bg-amber-500/20 transition-colors"
+                          >
+                            Assign Branch
+                          </button>
+                        )}
+                      </div>
+                    ) : "—"
+                  )
+                },
                   { label: "Reorder point", value: product?.reorder_point },
                   { label: "Supplier", value: product?.suppliers?.name || "—" },
                   { label: "Added on", value: new Date(product?.created_at).toLocaleDateString("en-KE") },
@@ -368,6 +448,63 @@ export default function ProductDetail() {
         <UiButton variant="secondary" onClick={() => navigate("/inventory/new-stock")}>+ Receive stock</UiButton>
         <UiButton variant="primary" onClick={() => setEditing((v) => !v)}>{editing ? "View" : "Edit"}</UiButton>
       </div>
+
+      {/* Branch Assignment Modal */}
+      {isModalOpen && (
+        <div className="fixed inset-0 z-[60] bg-black/60 flex items-center justify-center p-4">
+          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 max-w-md w-full">
+            <div className="w-12 h-1 bg-zinc-700 rounded-full mx-auto mb-4" />
+            <h3 className="text-white text-lg font-semibold mb-2">Assign Branch to SKU</h3>
+            <p className="text-zinc-400 text-sm mb-4">
+              SKU: <span className="font-mono text-emerald-400">{product?.sku_id}</span>
+            </p>
+            
+            <div className="space-y-4">
+              <div>
+                <label className="text-zinc-400 text-xs mb-2 block">Select Branch</label>
+                <select
+                  value={selectedBranch}
+                  onChange={(e) => setSelectedBranch(e.target.value)}
+                  className="w-full bg-zinc-950 border border-zinc-800 text-white rounded-xl px-4 py-3 text-sm outline-none focus:border-emerald-500 transition-colors"
+                >
+                  <option value="">Choose a branch...</option>
+                  {availableBranches.map(branch => (
+                    <option key={branch.id} value={branch.id}>
+                      {branch.name} {branch.code ? `(${branch.code})` : ""}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {error && (
+                <div className="bg-red-400/10 border border-red-400/20 rounded-xl px-3 py-2">
+                  <p className="text-red-400 text-xs">{error}</p>
+                </div>
+              )}
+
+              <div className="grid grid-cols-2 gap-3 pt-2">
+                <button
+                  onClick={() => {
+                    setIsModalOpen(false)
+                    setSelectedBranch("")
+                    setError("")
+                  }}
+                  className="bg-zinc-800 hover:bg-zinc-700 text-zinc-200 rounded-xl py-3 text-sm font-medium transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleBranchAssignment}
+                  disabled={!selectedBranch || isAssigning}
+                  className="bg-emerald-500 hover:bg-emerald-400 text-black rounded-xl py-3 text-sm font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {isAssigning ? "Assigning..." : "Assign Branch"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </AppShell>
   )
 }

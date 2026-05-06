@@ -6,14 +6,25 @@ import FloatingBottomNav from "../../components/layout/FloatingBottomNav"
 import { AppShell, UiButton } from "../../components/ui"
 import { useIsOwner, useIsOwnerOrManager, useUser } from "../../hooks/useRole"
 import { useCache } from "../../hooks/useCache"
+import { usePersistentStorage } from "../../hooks/usePersistentStorage"
 import { useInstantAuth } from "../../hooks/useInstantAuth"
 import { useBranchContext } from "../../hooks/useBranchContext"
 import { BranchSelector } from "../../components/BranchSelector"
+import { CacheKeys } from "../../lib/cacheKeys"
+import { createCacheManager } from "../../lib/cacheManager"
+import { useDataInitializer } from "../../lib/dataInitializer"
 
 export default function Inventory() {
   const navigate = useNavigate()
   const { business: instantBusiness, initialized, signOut } = useInstantAuth()
   const { get, set } = useCache()
+  const { get: getPersistent, set: setPersistent } = usePersistentStorage()
+  
+  // Create unified cache manager
+  const cacheManager = useMemo(() => createCacheManager({ get, set }, { get: getPersistent, set: setPersistent }), [get, set, getPersistent, setPersistent])
+  
+  // Create data initializer with auth dependencies
+  const dataInitializer = useDataInitializer(cacheManager, { business: instantBusiness, initialized })
   const { user } = useUser()
   const isOwner = useIsOwner()
   const isOwnerOrManager = useIsOwnerOrManager()
@@ -31,13 +42,7 @@ export default function Inventory() {
   // For cashiers, always use their assigned branch
   const effectiveBranchId = isOwnerOrManager ? localBranchId : (user?.default_branch_id || activeBranch?.id)
 
-  // Define cache key function first
-  const cacheKeyForProducts = useCallback((businessId, branchId = null) => {
-    if (branchId) {
-      return `products_${businessId}_${branchId}`
-    }
-    return `products_${businessId}_all`
-  }, [])
+  // Use standardized cache keys from CacheKeys utility
 
   // Define fetchProducts function before hydrate
   const fetchProducts = useCallback(async (businessId, active = true) => {
@@ -45,7 +50,7 @@ export default function Inventory() {
       setProducts([])
       setFiltered([])
       setCategories([])
-      return
+      return []
     }
 
     try {
@@ -66,38 +71,62 @@ export default function Inventory() {
       if (!active) return
 
       const nextProducts = data || []
-      // Use branch-aware cache key
-      const cacheKey = cacheKeyForProducts(businessId, localBranchId)
-      set(cacheKey, nextProducts)
+      
+      // Update state immediately
       setProducts(nextProducts)
       setFiltered(nextProducts)
 
       const cats = [...new Set(nextProducts.map((p) => p.category).filter(Boolean))]
       setCategories(cats)
+      
+      // Update cache in background (don't block)
+      try {
+        cacheManager.setProducts(businessId, nextProducts, effectiveBranchId)
+      } catch (cacheError) {
+        console.warn('Cache update failed:', cacheError)
+      }
+      
+      console.log(`Loaded ${nextProducts.length} products from database`)
+      return nextProducts
     } catch (error) {
       console.error("Failed to load inventory products:", error)
+      throw error
     }
-  }, [effectiveBranchId, localBranchId, set])
+  }, [effectiveBranchId, localBranchId])
 
   const hydrate = useCallback(async () => {
     let active = true
 
     const runHydrate = async () => {
-      if (instantBusiness?.id && !branchLoading) {
-        const cacheKey = cacheKeyForProducts(instantBusiness.id, effectiveBranchId)
-        const cachedProducts = get(cacheKey)
+      const businessId = instantBusiness?.id
+      if (!businessId) return
 
-        if (active && cachedProducts) {
-          setProducts(cachedProducts)
-          setFiltered(cachedProducts)
-          setCategories([...new Set(cachedProducts.map((p) => p.category).filter(Boolean))])
-        } else if (active) {
-          setProducts([])
-          setFiltered([])
-          setCategories([])
+      if (!branchLoading) {
+        try {
+          const result = await cacheManager.hydrateProducts(
+            businessId,
+            effectiveBranchId,
+            () => fetchProducts(businessId, active)
+          )
+
+          if (!active) {
+            return
+          }
+
+          const nextProducts = result.data || []
+          setProducts(nextProducts)
+          setFiltered(nextProducts)
+          setCategories([...new Set(nextProducts.map((p) => p.category).filter(Boolean))])
+          
+          console.log(`Inventory loaded from ${result.source}`)
+        } catch (error) {
+          console.error('Inventory hydration failed:', error)
+          if (active) {
+            setProducts([])
+            setFiltered([])
+            setCategories([])
+          }
         }
-
-        await fetchProducts(instantBusiness.id, active)
         return
       }
 
@@ -112,7 +141,7 @@ export default function Inventory() {
     return () => {
       active = false
     }
-  }, [instantBusiness?.id, initialized, effectiveBranchId, branchLoading, get, cacheKeyForProducts, fetchProducts])
+  }, [instantBusiness?.id, initialized, effectiveBranchId, branchLoading, cacheManager, fetchProducts])
 
   useEffect(() => {
     hydrate()

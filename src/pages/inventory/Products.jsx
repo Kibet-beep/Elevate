@@ -1,17 +1,22 @@
 // src/pages/inventory/Products.jsx
-import { useState, useEffect } from "react"
+import { useState, useEffect, useMemo } from "react"
 import { supabase } from "../../lib/supabase"
 import { useNavigate } from "react-router-dom"
 import { AppShell, UiButton } from "../../components/ui"
 import { useBranchContext } from "../../hooks/useBranchContext"
 import { useCache } from "../../hooks/useCache"
 import { useInstantAuth } from "../../hooks/useInstantAuth"
+import { CacheKeys } from "../../lib/cacheKeys"
+import { createCacheManager } from "../../lib/cacheManager"
 
 export default function Products() {
   const navigate = useNavigate()
   const { business: instantBusiness, initialized } = useInstantAuth()
   const { get, set } = useCache()
   const { canViewAll, availableBranches, loading: branchLoading } = useBranchContext()
+  
+  // Create unified cache manager
+  const cacheManager = useMemo(() => createCacheManager({ get, set }, { get: () => null, set: () => {} }), [get, set])
   const [products, setProducts] = useState([])
   const [filtered, setFiltered] = useState([])
   const [search, setSearch] = useState("")
@@ -25,21 +30,35 @@ export default function Products() {
     let active = true
 
     const hydrate = async () => {
-      if (instantBusiness?.id && !branchLoading) {
-        const cacheKey = `products_all_${instantBusiness.id}`
-        const cachedProducts = get(cacheKey)
+      const businessId = instantBusiness?.id
+      if (!businessId) return
 
-        if (active && cachedProducts) {
-          setProducts(cachedProducts)
-          setFiltered(cachedProducts)
-          setCategories([...new Set(cachedProducts.map((p) => p.category).filter(Boolean))])
-        } else if (active) {
-          setProducts([])
-          setFiltered([])
-          setCategories([])
+      if (!branchLoading) {
+        try {
+          const result = await cacheManager.hydrateProducts(
+            businessId,
+            null, // No branch filtering for Products page (shows all)
+            () => fetchProducts(businessId, active)
+          )
+
+          if (!active) {
+            return
+          }
+
+          const nextProducts = result.data || []
+          setProducts(nextProducts)
+          setFiltered(nextProducts)
+          setCategories([...new Set(nextProducts.map((p) => p.category).filter(Boolean))])
+          console.log(`Products loaded from ${result.source}`)
+        } catch (error) {
+          console.error('Products hydration failed:', error)
+          if (active) {
+            setProducts([])
+            setFiltered([])
+            setCategories([])
+          }
         }
 
-        await fetchProducts(instantBusiness.id, active)
         return
       }
 
@@ -55,7 +74,7 @@ export default function Products() {
     return () => {
       active = false
     }
-  }, [instantBusiness?.id, initialized, branchLoading])
+  }, [instantBusiness?.id, initialized, branchLoading, cacheManager])
 
   useEffect(() => {
     let result = products
@@ -89,7 +108,7 @@ export default function Products() {
       setProducts([])
       setFiltered([])
       setCategories([])
-      return
+      return []
     }
 
     try {
@@ -103,15 +122,26 @@ export default function Products() {
       if (!active) return
 
       const nextProducts = data || []
-      const cacheKey = `products_all_${businessId}`
-      set(cacheKey, nextProducts)
+      
+      // Update state immediately
       setProducts(nextProducts)
       setFiltered(nextProducts)
 
       const cats = [...new Set(nextProducts.map((p) => p.category).filter(Boolean))]
       setCategories(cats)
+      
+      // Update cache in background (don't block)
+      try {
+        cacheManager.setProducts(businessId, nextProducts, null) // null for all products
+      } catch (cacheError) {
+        console.warn('Cache update failed:', cacheError)
+      }
+      
+      console.log(`Loaded ${nextProducts.length} products from database`)
+      return nextProducts
     } catch (error) {
       console.error("Failed to load products:", error)
+      throw error
     }
   }
 

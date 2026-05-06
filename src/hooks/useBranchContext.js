@@ -5,7 +5,6 @@ import { useInstantAuth } from "./useInstantAuth"
 
 // Cache for branch data to avoid repeated queries
 const branchCache = new Map()
-const CACHE_DURATION = 5 * 60 * 1000 // 5 minutes
 
 export function useBranchContext() {
   const { user } = useUser()
@@ -35,8 +34,8 @@ export function useBranchContext() {
         const cacheKey = `${user.id}-${businessId}-${isOwner ? 'owner' : 'user'}`
         const cached = branchCache.get(cacheKey)
         
-        // Return cached data if still valid
-        if (cached && (Date.now() - cached.timestamp) < CACHE_DURATION) {
+        // Return cached data until it is explicitly refreshed
+        if (cached) {
           setAvailableBranches(cached.branches)
           if (cached.branches?.length > 0) {
             const defaultBranch = cached.branches.find(b => b.id === user.default_branch_id) || cached.branches[0]

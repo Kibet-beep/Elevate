@@ -59,10 +59,7 @@ export function UserProvider({ children }) {
       }
     }
 
-    const syncHandle =
-      typeof window !== "undefined" && "requestIdleCallback" in window
-        ? window.requestIdleCallback(syncAuth, { timeout: 750 })
-        : window.setTimeout(syncAuth, 0)
+    const syncHandle = window.setTimeout(syncAuth, 0)
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
       if (!mounted) return
@@ -81,11 +78,7 @@ export function UserProvider({ children }) {
 
     return () => {
       mounted = false
-      if (typeof window !== "undefined" && "cancelIdleCallback" in window && typeof syncHandle === "number") {
-        window.cancelIdleCallback(syncHandle)
-      } else {
-        window.clearTimeout(syncHandle)
-      }
+      window.clearTimeout(syncHandle)
       subscription.unsubscribe()
     }
   }, [clearAuthSnapshot, setAuthError, setAuthLoading, setAuthSnapshot])

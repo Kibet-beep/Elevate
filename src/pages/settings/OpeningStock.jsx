@@ -4,7 +4,9 @@ import { useNavigate } from "react-router-dom"
 import { useUser, useCurrentBusiness } from "../../hooks/useRole"
 import { useBranchContext } from "../../hooks/useBranchContext"
 import { useCache } from "../../hooks/useCache"
+import { usePersistentStorage } from "../../hooks/usePersistentStorage"
 import { AppShell, UiButton, UiCard, UiSectionTitle, CategorySelect } from "../../components/ui"
+import { createCacheManager } from "../../lib/cacheManager"
 
 export default function OpeningStock() {
   const navigate = useNavigate()
@@ -21,12 +23,16 @@ export default function OpeningStock() {
     loading: branchLoading,
   } = useBranchContext()
   const { get, set, invalidate } = useCache()
+  const { get: getPersistent, set: setPersistent } = usePersistentStorage()
+  
+  // Create unified cache manager
+  const cacheManager = useMemo(() => createCacheManager({ get, set, invalidate }, { get: getPersistent, set: setPersistent }), [get, set, invalidate, getPersistent, setPersistent])
   const [userId, setUserId] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
   const [success, setSuccess] = useState(false)
   const [localBranchId, setLocalBranchId] = useState(null)
-  const [viewMode, setViewMode] = useState('all')
+  const [viewMode, setViewMode] = useState(isOwner ? 'all' : 'branch')
   const resolvedBranchId = localBranchId || activeBranch?.id || null;
 
   // Product states
@@ -291,10 +297,12 @@ export default function OpeningStock() {
 
       if (upsertError) throw upsertError
 
-      // Invalidate cache to force refresh
-      invalidate(`products_${businessId}`)
-      invalidate('transactions')
-      invalidate(`business_${businessId}`)
+      // Use unified cache invalidation
+      cacheManager.invalidateAfterStockEntry(businessId, resolvedBranchId)
+      cacheManager.invalidateBusiness(businessId)
+
+      // Save to persistent storage for offline access
+      cacheManager.setProducts(businessId, persistedItems, resolvedBranchId)
 
       setSuccess(true)
       setAddedStock(persistedItems)
@@ -404,8 +412,10 @@ export default function OpeningStock() {
                     onChange={(e) => {
                       if (e.target.value === "all") {
                         setLocalBranchId(null)
+                        setViewMode('all')
                       } else {
                         setLocalBranchId(e.target.value)
+                        setViewMode('branch')
                       }
                     }}
                     className="w-full bg-zinc-900 border border-zinc-800 text-white rounded-xl px-4 py-3 text-sm outline-none focus:border-emerald-500 transition-colors"

@@ -4,7 +4,6 @@ import { useCallback, useRef } from 'react'
 // Global cache store that persists across component unmounts
 const globalCache = new Map()
 const cacheTimestamps = new Map()
-const CACHE_DURATION = 5 * 60 * 1000 // 5 minutes
 const CACHE_STORAGE_PREFIX = 'elevate:cache:'
 
 function getStorage() {
@@ -25,12 +24,9 @@ function readPersistedEntry(key) {
     if (!raw) return null
 
     const parsed = JSON.parse(raw)
-    if (!parsed?.timestamp || Date.now() - parsed.timestamp > CACHE_DURATION) {
-      storage.removeItem(getStorageKey(key))
-      return null
-    }
+    if (!parsed) return null
 
-    cacheTimestamps.set(key, parsed.timestamp)
+    cacheTimestamps.set(key, parsed.timestamp || Date.now())
     return parsed.data ?? null
   } catch (error) {
     console.warn('Failed to read persisted cache entry:', error)
@@ -75,14 +71,11 @@ export function useCache() {
   
   const get = useCallback((key) => {
     const cachedValue = cacheRef.current.get(key)
-    const timestamp = cacheTimestamps.get(key)
-    if (cachedValue && timestamp && Date.now() - timestamp <= CACHE_DURATION) {
+    if (cachedValue !== undefined) {
       return cachedValue
     }
 
-    cacheRef.current.delete(key)
-    cacheTimestamps.delete(key)
-
+    // Don't delete — just fall through to persistent storage
     const persistedValue = readPersistedEntry(key)
     if (persistedValue !== null) {
       cacheRef.current.set(key, persistedValue)
