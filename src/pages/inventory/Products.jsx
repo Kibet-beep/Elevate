@@ -1,24 +1,19 @@
 // src/pages/inventory/Products.jsx
-import { useState, useEffect, useMemo } from "react"
-import { supabase } from "../../lib/supabase"
+import { useState, useEffect } from "react"
 import { useNavigate } from "react-router-dom"
 import { AppShell, UiButton } from "../../components/ui"
 import { useBranchContext } from "../../context/BranchContext"
-import { useUser } from "../../hooks/useRole"
-import { useCache } from "../../hooks/useCache"
 import { useInstantAuth } from "../../hooks/useInstantAuth"
-import { CacheKeys } from "../../lib/cacheKeys"
-import { createCacheManager } from "../../lib/cacheManager"
+import { useProducts } from "../../hooks/useProducts"
 
 export default function Products() {
   const navigate = useNavigate()
-  const { business: instantBusiness, initialized } = useInstantAuth()
-  const { user } = useUser()
-  const { get, set } = useCache()
+  const { business: instantBusiness } = useInstantAuth()
   const { canViewAll, availableBranches, effectiveBranchId, readyToFetch } = useBranchContext()
-  
-  // Create unified cache manager
-  const cacheManager = useMemo(() => createCacheManager({ get, set }, { get: () => null, set: () => {} }), [get, set])
+  const { products: liveProducts } = useProducts(
+    readyToFetch ? (canViewAll ? null : effectiveBranchId) : null,
+    readyToFetch && canViewAll,
+  )
   const [products, setProducts] = useState([])
   const [filtered, setFiltered] = useState([])
   const [search, setSearch] = useState("")
@@ -28,71 +23,8 @@ export default function Products() {
   const [categories, setCategories] = useState([])
 
   useEffect(() => {
-    let active = true
-
-    const hydrate = async () => {
-      const businessId = instantBusiness?.id
-      if (!businessId) return
-
-      if (readyToFetch) {
-        try {
-          const result = await cacheManager.hydrateProducts(
-            businessId,
-            canViewAll ? null : effectiveBranchId,
-            () => fetchProducts(businessId, active),
-            user?.id
-          )
-
-          if (!active) {
-            return
-          }
-
-          const nextProducts = result.data || []
-          try {
-            const raw = localStorage.getItem('elevate:outbox')
-            const outbox = raw ? JSON.parse(raw) : []
-            const pendingProducts = outbox
-              .filter(item => item.status === 'pending' && item.type === 'CREATE_STOCK_ENTRY' && item.payload.isNewProduct)
-              .map(item => ({
-                ...item.payload.newProductData,
-                current_quantity: 0,
-                syncStatus: 'pending',
-              }))
-            const merged = [...pendingProducts, ...nextProducts]
-            setProducts(merged)
-            setFiltered(merged)
-            setCategories([...new Set(merged.map((p) => p.category).filter(Boolean))])
-          } catch {
-            setProducts(nextProducts)
-            setFiltered(nextProducts)
-            setCategories([...new Set(nextProducts.map((p) => p.category).filter(Boolean))])
-          }
-          console.log(`Products loaded from ${result.source}`)
-        } catch (error) {
-          console.error('Products hydration failed:', error)
-          if (active) {
-            setProducts([])
-            setFiltered([])
-            setCategories([])
-          }
-        }
-
-        return
-      }
-
-      if (initialized && active) {
-        setProducts([])
-        setFiltered([])
-        setCategories([])
-      }
-    }
-
-    hydrate()
-
-    return () => {
-      active = false
-    }
-  }, [instantBusiness?.id, initialized, readyToFetch, cacheManager, canViewAll, effectiveBranchId])
+    setProducts(liveProducts)
+  }, [liveProducts])
 
   useEffect(() => {
     let result = products
@@ -121,70 +53,9 @@ export default function Products() {
     setFiltered(result)
   }, [search, categoryFilter, branchFilter, statusFilter, products, canViewAll])
 
-  // Re-fetch products when window gains focus
   useEffect(() => {
-    const handleFocus = () => {
-      if (instantBusiness?.id && readyToFetch) {
-        fetchProducts(instantBusiness.id)
-      }
-    }
-    window.addEventListener('focus', handleFocus)
-    return () => window.removeEventListener('focus', handleFocus)
-  }, [instantBusiness?.id, readyToFetch])
-
-  const fetchProducts = async (businessId, active = true) => {
-    if (!businessId) {
-      setProducts([])
-      setFiltered([])
-      setCategories([])
-      return []
-    }
-
-    try {
-      let query = supabase
-        .from("products")
-        .select("id, name, sku_id, category, current_quantity, reorder_point, buying_price, selling_price, unit_of_measure, branch_id, branches!left(name, code)")
-        .not("is_active", "eq", false)
-        .eq("business_id", businessId)
-        .order("name")
-
-      if (!canViewAll) {
-        if (!effectiveBranchId) {
-          setProducts([])
-          setFiltered([])
-          setCategories([])
-          return []
-        }
-        query = query.eq("branch_id", effectiveBranchId)
-      }
-
-      const { data } = await query
-
-      if (!active) return
-
-      const nextProducts = data || []
-      
-      // Update state immediately
-      setProducts(nextProducts)
-      setFiltered(nextProducts)
-
-      const cats = [...new Set(nextProducts.map((p) => p.category).filter(Boolean))]
-      setCategories(cats)
-      
-      // Update cache in background (don't block)
-      try {
-        cacheManager.setProducts(businessId, nextProducts, canViewAll ? null : effectiveBranchId, user?.id)
-      } catch (cacheError) {
-        console.warn('Cache update failed:', cacheError)
-      }
-      
-      console.log(`Loaded ${nextProducts.length} products from database`)
-      return nextProducts
-    } catch (error) {
-      console.error("Failed to load products:", error)
-      throw error
-    }
-  }
+    setCategories([...new Set(products.map((p) => p.category).filter(Boolean))])
+  }, [products])
 
   const fmt = (n) => `KES ${Number(n).toLocaleString("en-KE", { minimumFractionDigits: 2 })}`
 

@@ -1,67 +1,52 @@
 import { useState, useEffect } from 'react'
-import { supabase } from '../lib/supabase'
+import { getDb, startProductsReplication } from '../lib/db'
 import { useInstantAuth } from './useInstantAuth'
-
-const CACHE_PREFIX = 'elevate:products:'
 
 export function useProducts(branchId = null, isOwnerOrManager = false) {
   const { business } = useInstantAuth()
-  const [products, setProducts] = useState(() => {
-    // Load from cache instantly on first render
-    try {
-      const key = `${CACHE_PREFIX}${business?.id || 'none'}_${branchId || 'all'}` 
-      const cached = localStorage.getItem(key)
-      return cached ? JSON.parse(cached) : []
-    } catch { return [] }
-  })
+  const [products, setProducts] = useState([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     if (!business?.id) return
+
     if (!isOwnerOrManager && !branchId) {
       setProducts([])
       setLoading(false)
       return
     }
 
-    const fetchProducts = async () => {
-      try {
-        const { data, error } = await supabase
-          .from('products')
-          .select('id, name, sku_id, category, current_quantity, reorder_point, buying_price, selling_price, unit_of_measure, branch_id')
-          .eq('business_id', business.id)
-          .eq('branch_id', branchId || '')
-          .not('is_active', 'eq', false)
-          .order('name')
+    let subscription
+    let replication
+    let active = true
 
-        if (error) {
-          console.error('Products query error:', error)
-          setProducts([])
-        } else {
-          const result = data || []
-          console.log('Products fetched:', result.length, 'for branch:', branchId)
-          setProducts(result)
+    getDb().then((db) => {
+      if (!active) return
 
-          // Cache for next refresh
-          try {
-            const key = `${CACHE_PREFIX}${business.id}_${branchId || 'all'}` 
-            localStorage.setItem(key, JSON.stringify(result))
-          } catch {}
-        }
-      } catch (err) {
-        console.error('Failed to fetch products:', err)
-        setProducts([])
-      } finally {
-        setLoading(false)
+      replication = startProductsReplication(db.products, business.id)
+
+      const selector = {
+        business_id: business.id,
+        _deleted: { $ne: true },
+        is_active: { $ne: false },
+        ...(branchId ? { branch_id: branchId } : {}),
       }
+
+      subscription = db.products
+        .find({ selector, sort: [{ name: 'asc' }, { id: 'asc' }] })
+        .$
+        .subscribe((docs) => {
+          if (!active) return
+          setProducts(docs.map((doc) => doc.toJSON()))
+          setLoading(false)
+        })
+    })
+
+    return () => {
+      active = false
+      subscription?.unsubscribe()
+      replication?.cancel()
     }
-
-    fetchProducts()
-
-    // Re-fetch on window focus
-    const handleFocus = () => fetchProducts()
-    window.addEventListener('focus', handleFocus)
-    return () => window.removeEventListener('focus', handleFocus)
   }, [business?.id, branchId, isOwnerOrManager])
 
   return { products, loading }

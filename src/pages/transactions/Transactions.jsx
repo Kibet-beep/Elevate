@@ -1,27 +1,24 @@
 // src/pages/transactions/Transactions.jsx
-import { useState, useEffect, useMemo, useCallback } from "react"
-import { supabase } from "../../lib/supabase"
+import { useState, useEffect } from "react"
 import { useNavigate } from "react-router-dom"
 import FloatingBottomNav from "../../components/layout/FloatingBottomNav"
 import { AppShell, UiButton } from "../../components/ui"
 import PaymentIcon from "../../components/ui/PaymentIcon"
 import { useIsOwnerOrManager, useUser } from "../../hooks/useRole"
-import { useCache } from "../../hooks/useCache"
 import { useInstantAuth } from "../../hooks/useInstantAuth"
 import { useBranchContext } from "../../context/BranchContext"
 import { BranchSelector } from "../../components/BranchSelector"
-import { createCacheManager } from "../../lib/cacheManager"
+import { useTransactions } from "../../hooks/useTransactions"
 
 const today = () => new Date().toISOString().split("T")[0]
 
 export default function Transactions() {
   const navigate = useNavigate()
-  const { business: instantBusiness, initialized, signOut } = useInstantAuth()
-  const { get, set } = useCache()
+  const { business: instantBusiness, signOut } = useInstantAuth()
   const { user } = useUser()
-  const cacheManager = useMemo(() => createCacheManager({ get, set }, { get: () => null, set: () => {} }), [get, set])
   const { canViewAll, availableBranches, effectiveBranchId, readyToFetch } = useBranchContext()
   const isOwnerOrManager = useIsOwnerOrManager()
+  const { transactions: liveTransactions } = useTransactions(readyToFetch ? effectiveBranchId : null)
   const [transactions, setTransactions] = useState([])
   const [filtered, setFiltered] = useState([])
   const [search, setSearch] = useState("")
@@ -32,95 +29,9 @@ export default function Transactions() {
   const [mobileFilterOpen, setMobileFilterOpen] = useState(false)
   const [selectedTx, setSelectedTx] = useState(null)
 
-  const fetchTransactions = useCallback(async (businessId, active = true) => {
-    if (!businessId) return
-
-    // Cashier's branch not loaded yet — wait
-    if (!readyToFetch) return
-
-    try {
-      let query = supabase
-        .from("transactions")
-        .select(`
-          id, type, transaction_type_tag, payment_account, date, account_code,
-          sale_items(total_amount, quantity, products(name)),
-          expenses(amount, category, description)
-        `)
-        .eq("business_id", businessId)
-        .order("date", { ascending: false })
-
-      // Apply branch filtering if a specific branch is selected
-      if (effectiveBranchId) {
-        query = query.eq("branch_id", effectiveBranchId)
-      } else if (!isOwnerOrManager) {
-        // Cashier with no resolved branch — return nothing, never all branches
-        setTransactions([])
-        setFiltered([])
-        return []
-      }
-
-      if (!active) return
-
-      const { data } = await query
-      const enriched = (data || []).map(t => {
-        if (t.type === "sale") {
-          const amount = t.sale_items?.reduce((s, i) => s + i.total_amount, 0) || 0
-          const name = t.sale_items?.length > 1
-            ? `${t.sale_items[0].products?.name} + ${t.sale_items.length - 1} more`
-            : t.sale_items?.[0]?.products?.name || "Sale"
-          return { ...t, amount, display_name: name }
-        }
-
-        const amount = t.expenses?.reduce((s, e) => s + e.amount, 0) || 0
-        const name = t.expenses?.[0]?.category || "Expense"
-        return { ...t, amount, display_name: name }
-      })
-
-      cacheManager.setTransactions(businessId, enriched, effectiveBranchId, user?.id)
-      setTransactions(enriched)
-    } catch (error) {
-      console.error("Failed to load transactions:", error)
-    }
-  }, [effectiveBranchId, isOwnerOrManager, readyToFetch, cacheManager, user?.id])
-
   useEffect(() => {
-    let active = true
-
-    const hydrate = async () => {
-      if (!instantBusiness?.id || !readyToFetch) return
-
-      const cachedTransactions = cacheManager.getTransactions(instantBusiness.id, effectiveBranchId, user?.id) || []
-
-      // Merge any pending outbox sales into the cached list so they show immediately
-      try {
-        const raw = localStorage.getItem('elevate:outbox')
-        const outbox = raw ? JSON.parse(raw) : []
-        const pendingSales = outbox
-          .filter(item => item.status === 'pending' && item.type === 'CREATE_SALE')
-          .map(item => ({
-            ...item.payload.transaction,
-            amount: item.payload.saleItems.reduce((s, i) => s + i.unit_price * i.quantity, 0),
-            display_name: `${item.payload.saleItems.length} item(s) — pending sync`,
-            sale_items: item.payload.saleItems,
-            syncStatus: 'pending',
-          }))
-
-        const merged = [...pendingSales, ...cachedTransactions]
-        if (active) setTransactions(merged)
-      } catch {
-        if (active && cachedTransactions.length) setTransactions(cachedTransactions)
-      }
-
-      // Always fetch fresh in background
-      await fetchTransactions(instantBusiness.id, active)
-    }
-
-    hydrate()
-
-    return () => {
-      active = false
-    }
-  }, [instantBusiness?.id, initialized, effectiveBranchId, readyToFetch])
+    setTransactions(liveTransactions)
+  }, [liveTransactions])
 
   useEffect(() => {
     let result = transactions
@@ -143,21 +54,7 @@ export default function Transactions() {
     setFiltered(result)
   }, [typeFilter, search, dateFrom, dateTo, paymentFilter, transactions])
 
-  // Re-fetch transactions when window gains focus
-  useEffect(() => {
-    const handleFocus = () => {
-      if (instantBusiness?.id && readyToFetch) {
-        fetchTransactions(instantBusiness.id)
-      }
-    }
-    window.addEventListener('focus', handleFocus)
-    return () => window.removeEventListener('focus', handleFocus)
-  }, [instantBusiness?.id, readyToFetch, fetchTransactions])
-
   const handleSignOut = async () => {
-    if (user?.id) {
-      cacheManager.clearUserCache(user.id)
-    }
     await signOut()
   }
 

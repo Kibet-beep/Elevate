@@ -3,10 +3,7 @@ import { supabase } from "../../lib/supabase"
 import { useNavigate } from "react-router-dom"
 import { useUser, useCurrentBusiness } from "../../hooks/useRole"
 import { useBranchContext } from "../../context/BranchContext"
-import { useCache } from "../../hooks/useCache"
-import { usePersistentStorage } from "../../hooks/usePersistentStorage"
 import { AppShell, UiButton, UiCard, UiSectionTitle, CategorySelect } from "../../components/ui"
-import { createCacheManager } from "../../lib/cacheManager"
 import { BranchSelector } from "../../components/BranchSelector"
 
 export default function OpeningStock() {
@@ -21,11 +18,6 @@ export default function OpeningStock() {
     isManager,
     readyToFetch,
   } = useBranchContext()
-  const { get, set, invalidate } = useCache()
-  const { get: getPersistent, set: setPersistent } = usePersistentStorage()
-  
-  // Create unified cache manager
-  const cacheManager = useMemo(() => createCacheManager({ get, set, invalidate }, { get: getPersistent, set: setPersistent }), [get, set, invalidate, getPersistent, setPersistent])
   const [userId, setUserId] = useState(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
@@ -346,13 +338,6 @@ export default function OpeningStock() {
         }, { onConflict: "business_id" })
 
       if (upsertError) throw upsertError
-
-      // Use unified cache invalidation
-      cacheManager.invalidateAfterStockEntry(businessId, resolvedBranchId, authUser?.id)
-      cacheManager.invalidateBusiness(businessId)
-
-      // Save to persistent storage for offline access
-      cacheManager.setProducts(businessId, persistedItems, resolvedBranchId, authUser?.id)
 
       setSuccess(true)
       setAddedStock(persistedItems)

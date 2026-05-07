@@ -5,7 +5,6 @@ import { useNavigate } from "react-router-dom"
 import FloatingBottomNav from "../../components/layout/FloatingBottomNav"
 import { AppShell, UiButton } from "../../components/ui"
 import { useUser, useIsOwnerOrManager, useIsCashier } from "../../hooks/useRole"
-import { usePreloadData } from "../../hooks/useCache"
 import { useInstantNavigation } from "../../hooks/useInstantNavigation"
 import { useInstantAuth } from "../../hooks/useInstantAuth"
 import { useBranchContext } from "../../context/BranchContext"
@@ -21,7 +20,6 @@ export default function Dashboard() {
   const { user: authUser } = useUser()
   const { user: instantUser, business: instantBusiness, signOut } = useInstantAuth()
   const { navigateInstant } = useInstantNavigation()
-  const { preloadTransactions, preloadProducts, preloadEmployees, preloadBusiness } = usePreloadData()
   const isOwnerOrManager = useIsOwnerOrManager()
   const isCashier = useIsCashier()
   const { canViewAll, availableBranches, readyToFetch, activeBranch, viewMode, effectiveBranchId } = useBranchContext()
@@ -72,11 +70,6 @@ export default function Dashboard() {
       setBusiness({ ...instantBusiness, userName: instantUser.full_name })
       setLoading(false)
       
-      // Preload related data
-      preloadTransactions(instantBusiness.id)
-      preloadProducts(instantBusiness.id)
-      preloadEmployees(instantBusiness.id)
-      preloadBusiness(instantBusiness.id)
       fetchDashboardData()
     } else if (authUser) {
       fetchDashboardData()

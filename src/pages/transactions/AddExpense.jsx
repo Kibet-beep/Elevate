@@ -1,13 +1,11 @@
 // src/pages/transactions/AddExpense.jsx
 import { useState, useEffect } from "react"
-import { supabase } from "../../lib/supabase"
 import { useNavigate } from "react-router-dom"
 import { useUser, useCurrentBusiness } from "../../hooks/useRole"
 import { useBranchContext } from "../../context/BranchContext"
 import { BranchSelector } from "../../components/BranchSelector"
 import { AppShell, UiButton, UiCard, UiSectionTitle } from "../../components/ui"
-import { enqueue } from "../../lib/outbox"
-import { runSync } from "../../lib/syncEngine"
+import { getDb } from "../../lib/db"
 
 const EXPENSE_CATEGORIES = [
   "Rent", "Utilities", "Salaries & Wages", "Transport",
@@ -91,18 +89,19 @@ export default function AddExpense() {
       account_code:         accountCode,
       date:                 new Date(date).toISOString(),
       created_by:           userId,
+      lifecycle_state:      "finalized",
+      amount:               amountNum,
+      display_name:         category,
+      expense: {
+        transaction_id: transactionId,
+        category,
+        amount: amountNum,
+        description: description || null,
+      },
     }
 
-    const expense = {
-      transaction_id: transactionId,
-      category,
-      amount:         amountNum,
-      description:    description || null,
-    }
-
-    enqueue("CREATE_EXPENSE", { transaction, expense })
-
-    await runSync()
+    const db = await getDb()
+    await db.transactions.insert(transaction)
 
     setSuccess(true)
     setLoading(false)

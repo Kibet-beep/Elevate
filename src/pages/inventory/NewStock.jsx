@@ -4,12 +4,8 @@ import { supabase } from "../../lib/supabase"
 import { useNavigate } from "react-router-dom"
 import { useUser, useIsOwnerOrManager, useCurrentBusiness } from "../../hooks/useRole"
 import { useBranchContext } from "../../context/BranchContext"
-import { useCache } from "../../hooks/useCache"
-import { usePersistentStorage } from "../../hooks/usePersistentStorage"
 import { AppShell, UiButton, UiCard, UiSectionTitle, CategorySelect } from "../../components/ui"
-import { createCacheManager } from "../../lib/cacheManager"
-import { enqueue } from "../../lib/outbox"
-import { runSync } from "../../lib/syncEngine"
+import { getDb, startProductsReplication, startStockEntriesReplication } from "../../lib/db"
 import { BranchSelector } from "../../components/BranchSelector"
 
 export default function NewStock() {
@@ -18,11 +14,6 @@ export default function NewStock() {
   const isOwnerOrManager = useIsOwnerOrManager()
   const { businessId } = useCurrentBusiness()
   const { canViewAll, effectiveBranchId, readyToFetch } = useBranchContext()
-  const { get, set, invalidate } = useCache()
-  const { get: getPersistent, set: setPersistent } = usePersistentStorage()
-  
-  // Create unified cache manager
-  const cacheManager = useMemo(() => createCacheManager({ get, set, invalidate }, { get: getPersistent, set: setPersistent }), [get, set, invalidate, getPersistent, setPersistent])
   const [userId, setUserId] = useState(null)
   const [suppliers, setSuppliers] = useState([])
   const [loading, setLoading] = useState(false)
@@ -158,61 +149,78 @@ export default function NewStock() {
 
     setLoading(true)
 
-    const productId = isNewProduct ? crypto.randomUUID() : selectedProduct.id
-    const branchId = effectiveBranchId || null
+    try {
+      const db = await getDb()
 
-    const newProductData = isNewProduct ? {
-      id:               productId,
-      business_id:      businessId,
-      branch_id:        branchId,
-      sku_id:           generateSKU(name),
-      name,
-      category:         category || null,
-      unit_of_measure:  defaultUnit,
-      buying_price:     landedCostPerUnit,
-      selling_price:    parseFloat(sellingPrice),
-      vat_type:         vatType,
-      current_quantity: 0,
-    } : null
+      const productsReplication = startProductsReplication(db.products, businessId)
+      const stockEntriesReplication = startStockEntriesReplication(db.stock_entries, businessId)
 
-    const productUpdate = !isNewProduct ? {
-      id:           productId,
-      buying_price: landedCostPerUnit,
-      selling_price: parseFloat(sellingPrice),
-      vat_type:     vatType,
-    } : null
+      const productId = isNewProduct ? crypto.randomUUID() : selectedProduct.id
+      const branchId = effectiveBranchId || null
 
-    const stockEntry = {
-      business_id:      businessId,
-      product_id:       productId,
-      supplier_id:      supplierId || null,
-      quantity:         qty,
-      buying_price:     unitCost,
-      freight_cost:     shippingClearing,
-      import_duty:      importDuty,
-      idf,
-      rdl,
-      vat_on_import:    vatOnImport,
-      insurance:        0,
-      additional_costs: additionalCosts,
-      total_cost:       totalLandedCost,
-      created_by:       userId,
+      if (isNewProduct) {
+        await db.products.insert({
+          id: productId,
+          business_id: businessId,
+          branch_id: branchId,
+          sku_id: generateSKU(name),
+          name,
+          category: category || null,
+          unit_of_measure: defaultUnit,
+          buying_price: landedCostPerUnit,
+          selling_price: parseFloat(sellingPrice),
+          vat_type: vatType,
+          current_quantity: qty,
+          is_active: true,
+          _modified: Date.now(),
+          _deleted: false,
+        })
+      } else {
+        const productDoc = await db.products.findOne(selectedProduct.id).exec()
+        if (!productDoc) {
+          throw new Error("Selected product not found")
+        }
+
+        const nextQty = Number(productDoc.current_quantity || 0) + qty
+        await productDoc.incrementalPatch({
+          buying_price: landedCostPerUnit,
+          selling_price: parseFloat(sellingPrice),
+          vat_type: vatType,
+          current_quantity: nextQty,
+          _modified: Date.now(),
+        })
+      }
+
+      await db.stock_entries.insert({
+        id: crypto.randomUUID(),
+        business_id: businessId,
+        branch_id: branchId,
+        product_id: productId,
+        supplier_id: supplierId || null,
+        quantity: qty,
+        buying_price: unitCost,
+        freight_cost: shippingClearing,
+        import_duty: importDuty,
+        idf,
+        rdl,
+        vat_on_import: vatOnImport,
+        insurance: 0,
+        additional_costs: additionalCosts,
+        total_cost: totalLandedCost,
+        created_by: userId,
+        _modified: Date.now(),
+        _deleted: false,
+      })
+
+      productsReplication.reSync()
+      stockEntriesReplication.reSync()
+
+      setSuccess(true)
+    } catch (submitError) {
+      setError(submitError.message || "Failed to receive stock")
+    } finally {
+      setLoading(false)
     }
-
-    enqueue("CREATE_STOCK_ENTRY", {
-      isNewProduct,
-      newProductData,
-      productUpdate,
-      stockEntry,
-      qty,
-    })
-
-    await runSync()
-
-    cacheManager.invalidateAfterStockEntry(businessId, branchId, authUser?.id)
-
-    setSuccess(true)
-    setLoading(false)
   }
 
   const resetForm = () => {

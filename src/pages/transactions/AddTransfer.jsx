@@ -1,13 +1,11 @@
 // src/pages/transactions/AddTransfer.jsx
 import { useState, useEffect } from "react"
-import { supabase } from "../../lib/supabase"
 import { useNavigate } from "react-router-dom"
 import { useUser, useCurrentBusiness } from "../../hooks/useRole"
 import { useBranchContext } from "../../context/BranchContext"
 import { BranchSelector } from "../../components/BranchSelector"
 import { AppShell, UiButton, UiCard, UiSectionTitle } from "../../components/ui"
-import { enqueue } from "../../lib/outbox"
-import { runSync } from "../../lib/syncEngine"
+import { getDb } from "../../lib/db"
 
 const ACCOUNTS = ["cash", "mpesa", "bank"]
 
@@ -40,58 +38,8 @@ export default function AddTransfer() {
   useEffect(() => {
     if (businessId && authUser) {
       setUserId(authUser.id)
-      fetchBalances()
     }
   }, [businessId, authUser])
-
-  const fetchBalances = async () => {
-    const { data: userData } = await supabase
-      .from("users")
-      .select("business_id")
-      .eq("id", (await supabase.auth.getUser()).data.user.id)
-      .single()
-
-    const bId = userData.business_id
-
-    const { data: floatData } = await supabase
-      .from("float_baseline")
-      .select("*")
-      .eq("business_id", bId)
-      .maybeSingle()
-
-    const { data: txns } = await supabase
-      .from("transactions")
-      .select("type, payment_account, sale_items(total_amount), expenses(amount)")
-      .eq("business_id", bId)
-
-    const { data: transfers } = await supabase
-      .from("transfers")
-      .select("*")
-      .eq("business_id", bId)
-
-    const calc = (account) => {
-      const opening = floatData?.[`${account}_opening`] || 0
-      const salesIn = (txns || [])
-        .filter((t) => t.type === "sale" && t.payment_account === account)
-        .reduce((s, t) => s + (t.sale_items?.reduce((a, i) => a + i.total_amount, 0) || 0), 0)
-      const expOut = (txns || [])
-        .filter((t) => t.type === "expense" && t.payment_account === account)
-        .reduce((s, t) => s + (t.expenses?.reduce((a, e) => a + e.amount, 0) || 0), 0)
-      const transferOut = (transfers || [])
-        .filter((t) => t.from_account === account)
-        .reduce((s, t) => s + t.amount + t.transaction_cost, 0)
-      const transferIn = (transfers || [])
-        .filter((t) => t.to_account === account)
-        .reduce((s, t) => s + t.amount, 0)
-      return opening + salesIn - expOut - transferOut + transferIn
-    }
-
-    setBalances({
-      cash: calc("cash"),
-      mpesa: calc("mpesa"),
-      bank: calc("bank"),
-    })
-  }
 
   const transferKey = `${fromAccount}-${toAccount}`
   const hasCost = TRANSFER_COSTS[transferKey]
@@ -139,16 +87,16 @@ export default function AddTransfer() {
     const transferId = crypto.randomUUID()
 
     const transfer = {
-      id:               transferId,
-      business_id:      businessId,
-      branch_id:        resolvedBranchId,
-      from_account:     fromAccount,
-      to_account:       toAccount,
-      amount:           amt,
+      id: transferId,
+      business_id: businessId,
+      branch_id: resolvedBranchId,
+      from_account: fromAccount,
+      to_account: toAccount,
+      amount: amt,
       transaction_cost: cost,
-      date:             new Date(date).toISOString(),
-      note:             note || null,
-      created_by:       userId,
+      date: new Date(date).toISOString(),
+      note: note || null,
+      created_by: userId,
     }
 
     // If there's a transaction cost, build the expense too
@@ -157,28 +105,45 @@ export default function AddTransfer() {
       const txnId = crypto.randomUUID()
       costExpense = {
         transaction: {
-          id:                   txnId,
-          business_id:          businessId,
-          branch_id:            resolvedBranchId,
-          type:                 "expense",
+          id: txnId,
+          business_id: businessId,
+          branch_id: resolvedBranchId,
+          type: "expense",
           transaction_type_tag: "operating_expense",
-          payment_account:      fromAccount,
-          account_code:         "6600",
-          date:                 new Date(date).toISOString(),
-          created_by:           userId,
+          payment_account: fromAccount,
+          account_code: "6600",
+          date: new Date(date).toISOString(),
+          created_by: userId,
+          lifecycle_state: "finalized",
+          amount: cost,
+          display_name: "Transfer cost",
         },
         expense: {
           transaction_id: txnId,
-          category:       "Transfer cost",
-          amount:         cost,
-          description:    `Transfer cost: ${accountLabel(fromAccount)} → ${accountLabel(toAccount)}`,
+          category: "Transfer cost",
+          amount: cost,
+          description: `Transfer cost: ${accountLabel(fromAccount)} → ${accountLabel(toAccount)}`
         }
       }
     }
 
-    enqueue("CREATE_TRANSFER", { transfer, costExpense })
-
-    await runSync()
+    const db = await getDb()
+    await db.transactions.insert({
+      id: transferId,
+      business_id: businessId,
+      branch_id: resolvedBranchId,
+      type: "transfer",
+      transaction_type_tag: "internal_transfer",
+      payment_account: fromAccount,
+      account_code: "0000",
+      date: new Date(date).toISOString(),
+      created_by: userId,
+      lifecycle_state: "finalized",
+      amount: amt,
+      display_name: `Transfer ${accountLabel(fromAccount)} → ${accountLabel(toAccount)}`,
+      transfer,
+      costExpense,
+    })
 
     setSuccess(true)
     setLoading(false)

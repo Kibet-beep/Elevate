@@ -12,8 +12,11 @@ export function useTransactions(branchId = null) {
 
     let subscription
     let replication
+    let active = true
 
     getDb().then((db) => {
+      if (!active) return
+
       replication = startTransactionsReplication(db.transactions, business.id)
 
       const selector = {
@@ -23,14 +26,33 @@ export function useTransactions(branchId = null) {
       }
 
       subscription = db.transactions
-        .find({ selector, sort: [{ date: 'desc' }] })
-        .$.subscribe((docs) => {
-          setTransactions(docs.map(d => d.toJSON()))
+        .find({ selector, sort: [{ date: 'desc' }, { id: 'desc' }] })
+        .$
+        .subscribe((docs) => {
+          if (!active) return
+          setTransactions(docs.map((doc) => {
+            const transaction = doc.toJSON()
+            if (!['sale', 'expense'].includes(transaction.type)) return null
+            const saleItems = Array.isArray(transaction.sale_items) ? transaction.sale_items : []
+            const expenses = Array.isArray(transaction.expenses) ? transaction.expenses : []
+            const amount = transaction.amount ?? (
+              transaction.type === 'sale'
+                ? saleItems.reduce((sum, item) => sum + Number(item.total_amount || 0), 0)
+                : expenses.reduce((sum, expense) => sum + Number(expense.amount || 0), 0)
+            ) ?? 0
+
+            return {
+              ...transaction,
+              amount,
+              display_name: transaction.display_name || (transaction.type === 'sale' ? 'Sale' : 'Expense'),
+            }
+          }).filter(Boolean))
           setLoading(false)
         })
-      })
+    })
 
     return () => {
+      active = false
       subscription?.unsubscribe()
       replication?.cancel()
     }

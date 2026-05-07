@@ -1,12 +1,11 @@
 // src/pages/inventory/StockTake.jsx
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { supabase } from "../../lib/supabase"
 import { useNavigate } from "react-router-dom"
 import { useCurrentBusiness } from "../../hooks/useRole"
 import { useInstantAuth } from "../../hooks/useInstantAuth"
 import { useBranchContext } from "../../context/BranchContext"
-import { enqueue } from "../../lib/outbox"
-import { runSync } from "../../lib/syncEngine"
+import { getDb, startTransactionsReplication } from "../../lib/db"
 import { BranchSelector } from "../../components/BranchSelector"
 
 function classifyABC(products) {
@@ -159,10 +158,33 @@ export default function StockTake() {
   const [error, setError] = useState("")
   const [pastStockTakes, setPastStockTakes] = useState([])
   const [selectedVarianceId, setSelectedVarianceId] = useState(null)
+  const replicationRef = useRef(null)
   const { user } = useInstantAuth()
   const { businessId } = useCurrentBusiness()
   const { canViewAll, effectiveBranchId, readyToFetch } = useBranchContext()
   const resolvedBranchId = effectiveBranchId
+
+  useEffect(() => {
+    let mounted = true
+
+    const ensureReplication = async () => {
+      if (!businessId) return
+      const db = await getDb()
+      if (!mounted) return
+
+      if (!replicationRef.current) {
+        replicationRef.current = startTransactionsReplication(db.transactions, businessId)
+      }
+    }
+
+    ensureReplication()
+
+    return () => {
+      mounted = false
+      replicationRef.current?.cancel?.()
+      replicationRef.current = null
+    }
+  }, [businessId])
 
   useEffect(() => {
     if (readyToFetch && businessId && user?.id) {
@@ -260,8 +282,23 @@ export default function StockTake() {
       counted_by: userId,
     }
 
-    enqueue("CREATE_STOCK_TAKE", { stockTake })
-    await runSync()
+    const db = await getDb()
+    await db.transactions.insert({
+      id: crypto.randomUUID(),
+      business_id: businessId,
+      branch_id: resolvedBranchId,
+      type: "stock_take_create",
+      transaction_type_tag: "inventory_control",
+      payment_account: "system",
+      account_code: "0000",
+      date: new Date().toISOString(),
+      created_by: userId,
+      lifecycle_state: "finalized",
+      amount: 0,
+      display_name: "Stock take create",
+      stock_take: stockTake,
+    })
+    replicationRef.current?.reSync?.()
 
     setStockTakeId(newStockTakeId)
     setStep("counting")
@@ -279,8 +316,24 @@ export default function StockTake() {
       actual_quantity: parseFloat(counts[p.id] ?? p.current_quantity),
     }))
 
-    enqueue("SUBMIT_STOCK_TAKE_COUNTS", { stockTakeId, items })
-    await runSync()
+    const db = await getDb()
+    await db.transactions.insert({
+      id: crypto.randomUUID(),
+      business_id: businessId,
+      branch_id: resolvedBranchId,
+      type: "stock_take_submit_counts",
+      transaction_type_tag: "inventory_control",
+      payment_account: "system",
+      account_code: "0000",
+      date: new Date().toISOString(),
+      created_by: userId,
+      lifecycle_state: "finalized",
+      amount: 0,
+      display_name: "Stock take submit counts",
+      stock_take_id: stockTakeId,
+      stock_take_items: items,
+    })
+    replicationRef.current?.reSync?.()
 
     setStep("review")
     setLoading(false)
@@ -290,12 +343,29 @@ export default function StockTake() {
     setLoading(true)
     setError("")
 
-    enqueue("APPROVE_STOCK_TAKE", {
+    const approvalPayload = {
       stockTakeId,
       approvedBy: userId,
       endDate: new Date().toISOString(),
+    }
+
+    const db = await getDb()
+    await db.transactions.insert({
+      id: crypto.randomUUID(),
+      business_id: businessId,
+      branch_id: resolvedBranchId,
+      type: "stock_take_approve",
+      transaction_type_tag: "inventory_control",
+      payment_account: "system",
+      account_code: "0000",
+      date: new Date().toISOString(),
+      created_by: userId,
+      lifecycle_state: "finalized",
+      amount: 0,
+      display_name: "Stock take approve",
+      stock_take_approval: approvalPayload,
     })
-    await runSync()
+    replicationRef.current?.reSync?.()
 
     setStep("done")
     setLoading(false)

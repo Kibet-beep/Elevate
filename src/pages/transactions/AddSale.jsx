@@ -1,14 +1,13 @@
 // src/pages/transactions/AddSale.jsx
 import { useEffect, useState } from "react"
 import { useNavigate, useSearchParams } from "react-router-dom"
-import { supabase } from "../../lib/supabase"
 import { useUser, useCurrentBusiness } from "../../hooks/useRole"
 import { useBranchContext } from "../../context/BranchContext"
 import { AppShell, UiButton, UiCard, UiSectionTitle } from "../../components/ui"
 import PaymentIcon from "../../components/ui/PaymentIcon"
 import { BranchSelector } from "../../components/BranchSelector"
-import { enqueue } from "../../lib/outbox"
-import { runSync } from "../../lib/syncEngine"
+import { getDb } from "../../lib/db"
+import { useProducts } from "../../hooks/useProducts"
 
 export default function AddSale() {
   const navigate = useNavigate()
@@ -17,7 +16,7 @@ export default function AddSale() {
   const { businessId } = useCurrentBusiness()
   const { effectiveBranchId, viewMode, canViewAll, readyToFetch } = useBranchContext()
   const [userId, setUserId] = useState(null)
-  const [products, setProducts] = useState([])
+  const { products } = useProducts(readyToFetch ? (canViewAll ? null : effectiveBranchId) : null, readyToFetch && canViewAll)
   const [cartItems, setCartItems] = useState([])
   const [productSearch, setProductSearch] = useState("")
   const [paymentAccount, setPaymentAccount] = useState("cash")
@@ -34,39 +33,10 @@ export default function AddSale() {
   const resolvedBranchId = effectiveBranchId
 
   useEffect(() => {
-    if (readyToFetch) {
-      fetchData()
+    if (authUser?.id) {
+      setUserId(authUser.id)
     }
-  }, [businessId, effectiveBranchId, viewMode, authUser, canViewAll, readyToFetch])
-
-  const fetchData = async () => {
-    if (!businessId || !authUser) return
-
-    if (!readyToFetch) return
-
-    const query = supabase
-      .from("products")
-      .select("id, name, sku_id, selling_price, current_quantity, unit_of_measure, vat_type, branch_id")
-      .eq("business_id", businessId)
-      .not("is_active", "eq", false)
-      .order("name")
-
-    const productQuery = resolvedBranchId
-      ? query.or(`branch_id.eq.${resolvedBranchId},branch_id.is.null`)
-      : query
-
-    const { data, error: fetchError } = await productQuery
-
-    if (fetchError) {
-      setError(fetchError.message)
-      setProducts([])
-      setLoading(false)
-      return
-    }
-
-    setProducts(data || [])
-    setUserId(authUser.id)
-  }
+  }, [authUser?.id])
 
   const addToCart = (product) => {
     const existing = cartItems.find((item) => item.product_id === product.id)
@@ -151,32 +121,46 @@ export default function AddSale() {
     // even if the request is retried multiple times
     const transactionId = crypto.randomUUID()
 
+    const db = await getDb()
     const transaction = {
-      id:                   transactionId,
-      business_id:          businessId,
-      branch_id:            viewMode === "branch" ? resolvedBranchId : null,
-      type:                 "sale",
+      id: transactionId,
+      business_id: businessId,
+      branch_id: viewMode === "branch" ? resolvedBranchId : null,
+      type: "sale",
       transaction_type_tag: "income",
-      payment_account:      paymentAccount,
-      account_code:         "4100",
-      date:                 new Date(`${saleDate}T12:00:00Z`).toISOString(),
-      created_by:           userId,
+      payment_account: paymentAccount,
+      account_code: "4100",
+      date: new Date(`${saleDate}T12:00:00Z`).toISOString(),
+      created_by: userId,
+      lifecycle_state: "finalized",
+      amount: total,
+      display_name: cartItems.length > 1
+        ? `${cartItems[0].name} + ${cartItems.length - 1} more`
+        : cartItems[0].name || "Sale",
+      sale_items: cartItems.map(item => ({
+        product_id: item.product_id,
+        product_name: item.name,
+        quantity: item.quantity,
+        unit_price: item.unit_price,
+        total_amount: item.unit_price * item.quantity,
+        vat_applied: item.vat_type !== "exempt" ? 1 : 0,
+        etims_receipt_no: etimsNo || null,
+      })),
     }
 
-    const saleItems = cartItems.map(item => ({
-      product_id:       item.product_id,
-      quantity:         item.quantity,
-      unit_price:       item.unit_price,
-      total_amount:     item.unit_price * item.quantity,
-      vat_applied:      item.vat_type !== "exempt" ? 1 : 0,
-      etims_receipt_no: etimsNo || null,
+    await db.transactions.insert(transaction)
+
+    const productIds = cartItems.map((item) => item.product_id)
+    const productDocs = await Promise.all(
+      productIds.map((productId) => db.products.findOne(productId).exec())
+    )
+
+    await Promise.all(productDocs.map((productDoc, index) => {
+      const cartItem = cartItems[index]
+      if (!productDoc) return Promise.resolve()
+      const nextQuantity = Math.max(0, Number(productDoc.current_quantity || 0) - Number(cartItem.quantity || 0))
+      return productDoc.incrementalPatch({ current_quantity: nextQuantity })
     }))
-
-    // Queue the operation — data is now safe even if offline
-    enqueue("CREATE_SALE", { transaction, saleItems })
-
-    // Try to sync immediately if online
-    await runSync()
 
     setSuccess(true)
     setLoading(false)
