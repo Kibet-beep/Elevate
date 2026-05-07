@@ -5,6 +5,7 @@ import PaymentIcon from "../../components/ui/PaymentIcon"
 import { useBranchContext } from "../../context/BranchContext"
 import { useCurrentBusiness, useUser } from "../../hooks/useRole"
 import { supabase } from "../../lib/supabase"
+import { getDb } from "../../lib/db"
 import { BranchSelector } from "../../components/BranchSelector"
 
 export default function HistoricalSales() {
@@ -290,7 +291,24 @@ export default function HistoricalSales() {
           etims_receipt_no: null,
         }))
 
-        const { error: itemsError } = await supabase.from("sale_items").insert(items)
+        const db = await getDb()
+        const { error: itemsError } = await db.transactions.insert({
+          id: `sale-items-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+          business_id: businessId,
+          branch_id: resolvedBranchId,
+          type: 'sale_items_batch',
+          transaction_type_tag: 'sale',
+          payment_account: stagedTransaction.paymentAccount,
+          account_code: stagedTransaction.paymentAccount,
+          date: stagedTransaction.date,
+          created_by: authUser.id,
+          lifecycle_state: 'completed',
+          amount: stagedTransaction.total,
+          display_name: 'Historical Sale Items',
+          sale_items: items,
+          _modified: Date.now(),
+          _deleted: false,
+        })
         if (itemsError) throw itemsError
 
         const stockUpdates = stagedTransaction.items.map((item) =>

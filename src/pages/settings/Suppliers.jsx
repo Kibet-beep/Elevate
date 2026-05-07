@@ -1,6 +1,7 @@
 // src/pages/settings/Suppliers.jsx
 import { useState, useEffect } from "react"
 import { supabase } from "../../lib/supabase"
+import { getDb } from "../../lib/db"
 import { useNavigate } from "react-router-dom"
 import { useCurrentBusiness } from "../../hooks/useRole"
 import { AppShell, UiButton, UiCard } from "../../components/ui"
@@ -51,12 +52,31 @@ export default function Suppliers() {
     setLoading(true)
     setError("")
 
-    const { error } = await supabase.from("suppliers").insert({
+    const { data: { user } } = await supabase.auth.getUser()
+    const db = await getDb()
+    const { error } = await db.transactions.insert({
+      id: `supplier-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
       business_id: businessId,
-      name,
-      phone: phone || null,
-      email: email || null,
-      address: address || null,
+      branch_id: businessId,
+      type: 'supplier_creation',
+      transaction_type_tag: 'system',
+      payment_account: 'system',
+      account_code: 'system',
+      date: new Date().toISOString(),
+      created_by: user?.id || 'system',
+      lifecycle_state: 'completed',
+      amount: 0,
+      display_name: 'Supplier Creation',
+      supplier_data: {
+        business_id: businessId,
+        name,
+        phone: phone || null,
+        email: email || null,
+        address: address || null,
+        is_active: true,
+      },
+      _modified: Date.now(),
+      _deleted: false,
     })
 
     if (error) setError(error.message)
