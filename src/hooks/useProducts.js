@@ -31,8 +31,8 @@ export function useProducts(branchId = null, isOwnerOrManager = false) {
         _deleted: { $ne: true },
         is_active: { $ne: false },
         ...(branchId ? { branch_id: branchId } : {}),
-        // Only include inactive products if user is owner/manager
-        ...(isOwnerOrManager ? {} : { is_active: true }),
+        // For non-owners, ensure they only see active products (default behavior)
+        ...(isOwnerOrManager ? {} : {}),
       }
 
       // Try to get existing data first
