@@ -8,6 +8,7 @@ export function useProducts(branchId = null, isOwnerOrManager = false) {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
+    console.log('useProducts hook:', { business, branchId, isOwnerOrManager })
     if (!business?.id) return
 
     if (!isOwnerOrManager && !branchId) {
