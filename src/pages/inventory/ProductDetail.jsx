@@ -16,7 +16,7 @@ export default function ProductDetail() {
   const { canViewAll, availableBranches, effectiveBranchId } = useBranchContext()
   const { products: allProducts } = useProducts(
     canViewAll ? null : effectiveBranchId,
-    canViewAll,
+    isOwnerOrManager,
   )
   const [product, setProduct] = useState(null)
   const [stockHistory, setStockHistory] = useState([])

@@ -24,8 +24,8 @@ export default function ProfitLossReport() {
   const [loading, setLoading] = useState(true)
 
   // Get transactions and products from RxDB hooks
-  const { transactions: liveTransactions } = useTransactions(effectiveBranchId)
-  const { products: liveProducts } = useProducts(effectiveBranchId, canViewAll)
+  const { transactions: liveTransactions } = useTransactions(effectiveBranchId, true)
+  const { products: liveProducts } = useProducts(effectiveBranchId, true)
 
   useEffect(() => {
     setData({ transactions: liveTransactions, products: liveProducts })

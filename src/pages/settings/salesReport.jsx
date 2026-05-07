@@ -44,7 +44,7 @@ export default function SalesReport() {
   const [compareDateB, setCompareDateB] = useState(todayIso)
 
   // Get transactions from RxDB hook
-  const { transactions: liveTransactions } = useTransactions(effectiveBranchId)
+  const { transactions: liveTransactions } = useTransactions(effectiveBranchId, isOwnerOrManager)
 
   useEffect(() => {
     if (dateParam) { setPeriod("Day"); setAnchorDate(dateParam) }

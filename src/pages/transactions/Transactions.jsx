@@ -18,7 +18,7 @@ export default function Transactions() {
   const { user } = useUser()
   const { canViewAll, availableBranches, effectiveBranchId, readyToFetch } = useBranchContext()
   const isOwnerOrManager = useIsOwnerOrManager()
-  const { transactions: liveTransactions } = useTransactions(effectiveBranchId)
+  const { transactions: liveTransactions } = useTransactions(effectiveBranchId, isOwnerOrManager)
   const [transactions, setTransactions] = useState([])
   const [filtered, setFiltered] = useState([])
   const [search, setSearch] = useState("")
