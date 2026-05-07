@@ -5,6 +5,12 @@ import { useAppStore } from "../store/useAppStore"
 export const UserContext = createContext()
 
 export function UserProvider({ children }) {
+  const user = useAppStore((state) => state.user)
+  const userRole = useAppStore((state) => state.userRole)
+  const businessId = useAppStore((state) => state.businessId)
+  const business = useAppStore((state) => state.business)
+  const loading = useAppStore((state) => state.loading)
+  const error = useAppStore((state) => state.error)
   const setAuthSnapshot = useAppStore((state) => state.setAuthSnapshot)
   const clearAuthSnapshot = useAppStore((state) => state.clearAuthSnapshot)
   const setAuthLoading = useAppStore((state) => state.setAuthLoading)
@@ -83,5 +89,5 @@ export function UserProvider({ children }) {
     }
   }, [clearAuthSnapshot, setAuthError, setAuthLoading, setAuthSnapshot])
 
-  return <UserContext.Provider value={null}>{children}</UserContext.Provider>
+  return <UserContext.Provider value={{ user, business, userRole, businessId, loading, error }}>{children}</UserContext.Provider>
 }

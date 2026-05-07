@@ -1,189 +1,29 @@
 // src/pages/inventory/Inventory.jsx
-import { useState, useEffect, useMemo, useCallback, useRef } from "react"
-import { supabase } from "../../lib/supabase"
+import { useState, useMemo } from "react"
 import { useNavigate } from "react-router-dom"
 import FloatingBottomNav from "../../components/layout/FloatingBottomNav"
-import { AppShell, UiButton } from "../../components/ui"
-import { useIsOwnerOrManager, useUser } from "../../hooks/useRole"
-import { useCache } from "../../hooks/useCache"
-import { usePersistentStorage } from "../../hooks/usePersistentStorage"
+import { AppShell, UiButton, UiCard } from "../../components/ui"
+import { useIsOwnerOrManager } from "../../hooks/useRole"
 import { useInstantAuth } from "../../hooks/useInstantAuth"
 import { useBranchContext } from "../../context/BranchContext"
 import { BranchSelector } from "../../components/BranchSelector"
-import { CacheKeys } from "../../lib/cacheKeys"
-import { createCacheManager } from "../../lib/cacheManager"
-import { useDataInitializer } from "../../lib/dataInitializer"
+import { useProducts } from "../../hooks/useProducts"
 
 export default function Inventory() {
   const navigate = useNavigate()
-  const { business: instantBusiness, initialized, signOut } = useInstantAuth()
-  const { get, set } = useCache()
-  const { get: getPersistent, set: setPersistent } = usePersistentStorage()
-  
-  // Create unified cache manager
-  const cacheManager = useMemo(() => createCacheManager({ get, set }, { get: getPersistent, set: setPersistent }), [get, set, getPersistent, setPersistent])
-  
-  // Create data initializer with auth dependencies
-  const dataInitializer = useDataInitializer(cacheManager, { business: instantBusiness, initialized })
-  const { user } = useUser()
+  const { business: instantBusiness, signOut } = useInstantAuth()
   const isOwnerOrManager = useIsOwnerOrManager()
-  const { canViewAll, availableBranches, effectiveBranchId, readyToFetch } = useBranchContext()
-  const [products, setProducts] = useState([])
-  const [filtered, setFiltered] = useState([])
+  const { canViewAll, availableBranches, effectiveBranchId } = useBranchContext()
+  const { products, loading } = useProducts(effectiveBranchId, isOwnerOrManager)
+console.log('products:', products, 'loading:', loading, 'effectiveBranchId:', effectiveBranchId, 'business:', instantBusiness?.id)
   const [search, setSearch] = useState("")
   const [categoryFilter, setCategoryFilter] = useState("all")
   const [riskFilter, setRiskFilter] = useState("all")
   const [mobileFilterOpen, setMobileFilterOpen] = useState(false)
   const [selectedProduct, setSelectedProduct] = useState(null)
-  const [categories, setCategories] = useState([])
-  const prevBranchId = useRef(undefined)
+  const categories = useMemo(() => [...new Set(products.map((product) => product.category).filter(Boolean))], [products])
 
-  // Owners/managers can select a branch or see all.
-  // Cashiers are hard-locked to their assigned branch — no fallback to null.
-  // Use standardized cache keys from CacheKeys utility
-
-  // Define fetchProducts function before hydrate
-  const fetchProducts = useCallback(async (businessId, active = true) => {
-    if (!businessId) {
-      setProducts([])
-      setFiltered([])
-      setCategories([])
-      return []
-    }
-
-    // Cashier's branch not loaded yet — wait
-    if (!readyToFetch) return []
-
-    try {
-      let query = supabase
-        .from("products")
-        .select("id, name, sku_id, category, current_quantity, reorder_point, buying_price, selling_price, unit_of_measure, branch_id")
-        .not("is_active", "eq", false)
-        .eq("business_id", businessId)
-        .order("name")
-
-      // Apply branch filtering if a specific branch is selected
-      if (effectiveBranchId) {
-        query = query.eq("branch_id", effectiveBranchId)
-      } else if (!isOwnerOrManager) {
-        // Cashier with no resolved branch — return nothing, never all branches
-        setProducts([]); setFiltered([]); setCategories([])
-        return []
-      }
-
-      const { data } = await query
-
-      if (!active) return
-
-      const nextProducts = data || []
-      
-      // Update state immediately
-      setProducts(nextProducts)
-      setFiltered(nextProducts)
-
-      const cats = [...new Set(nextProducts.map((p) => p.category).filter(Boolean))]
-      setCategories(cats)
-      
-      // Update cache in background (don't block)
-      try {
-        cacheManager.setProducts(businessId, nextProducts, effectiveBranchId, user?.id)
-      } catch (cacheError) {
-        console.warn('Cache update failed:', cacheError)
-      }
-      
-      console.log(`Loaded ${nextProducts.length} products from database`)
-      return nextProducts
-    } catch (error) {
-      console.error("Failed to load inventory products:", error)
-      throw error
-    }
-  }, [effectiveBranchId, readyToFetch, canViewAll, isOwnerOrManager, cacheManager])
-
-  const hydrate = useCallback(async () => {
-    let active = true
-
-    const runHydrate = async () => {
-      const businessId = instantBusiness?.id
-      if (!businessId) return
-
-      if (readyToFetch) {
-        try {
-          const result = await cacheManager.hydrateProducts(
-            businessId,
-            effectiveBranchId,
-            () => fetchProducts(businessId, active),
-            user?.id
-          )
-
-          if (!active) {
-            return
-          }
-
-          const nextProducts = result.data || []
-          // Merge pending new products from outbox
-          try {
-            const raw = localStorage.getItem('elevate:outbox')
-            const outbox = raw ? JSON.parse(raw) : []
-            const pendingProducts = outbox
-              .filter(item => item.status === 'pending' && item.type === 'CREATE_STOCK_ENTRY' && item.payload.isNewProduct)
-              .map(item => ({
-                ...item.payload.newProductData,
-                current_quantity: 0,
-                syncStatus: 'pending',
-              }))
-            const merged = [...pendingProducts, ...nextProducts]
-            setProducts(merged)
-            setFiltered(merged)
-            setCategories([...new Set(merged.map((p) => p.category).filter(Boolean))])
-          } catch {
-            setProducts(nextProducts)
-            setFiltered(nextProducts)
-            setCategories([...new Set(nextProducts.map((p) => p.category).filter(Boolean))])
-          }
-          
-          console.log(`Inventory loaded from ${result.source}`)
-        } catch (error) {
-          console.error('Inventory hydration failed:', error)
-          if (active) {
-            setProducts([])
-            setFiltered([])
-            setCategories([])
-          }
-        }
-        return
-      }
-
-      if (initialized && active) {
-        setProducts([])
-        setFiltered([])
-        setCategories([])
-      }
-    }
-
-    await runHydrate()
-    return () => {
-      active = false
-    }
-  }, [instantBusiness?.id, initialized, effectiveBranchId, readyToFetch, cacheManager, fetchProducts])
-
-  useEffect(() => {
-    hydrate()
-  }, [hydrate])
-
-  useEffect(() => {
-    if (prevBranchId.current === undefined) {
-      prevBranchId.current = effectiveBranchId
-      return // skip on first mount
-    }
-    if (prevBranchId.current !== effectiveBranchId) {
-      prevBranchId.current = effectiveBranchId
-      setProducts([])
-      setFiltered([])
-      setCategories([])
-    }
-  }, [effectiveBranchId])
-
-  const filteredProducts = useMemo(() => {
+  const filtered = useMemo(() => {
     let result = products
     if (search) {
       result = result.filter(p =>
@@ -210,16 +50,9 @@ export default function Inventory() {
     return result
   }, [search, categoryFilter, riskFilter, products])
 
-  useEffect(() => {
-    setFiltered(filteredProducts)
-  }, [filteredProducts])
-
   const isLowStock = (p) => Number(p.current_quantity || 0) <= Number(p.reorder_point || 0)
 
   const handleSignOut = async () => {
-    if (user?.id) {
-      cacheManager.clearUserCache(user.id)
-    }
     await signOut()
   }
 
@@ -328,7 +161,16 @@ export default function Inventory() {
             </div>
           </div>
 
-          {filtered.length === 0 ? (
+          {loading ? (
+            <UiCard>
+              <div className="flex items-center justify-center py-12">
+                <div className="text-center">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-emerald-500 mx-auto mb-4"></div>
+                  <p className="text-zinc-400">Loading products...</p>
+                </div>
+              </div>
+            </UiCard>
+          ) : filtered.length === 0 ? (
             <div className="text-center py-16 px-4">
               <p className="text-zinc-600 text-sm">No products found</p>
             </div>
@@ -336,6 +178,7 @@ export default function Inventory() {
             <>
               {/* Mobile View */}
               <div className="md:hidden p-2 space-y-2">
+                {console.log('Rendering mobile view, filtered products count:', filtered.length)}
                 {filtered.map((p) => {
                   const low = isLowStock(p)
                   const quantity = Number(p.current_quantity || 0)
@@ -377,6 +220,7 @@ export default function Inventory() {
 
               {/* Desktop View */}
               <div className="hidden md:block overflow-x-auto">
+                {console.log('Rendering desktop view, filtered products count:', filtered.length)}
                 <table className="w-full min-w-[920px]">
                   <thead className="sticky top-0 bg-zinc-900 z-10">
                     <tr className="text-left text-[10px] uppercase tracking-wider text-zinc-500 border-b border-zinc-800">
@@ -393,6 +237,7 @@ export default function Inventory() {
                     </tr>
                   </thead>
                   <tbody>
+                    {console.log('About to render desktop table rows, count:', filtered.length)}
                     {filtered.map((p) => {
                       const low = isLowStock(p)
                       const quantity = Number(p.current_quantity || 0)

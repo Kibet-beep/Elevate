@@ -4,6 +4,22 @@ import { supabase } from "../lib/supabase"
 import { useUser, useCurrentBusiness } from "../hooks/useRole"
 import { useInstantAuth } from "../hooks/useInstantAuth"
 
+const BRANCH_STORAGE_KEY = 'elevate:active-branch'
+
+function getStoredBranch() {
+  try {
+    const raw = localStorage.getItem(BRANCH_STORAGE_KEY)
+    return raw ? JSON.parse(raw) : null
+  } catch { return null }
+}
+
+function storeBranch(branch) {
+  try {
+    if (branch) localStorage.setItem(BRANCH_STORAGE_KEY, JSON.stringify(branch))
+    else localStorage.removeItem(BRANCH_STORAGE_KEY)
+  } catch {}
+}
+
 const BranchContext = createContext(null)
 
 const branchCache = new Map()
@@ -27,69 +43,89 @@ export function BranchProvider({ children }) {
   const [refreshToken, setRefreshToken] = useState(0)
 
   const applyDefaultBranch = useCallback((branches) => {
-    if (branches.length === 0) {
+  console.log('applyDefaultBranch called, branches:', branches.length, 'stored:', getStoredBranch())
+  if (branches.length === 0) {
       setActiveBranchState(null)
       setViewMode(isOwner ? 'all' : 'branch')
+      // Clear stored branch if no branches available
+      try {
+        localStorage.removeItem(BRANCH_STORAGE_KEY)
+      } catch {}
       return
     }
-    const defaultBranch = 
+
+    // Try to restore previously selected branch
+    const stored = getStoredBranch()
+    if (stored) {
+      const match = branches.find(b => b.id === stored.id)
+      if (match) {
+        setActiveBranchState(match)
+        setViewMode('branch')
+        return
+      }
+      // If stored branch no longer exists, clear it and use first available branch
+      try {
+        localStorage.removeItem(BRANCH_STORAGE_KEY)
+      } catch {}
+    }
+
+    const defaultBranch =
       branches.find(b => b.id === user?.default_branch_id) || branches[0]
     setActiveBranchState(defaultBranch)
     setViewMode('branch')
   }, [isOwner, user?.default_branch_id])
 
   const fetchBranches = useCallback(async () => {
-    if (!user?.id || !resolvedBusinessId || !initialized) {
-      setLoading(false)
-      return
-    }
+  console.log('fetchBranches called:', { userId: user?.id, resolvedBusinessId, initialized })
 
-    setLoading(true)
+  if (!user?.id || !resolvedBusinessId || !initialized) {
+    setLoading(false)
+    return
+  }
 
-    try {
-      const cacheKey = `${user.id}-${resolvedBusinessId}-${user.role}-${refreshToken}`
-      const cached = branchCache.get(cacheKey)
+  setLoading(true)
 
-      if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
-        setAvailableBranches(cached.branches)
-        applyDefaultBranch(cached.branches)
+  try {
+    if (isOwner) {
+      const { data, error } = await supabase
+        .from('branches')
+        .select('*')
+        .eq('business_id', resolvedBusinessId)
+        .eq('is_active', true)
+        .order('name')
+
+      const branches = data || []
+      branchCache.set(`${user.id}-${resolvedBusinessId}-owner`, { branches, timestamp: Date.now() })
+      setAvailableBranches(branches)
+      applyDefaultBranch(branches)
+    } else {
+      // For managers/cashiers — use default_branch_id directly
+      // instead of querying user_branch_assignments which is hanging
+      const defaultBranchId = user?.default_branch_id
+      
+      if (!defaultBranchId) {
+        setAvailableBranches([])
+        setActiveBranchState(null)
         setLoading(false)
         return
       }
 
-      let branches = []
+      const { data, error } = await supabase
+        .from('branches')
+        .select('*')
+        .eq('id', defaultBranchId)
+        .single()
 
-      if (isOwner) {
-        const { data } = await supabase
-          .from('branches')
-          .select('*')
-          .eq('business_id', resolvedBusinessId)
-          .eq('is_active', true)
-          .order('name')
-        branches = data || []
-      } else {
-        const { data: assignments } = await supabase
-          .from('user_branch_assignments')
-          .select('branch_id, branches(*)')
-          .eq('user_id', user.id)
-          .eq('is_active', true)
-
-        branches = (assignments || [])
-          .map(a => a.branches)
-          .filter(Boolean)
-          .filter(b => b.is_active)
-      }
-
-      branchCache.set(cacheKey, { branches, timestamp: Date.now() })
+      const branches = data ? [data] : []
       setAvailableBranches(branches)
       applyDefaultBranch(branches)
-
-    } catch (error) {
-      console.error('Failed to fetch branches:', error)
-    } finally {
-      setLoading(false)
     }
-  }, [user?.id, user?.role, user?.default_branch_id, resolvedBusinessId, initialized, refreshToken, isOwner, applyDefaultBranch])
+  } catch (error) {
+    console.error('Failed to fetch branches:', error)
+  } finally {
+    setLoading(false)
+  }
+}, [user?.id, user?.role, user?.default_branch_id, resolvedBusinessId, initialized, isOwner, applyDefaultBranch])
 
   useEffect(() => {
     fetchBranches()
@@ -100,7 +136,7 @@ export function BranchProvider({ children }) {
       return activeBranch?.id ?? user?.default_branch_id ?? null
     }
     if (isManager) {
-      return activeBranch?.id ?? null
+      return activeBranch?.id ?? user?.default_branch_id ?? null
     }
     return viewMode === 'all' ? null : activeBranch?.id ?? null
   })()
@@ -114,12 +150,14 @@ export function BranchProvider({ children }) {
     if (isCashier) return
     setActiveBranchState(branch)
     setViewMode('branch')
+    storeBranch(branch)
   }, [isCashier])
 
   const showAllBranches = useCallback(() => {
     if (!isOwner) return
     setActiveBranchState(null)
     setViewMode('all')
+    storeBranch(null)
   }, [isOwner])
 
   const refreshBranches = useCallback(() => {

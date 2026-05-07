@@ -4,6 +4,14 @@ import react from '@vitejs/plugin-react'
 export default defineConfig(({ command, mode }) => ({
   plugins: [react()],
   base: mode === 'capacitor' ? './' : '/',
+  resolve: {
+    conditions: ['module', 'browser', 'development', 'import', 'default'],
+    dedupe: ['rxdb', 'dexie']
+  },
+  optimizeDeps: {
+    exclude: ['rxdb', 'rxdb-supabase'],
+    include: ['dexie']
+  },
   server: {
     host: true,
     port: 5173,
@@ -18,6 +26,9 @@ export default defineConfig(({ command, mode }) => ({
     sourcemap: true,
     minify: true,
     chunkSizeWarningLimit: 1000,
+    worker: {
+      format: 'es',
+    },
     rollupOptions: {
       output: {
         manualChunks(id) {
