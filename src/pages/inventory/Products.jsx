@@ -11,8 +11,8 @@ export default function Products() {
   const { business: instantBusiness } = useInstantAuth()
   const { canViewAll, availableBranches, effectiveBranchId, readyToFetch } = useBranchContext()
   const { products: liveProducts } = useProducts(
-    readyToFetch ? (canViewAll ? null : effectiveBranchId) : null,
-    readyToFetch && canViewAll,
+    canViewAll ? null : effectiveBranchId,
+    canViewAll,
   )
   const [products, setProducts] = useState([])
   const [filtered, setFiltered] = useState([])
