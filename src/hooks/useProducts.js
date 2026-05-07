@@ -41,9 +41,14 @@ export function useProducts(branchId = null, isOwnerOrManager = false) {
       }
 
       // Try to get existing data first
-      const existingDocs = await db.products.find({ selector }).exec()
-      if (existingDocs.length > 0) {
-        setProducts(existingDocs.map((doc) => doc.toJSON()))
+      try {
+        const existingDocs = await db.products.find({ selector }).exec()
+        if (existingDocs.length > 0) {
+          setProducts(existingDocs.map((doc) => doc.toJSON()))
+          setLoading(false)
+        }
+      } catch (error) {
+        console.error('useProducts initial fetch error:', error)
         setLoading(false)
       }
 
@@ -51,10 +56,16 @@ export function useProducts(branchId = null, isOwnerOrManager = false) {
       subscription = db.products
         .find({ selector, sort: [{ name: 'asc' }, { id: 'asc' }] })
         .$
-        .subscribe((docs) => {
-          if (!active) return
-          setProducts(docs.map((doc) => doc.toJSON()))
-          setLoading(false)
+        .subscribe({
+          next: (docs) => {
+            if (!active) return
+            setProducts(docs.map((doc) => doc.toJSON()))
+            setLoading(false)
+          },
+          error: (error) => {
+            console.error('useProducts subscription error:', error)
+            setLoading(false)
+          }
         })
     })
 
