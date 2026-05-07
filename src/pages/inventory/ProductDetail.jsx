@@ -1,11 +1,12 @@
 // src/pages/inventory/ProductDetail.jsx
 import { useState, useEffect } from "react"
-import { supabase } from "../../lib/supabase"
 import { useNavigate, useParams } from "react-router-dom"
 import { AppShell, UiButton, UiCard, UiSectionTitle } from "../../components/ui"
 import { useIsOwnerOrManager } from "../../hooks/useRole"
 import { useBranchContext } from "../../context/BranchContext"
 import { useInstantAuth } from "../../hooks/useInstantAuth"
+import { useProducts } from "../../hooks/useProducts"
+import { getDb } from "../../lib/db"
 
 export default function ProductDetail() {
   const navigate = useNavigate()
@@ -13,6 +14,10 @@ export default function ProductDetail() {
   const { business: instantBusiness } = useInstantAuth()
   const isOwnerOrManager = useIsOwnerOrManager()
   const { canViewAll, availableBranches, effectiveBranchId } = useBranchContext()
+  const { products: allProducts } = useProducts(
+    canViewAll ? null : effectiveBranchId,
+    canViewAll,
+  )
   const [product, setProduct] = useState(null)
   const [stockHistory, setStockHistory] = useState([])
   const [salesHistory, setSalesHistory] = useState([])
@@ -32,92 +37,65 @@ export default function ProductDetail() {
   const [reorderPoint, setReorderPoint] = useState("")
 
   useEffect(() => {
-    fetchProduct()
-  }, [id])
-
-  const fetchProduct = async () => {
-    if (!instantBusiness?.id) return
-
-    let productQuery = supabase
-      .from("products")
-      .select("*, suppliers(name), branches!left(name, code)")
-      .eq("id", id)
-      .eq("business_id", instantBusiness.id)
-
-    if (!canViewAll && effectiveBranchId) {
-      productQuery = productQuery.eq("branch_id", effectiveBranchId)
+    if (allProducts.length > 0) {
+      const foundProduct = allProducts.find(p => p.id === id)
+      setProduct(foundProduct || null)
+      setName(foundProduct?.name || "")
+      setCategory(foundProduct?.category || "")
+      setUnit(foundProduct?.unit_of_measure || "")
+      setSellingPrice(foundProduct?.selling_price ?? "")
+      setBuyingPrice(foundProduct?.buying_price ?? "")
+      setReorderPoint(foundProduct?.reorder_point ?? "")
+      setLoading(false)
     }
-
-    const { data } = await productQuery.single()
-
-    setProduct(data)
-    setName(data?.name || "")
-    setCategory(data?.category || "")
-    setUnit(data?.unit_of_measure || "")
-    setSellingPrice(data?.selling_price ?? "")
-    setBuyingPrice(data?.buying_price ?? "")
-    setReorderPoint(data?.reorder_point ?? "")
-
-    const { data: history } = await supabase
-      .from("stock_entries")
-      .select("*")
-      .eq("product_id", id)
-      .order("created_at", { ascending: false })
-      .limit(10)
-
-    setStockHistory(history || [])
-
-    const { data: sales } = await supabase
-      .from("sale_items")
-      .select("quantity, total_amount, unit_price, transactions(date, payment_account)")
-      .eq("product_id", id)
-      .order("created_at", { ascending: false })
-      .limit(50)
-
-    setSalesHistory(sales || [])
-    setLoading(false)
-  }
+  }, [allProducts, id])
 
   const handleSave = async () => {
     setSaving(true)
     setError("")
 
-    let updateQuery = supabase
-      .from("products")
-      .update({
+    try {
+      const db = await getDb()
+      const updateData = {
         name,
         category: category || null,
         unit_of_measure: unit || null,
         selling_price: parseFloat(sellingPrice),
         buying_price: parseFloat(buyingPrice),
         reorder_point: parseInt(reorderPoint),
-      })
-      .eq("id", id)
-      .eq("business_id", instantBusiness?.id)
+        _modified: Date.now(),
+      }
 
-    if (!canViewAll && effectiveBranchId) {
-      updateQuery = updateQuery.eq("branch_id", effectiveBranchId)
-    }
+      if (!canViewAll && effectiveBranchId) {
+        updateData.branch_id = effectiveBranchId
+      }
 
-    const { error } = await updateQuery
-
-    if (error) {
-      setError(error.message)
-    } else {
+      await db.products.upsert(id, updateData)
       setEditing(false)
-      fetchProduct()
+      // Update local state immediately
+      setProduct(prev => ({ ...prev, ...updateData }))
+    } catch (error) {
+      setError(error.message)
     }
     setSaving(false)
   }
 
   const handleDeactivate = async () => {
     if (!confirm("Remove this product from inventory?")) return
-    let deactivateQuery = supabase.from("products").update({ is_active: false }).eq("id", id).eq("business_id", instantBusiness?.id)
-    if (!canViewAll && effectiveBranchId) {
-      deactivateQuery = deactivateQuery.eq("branch_id", effectiveBranchId)
+    
+    try {
+      const db = await getDb()
+      await db.products.upsert(id, {
+        is_active: false,
+        _modified: Date.now(),
+      })
+      setEditing(false)
+      // Update local state immediately
+      setProduct(prev => ({ ...prev, is_active: false }))
+      navigate("/inventory")
+    } catch (error) {
+      setError(error.message)
     }
-    await deactivateQuery
-    navigate("/inventory")
   }
 
   const fmt = (n) => `KES ${Number(n).toLocaleString("en-KE", { minimumFractionDigits: 2 })}`
@@ -149,28 +127,22 @@ export default function ProductDetail() {
     setError("")
 
     try {
-      const { error: updateError } = await supabase
-        .from("products")
-        .update({ 
-          branch_id: selectedBranch,
-          updated_at: new Date().toISOString()
-        })
-        .eq("id", id)
-
-      if (updateError) {
-        setError(updateError.message)
-      } else {
-        // Update local state for immediate feedback
-        setProduct(prev => ({
-          ...prev,
-          branch_id: selectedBranch,
-          branches: availableBranches.find(b => b.id === selectedBranch)
-        }))
-        
-        // Close modal and reset on success
-        setIsModalOpen(false)
-        setSelectedBranch("")
-      }
+      const db = await getDb()
+      await db.products.upsert(id, {
+        branch_id: selectedBranch,
+        updated_at: new Date().toISOString(),
+        _modified: Date.now(),
+      })
+      
+      // Update local state for immediate feedback
+      setProduct(prev => ({
+        ...prev,
+        branch_id: selectedBranch,
+      }))
+      
+      // Close modal and reset on success
+      setIsModalOpen(false)
+      setSelectedBranch("")
     } catch (err) {
       setError(err.message || "Failed to assign branch")
     } finally {
