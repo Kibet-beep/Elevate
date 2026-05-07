@@ -30,7 +30,11 @@ export function useProducts(branchId = null, isOwnerOrManager = false) {
       const selector = {
         business_id: business.id,
         _deleted: { $ne: true },
-        is_active: { $ne: false },
+        // Show active products, or products without is_active set (defaults to active)
+        $or: [
+          { is_active: true },
+          { is_active: null }
+        ],
         ...(branchId ? { branch_id: branchId } : {}),
         // For non-owners, ensure they only see active products (default behavior)
         ...(isOwnerOrManager ? {} : {}),
