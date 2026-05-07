@@ -3,7 +3,7 @@ import { useEffect, useState } from "react"
 import { useNavigate, useSearchParams } from "react-router-dom"
 import { supabase } from "../../lib/supabase"
 import { useUser, useCurrentBusiness } from "../../hooks/useRole"
-import { useBranchContext } from "../../hooks/useBranchContext"
+import { useBranchContext } from "../../context/BranchContext"
 import { AppShell, UiButton, UiCard, UiSectionTitle } from "../../components/ui"
 import PaymentIcon from "../../components/ui/PaymentIcon"
 import { BranchSelector } from "../../components/BranchSelector"
@@ -15,7 +15,7 @@ export default function AddSale() {
   const [searchParams] = useSearchParams()
   const { user: authUser } = useUser()
   const { businessId } = useCurrentBusiness()
-  const { currentBranchId, viewMode, canViewAll, activeBranch, loading: branchLoading } = useBranchContext()
+  const { effectiveBranchId, viewMode, canViewAll, readyToFetch } = useBranchContext()
   const [userId, setUserId] = useState(null)
   const [products, setProducts] = useState([])
   const [cartItems, setCartItems] = useState([])
@@ -31,23 +31,18 @@ export default function AddSale() {
   const [discountType, setDiscountType] = useState("pct")
   const [discountValue, setDiscountValue] = useState("")
   const [saleDate, setSaleDate] = useState(searchParams.get("date") || new Date().toISOString().split("T")[0])
-  const resolvedBranchId = currentBranchId || activeBranch?.id || null
+  const resolvedBranchId = effectiveBranchId
 
   useEffect(() => {
-    if (!branchLoading) {
+    if (readyToFetch) {
       fetchData()
     }
-  }, [businessId, currentBranchId, viewMode, authUser, canViewAll, branchLoading])
+  }, [businessId, effectiveBranchId, viewMode, authUser, canViewAll, readyToFetch])
 
   const fetchData = async () => {
     if (!businessId || !authUser) return
 
-    if (canViewAll && !resolvedBranchId) {
-      setProducts([])
-      setError("Select a branch before recording a sale")
-      setLoading(false)
-      return
-    }
+    if (!readyToFetch) return
 
     const query = supabase
       .from("products")
@@ -56,7 +51,7 @@ export default function AddSale() {
       .not("is_active", "eq", false)
       .order("name")
 
-    const productQuery = viewMode === "branch" && resolvedBranchId
+    const productQuery = resolvedBranchId
       ? query.or(`branch_id.eq.${resolvedBranchId},branch_id.is.null`)
       : query
 

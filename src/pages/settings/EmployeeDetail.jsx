@@ -2,7 +2,7 @@ import { useState, useEffect } from "react"
 import { supabase } from "../../lib/supabase"
 import { useNavigate, useParams } from "react-router-dom"
 import { useUser, useCurrentBusiness, useIsOwner } from "../../hooks/useRole"
-import { useBranchContext } from "../../hooks/useBranchContext"
+import { useBranchContext } from "../../context/BranchContext"
 import { AppShell, UiButton, UiCard } from "../../components/ui"
 
 export default function EmployeeDetail() {

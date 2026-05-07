@@ -35,6 +35,17 @@ export default function Suppliers() {
 
   useEffect(() => { if (businessId) fetchSuppliers() }, [businessId, fetchSuppliers])
 
+  // Re-fetch suppliers when window gains focus
+  useEffect(() => {
+    const handleFocus = () => {
+      if (businessId) {
+        fetchSuppliers()
+      }
+    }
+    window.addEventListener('focus', handleFocus)
+    return () => window.removeEventListener('focus', handleFocus)
+  }, [businessId])
+
   const handleAdd = async () => {
     if (!name) { setError("Supplier name required"); return }
     setLoading(true)

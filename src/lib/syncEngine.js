@@ -3,6 +3,7 @@
 
 import { supabase } from './supabase'
 import { getPending, markDone, markFailed, requeueFailed } from './outbox'
+import { invalidateCacheAfterSync } from './cacheKeys'
 
 let isSyncing = false
 
@@ -254,6 +255,7 @@ export async function runSync() {
     try {
       await processItem(item)
       markDone(item.id)
+      invalidateCacheAfterSync(item.type, item.payload, { invalidate: () => {} })
     } catch (err) {
       console.warn('syncEngine: failed to process item', item.id, err.message)
       markFailed(item.id)

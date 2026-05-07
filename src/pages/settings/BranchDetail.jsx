@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react"
 import { useNavigate, useParams } from "react-router-dom"
 import { supabase } from "../../lib/supabase"
 import { useCurrentBusiness, useIsOwner } from "../../hooks/useRole"
-import { useBranchContext } from "../../hooks/useBranchContext"
+import { useBranchContext } from "../../context/BranchContext"
 import { AppShell, UiButton, UiCard } from "../../components/ui"
 
 export default function BranchDetail() {

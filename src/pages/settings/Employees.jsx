@@ -2,7 +2,7 @@
 import { useState } from "react"
 import { useNavigate } from "react-router-dom"
 import { useCurrentBusiness } from "../../hooks/useRole"
-import { useBranchContext } from "../../hooks/useBranchContext"
+import { useBranchContext } from "../../context/BranchContext"
 import { AppShell, UiButton, UiCard } from "../../components/ui"
 
 export default function Employees() {

@@ -3,7 +3,8 @@ import { useState, useEffect, useMemo } from "react"
 import { supabase } from "../../lib/supabase"
 import { useNavigate } from "react-router-dom"
 import { AppShell, UiButton } from "../../components/ui"
-import { useBranchContext } from "../../hooks/useBranchContext"
+import { useBranchContext } from "../../context/BranchContext"
+import { useUser } from "../../hooks/useRole"
 import { useCache } from "../../hooks/useCache"
 import { useInstantAuth } from "../../hooks/useInstantAuth"
 import { CacheKeys } from "../../lib/cacheKeys"
@@ -12,8 +13,9 @@ import { createCacheManager } from "../../lib/cacheManager"
 export default function Products() {
   const navigate = useNavigate()
   const { business: instantBusiness, initialized } = useInstantAuth()
+  const { user } = useUser()
   const { get, set } = useCache()
-  const { canViewAll, availableBranches, effectiveBranchId, loading: branchLoading } = useBranchContext()
+  const { canViewAll, availableBranches, effectiveBranchId, readyToFetch } = useBranchContext()
   
   // Create unified cache manager
   const cacheManager = useMemo(() => createCacheManager({ get, set }, { get: () => null, set: () => {} }), [get, set])
@@ -32,12 +34,13 @@ export default function Products() {
       const businessId = instantBusiness?.id
       if (!businessId) return
 
-      if (!branchLoading) {
+      if (readyToFetch) {
         try {
           const result = await cacheManager.hydrateProducts(
             businessId,
             canViewAll ? null : effectiveBranchId,
-            () => fetchProducts(businessId, active)
+            () => fetchProducts(businessId, active),
+            user?.id
           )
 
           if (!active) {
@@ -89,7 +92,7 @@ export default function Products() {
     return () => {
       active = false
     }
-  }, [instantBusiness?.id, initialized, branchLoading, cacheManager, canViewAll, effectiveBranchId])
+  }, [instantBusiness?.id, initialized, readyToFetch, cacheManager, canViewAll, effectiveBranchId])
 
   useEffect(() => {
     let result = products
@@ -117,6 +120,17 @@ export default function Products() {
 
     setFiltered(result)
   }, [search, categoryFilter, branchFilter, statusFilter, products, canViewAll])
+
+  // Re-fetch products when window gains focus
+  useEffect(() => {
+    const handleFocus = () => {
+      if (instantBusiness?.id && readyToFetch) {
+        fetchProducts(instantBusiness.id)
+      }
+    }
+    window.addEventListener('focus', handleFocus)
+    return () => window.removeEventListener('focus', handleFocus)
+  }, [instantBusiness?.id, readyToFetch])
 
   const fetchProducts = async (businessId, active = true) => {
     if (!businessId) {
@@ -159,7 +173,7 @@ export default function Products() {
       
       // Update cache in background (don't block)
       try {
-        cacheManager.setProducts(businessId, nextProducts, canViewAll ? null : effectiveBranchId)
+        cacheManager.setProducts(businessId, nextProducts, canViewAll ? null : effectiveBranchId, user?.id)
       } catch (cacheError) {
         console.warn('Cache update failed:', cacheError)
       }

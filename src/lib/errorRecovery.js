@@ -30,13 +30,13 @@ export class ErrorRecovery {
   }
 
   // Attempt to recover from cache corruption
-  async recoverFromCorruption(businessId, branchId = null) {
+  async recoverFromCorruption(businessId, branchId = null, userId = null) {
     console.log('Attempting recovery from cache corruption')
     
     try {
       // Clear all cache layers
-      this.cacheManager.invalidateProducts(businessId, branchId)
-      this.cacheManager.clearPersistentStorage(businessId, branchId)
+      this.cacheManager.invalidateProducts(businessId, branchId, userId)
+      this.cacheManager.clearPersistentStorage(businessId, branchId, userId)
       
       // Reset error tracking
       const key = `products_${businessId}_${branchId || 'all'}`
@@ -52,7 +52,7 @@ export class ErrorRecovery {
   }
 
   // Validate and repair data integrity
-  async validateAndRepairData(data, businessId, branchId = null) {
+  async validateAndRepairData(data, businessId, branchId = null, userId = null) {
     if (!Array.isArray(data)) {
       console.warn('Invalid data format, attempting repair')
       return []
@@ -72,22 +72,22 @@ export class ErrorRecovery {
       console.log(`Data repaired: removed ${data.length - validData.length} invalid items`)
       
       // Update cache with repaired data
-      this.cacheManager.setProducts(businessId, validData, branchId)
+      this.cacheManager.setProducts(businessId, validData, branchId, userId)
     }
 
     return validData
   }
 
   // Create fallback data source
-  createFallbackDataSource(businessId, branchId = null) {
+  createFallbackDataSource(businessId, branchId = null, userId = null) {
     return {
       async fetch() {
         console.log('Using fallback data source')
         
         // Try to get any available data from multiple sources
         const sources = [
-          () => this.cacheManager.restoreFromPersistentStorage(businessId, branchId),
-          () => this.cacheManager.getProducts(businessId, branchId),
+          () => this.cacheManager.restoreFromPersistentStorage(businessId, branchId, userId),
+          () => this.cacheManager.getProducts(businessId, branchId, userId),
         ]
 
         for (const source of sources) {
@@ -108,7 +108,7 @@ export class ErrorRecovery {
   }
 
   // Handle initialization errors with recovery
-  async handleInitializationError(error, businessId, branchId = null, fetchFunction) {
+  async handleInitializationError(error, businessId, branchId = null, fetchFunction, userId = null) {
     const key = `products_${businessId}_${branchId || 'all'}`
     
     this.trackError(key, error)
@@ -120,12 +120,12 @@ export class ErrorRecovery {
 
     // Attempt recovery
     if (error.message.includes('corruption') || error.message.includes('invalid')) {
-      const recovered = await this.recoverFromCorruption(businessId, branchId)
+      const recovered = await this.recoverFromCorruption(businessId, branchId, userId)
       if (recovered && fetchFunction) {
         try {
           const freshData = await fetchFunction()
           if (freshData && Array.isArray(freshData)) {
-            this.cacheManager.setProducts(businessId, freshData, branchId)
+            this.cacheManager.setProducts(businessId, freshData, branchId, userId)
             return { data: freshData, source: 'recovered' }
           }
         } catch (fetchError) {
@@ -135,7 +135,7 @@ export class ErrorRecovery {
     }
 
     // Use fallback data source
-    const fallback = this.createFallbackDataSource(businessId, branchId)
+    const fallback = this.createFallbackDataSource(businessId, branchId, userId)
     try {
       const fallbackData = await fallback.fetch()
       return { data: fallbackData, source: 'fallback' }

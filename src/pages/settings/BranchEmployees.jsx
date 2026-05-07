@@ -2,7 +2,7 @@ import { useState, useEffect } from "react"
 import { supabase } from "../../lib/supabase"
 import { useLocation, useNavigate } from "react-router-dom"
 import { useUser, useCurrentBusiness, useIsOwner, useIsManager } from "../../hooks/useRole"
-import { useBranchContext } from "../../hooks/useBranchContext"
+import { useBranchContext } from "../../context/BranchContext"
 import { AppShell, UiButton, UiCard } from "../../components/ui"
 import { BranchSelector } from "../../components/BranchSelector"
 
@@ -11,7 +11,7 @@ export default function BranchEmployees() {
   const location = useLocation()
   const { user: authUser } = useUser()
   const { businessId } = useCurrentBusiness()
-  const { activeBranch, viewMode, canViewAll, availableBranches, loading: branchLoading, setActiveBranch, setViewMode, effectiveBranchId } = useBranchContext()
+  const { activeBranch, viewMode, canViewAll, availableBranches, readyToFetch, setActiveBranch, setViewMode, effectiveBranchId } = useBranchContext()
   const isOwner = useIsOwner()
   const isManager = useIsManager()
   
@@ -33,7 +33,7 @@ export default function BranchEmployees() {
 
   // Only allow access if user has branch access
   useEffect(() => {
-    if (branchLoading) return
+    if (!readyToFetch) return
 
     if (branchIdFromNavigation) {
       const branch = availableBranches.find((item) => item.id === branchIdFromNavigation)
@@ -51,13 +51,13 @@ export default function BranchEmployees() {
     if (availableBranches.length === 0) {
       navigate("/settings")
     }
-  }, [availableBranches, branchIdFromNavigation, branchLoading, canViewAll, navigate, setActiveBranch, setTargetBranchId, setViewMode, targetBranchId])
+  }, [availableBranches, branchIdFromNavigation, readyToFetch, canViewAll, navigate, setActiveBranch, setTargetBranchId, setViewMode, targetBranchId])
 
   useEffect(() => { 
-    if (businessId && !branchLoading) {
+    if (businessId && readyToFetch) {
       fetchEmployees() 
     } 
-  }, [businessId, activeBranch, viewMode, effectiveBranchId, branchLoading])
+  }, [businessId, activeBranch, viewMode, effectiveBranchId, readyToFetch])
 
   const fetchEmployees = async () => {
     if (!canViewAll && !effectiveBranchId) {

@@ -8,8 +8,9 @@ import PaymentIcon from "../../components/ui/PaymentIcon"
 import { useIsOwnerOrManager, useUser } from "../../hooks/useRole"
 import { useCache } from "../../hooks/useCache"
 import { useInstantAuth } from "../../hooks/useInstantAuth"
-import { useBranchContext } from "../../hooks/useBranchContext"
+import { useBranchContext } from "../../context/BranchContext"
 import { BranchSelector } from "../../components/BranchSelector"
+import { createCacheManager } from "../../lib/cacheManager"
 
 const today = () => new Date().toISOString().split("T")[0]
 
@@ -18,7 +19,8 @@ export default function Transactions() {
   const { business: instantBusiness, initialized, signOut } = useInstantAuth()
   const { get, set } = useCache()
   const { user } = useUser()
-  const { canViewAll, availableBranches, effectiveBranchId, loading: branchLoading } = useBranchContext()
+  const cacheManager = useMemo(() => createCacheManager({ get, set }, { get: () => null, set: () => {} }), [get, set])
+  const { canViewAll, availableBranches, effectiveBranchId, readyToFetch } = useBranchContext()
   const isOwnerOrManager = useIsOwnerOrManager()
   const [transactions, setTransactions] = useState([])
   const [filtered, setFiltered] = useState([])
@@ -30,17 +32,64 @@ export default function Transactions() {
   const [mobileFilterOpen, setMobileFilterOpen] = useState(false)
   const [selectedTx, setSelectedTx] = useState(null)
 
-  // Block the query until the branch is resolved for non-owners
-  const readyToFetch = !branchLoading && (canViewAll || !!effectiveBranchId)
+  const fetchTransactions = useCallback(async (businessId, active = true) => {
+    if (!businessId) return
+
+    // Cashier's branch not loaded yet — wait
+    if (!readyToFetch) return
+
+    try {
+      let query = supabase
+        .from("transactions")
+        .select(`
+          id, type, transaction_type_tag, payment_account, date, account_code,
+          sale_items(total_amount, quantity, products(name)),
+          expenses(amount, category, description)
+        `)
+        .eq("business_id", businessId)
+        .order("date", { ascending: false })
+
+      // Apply branch filtering if a specific branch is selected
+      if (effectiveBranchId) {
+        query = query.eq("branch_id", effectiveBranchId)
+      } else if (!isOwnerOrManager) {
+        // Cashier with no resolved branch — return nothing, never all branches
+        setTransactions([])
+        setFiltered([])
+        return []
+      }
+
+      if (!active) return
+
+      const { data } = await query
+      const enriched = (data || []).map(t => {
+        if (t.type === "sale") {
+          const amount = t.sale_items?.reduce((s, i) => s + i.total_amount, 0) || 0
+          const name = t.sale_items?.length > 1
+            ? `${t.sale_items[0].products?.name} + ${t.sale_items.length - 1} more`
+            : t.sale_items?.[0]?.products?.name || "Sale"
+          return { ...t, amount, display_name: name }
+        }
+
+        const amount = t.expenses?.reduce((s, e) => s + e.amount, 0) || 0
+        const name = t.expenses?.[0]?.category || "Expense"
+        return { ...t, amount, display_name: name }
+      })
+
+      cacheManager.setTransactions(businessId, enriched, effectiveBranchId, user?.id)
+      setTransactions(enriched)
+    } catch (error) {
+      console.error("Failed to load transactions:", error)
+    }
+  }, [effectiveBranchId, isOwnerOrManager, readyToFetch, cacheManager, user?.id])
 
   useEffect(() => {
     let active = true
 
     const hydrate = async () => {
-      if (!instantBusiness?.id || branchLoading || !readyToFetch) return
+      if (!instantBusiness?.id || !readyToFetch) return
 
-      const cacheKey = cacheKeyForTransactions(instantBusiness.id, effectiveBranchId)
-      const cachedTransactions = get(cacheKey) || []
+      const cachedTransactions = cacheManager.getTransactions(instantBusiness.id, effectiveBranchId, user?.id) || []
 
       // Merge any pending outbox sales into the cached list so they show immediately
       try {
@@ -71,7 +120,7 @@ export default function Transactions() {
     return () => {
       active = false
     }
-  }, [instantBusiness?.id, initialized, effectiveBranchId, branchLoading])
+  }, [instantBusiness?.id, initialized, effectiveBranchId, readyToFetch])
 
   useEffect(() => {
     let result = transactions
@@ -94,62 +143,23 @@ export default function Transactions() {
     setFiltered(result)
   }, [typeFilter, search, dateFrom, dateTo, paymentFilter, transactions])
 
-  const fetchTransactions = useCallback(async (businessId, active = true) => {
-    if (!businessId) return
-
-    // Cashier's branch not loaded yet — wait
-    if (!readyToFetch) return
-
-    try {
-      let query = supabase
-        .from("transactions")
-        .select(`
-          id, type, transaction_type_tag, payment_account, date, account_code,
-          sale_items(total_amount, quantity, products(name)),
-          expenses(amount, category, description)
-        `)
-        .eq("business_id", businessId)
-        .order("date", { ascending: false })
-
-      // Apply branch filtering if a specific branch is selected
-      if (effectiveBranchId) {
-        query = query.eq("branch_id", effectiveBranchId)
-      } else if (!isOwnerOrManager) {
-        // Cashier with no resolved branch — return nothing, never all branches
-        setTransactions([]); setFiltered([])
-        return []
+  // Re-fetch transactions when window gains focus
+  useEffect(() => {
+    const handleFocus = () => {
+      if (instantBusiness?.id && readyToFetch) {
+        fetchTransactions(instantBusiness.id)
       }
-
-      if (!active) return
-
-      const { data } = await query
-      const enriched = (data || []).map(t => {
-        if (t.type === "sale") {
-          const amount = t.sale_items?.reduce((s, i) => s + i.total_amount, 0) || 0
-          const name = t.sale_items?.length > 1
-            ? `${t.sale_items[0].products?.name} + ${t.sale_items.length - 1} more`
-            : t.sale_items?.[0]?.products?.name || "Sale"
-          return { ...t, amount, display_name: name }
-        }
-
-        const amount = t.expenses?.reduce((s, e) => s + e.amount, 0) || 0
-        const name = t.expenses?.[0]?.category || "Expense"
-        return { ...t, amount, display_name: name }
-      })
-
-      set(cacheKeyForTransactions(businessId, effectiveBranchId), enriched)
-      setTransactions(enriched)
-    } catch (error) {
-      console.error("Failed to load transactions:", error)
     }
-  }, [effectiveBranchId, isOwnerOrManager, readyToFetch])
+    window.addEventListener('focus', handleFocus)
+    return () => window.removeEventListener('focus', handleFocus)
+  }, [instantBusiness?.id, readyToFetch, fetchTransactions])
 
-  const cacheKeyForTransactions = (businessId, branchId = null) => {
-  if (branchId) {
-    return `transactions_${businessId}_${branchId}`
+  const handleSignOut = async () => {
+    if (user?.id) {
+      cacheManager.clearUserCache(user.id)
+    }
+    await signOut()
   }
-  return `transactions_${businessId}_all`
-}
 
   const totalSales    = filtered.filter(t => t.type === "sale").reduce((s, t) => s + t.amount, 0)
   const totalExpenses = filtered.filter(t => t.type === "expense").reduce((s, t) => s + t.amount, 0)
@@ -193,7 +203,7 @@ export default function Transactions() {
           </div>
           <div className="flex flex-wrap items-center gap-2">
             {canViewAll ? <BranchSelector value={effectiveBranchId || "all"} /> : null}
-            <UiButton variant="tertiary" size="sm" onClick={signOut} className="text-zinc-400 hover:text-red-400">
+            <UiButton variant="tertiary" size="sm" onClick={handleSignOut} className="text-zinc-400 hover:text-red-400">
               Sign out
             </UiButton>
           </div>

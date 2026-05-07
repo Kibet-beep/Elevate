@@ -35,7 +35,7 @@ export class DataInitializer {
   }
 
   // Initialize data with auth dependency
-  async initializeData(dataType, businessId, branchId = null, fetchFunction) {
+  async initializeData(dataType, businessId, branchId = null, fetchFunction, userId = null) {
     const cacheKey = `${dataType}_${businessId}_${branchId || 'all'}`
     
     // Return existing promise if already initializing
@@ -44,7 +44,7 @@ export class DataInitializer {
     }
 
     // Create new initialization promise
-    const initPromise = this._performInitialization(dataType, businessId, branchId, fetchFunction)
+    const initPromise = this._performInitialization(dataType, businessId, branchId, fetchFunction, userId)
     this.initializationPromises.set(cacheKey, initPromise)
 
     try {
@@ -56,7 +56,7 @@ export class DataInitializer {
     }
   }
 
-  async _performInitialization(dataType, businessId, branchId, fetchFunction) {
+  async _performInitialization(dataType, businessId, branchId, fetchFunction, userId) {
     try {
       // Wait for auth to be ready
       await this.waitForAuth()
@@ -71,7 +71,7 @@ export class DataInitializer {
       let result
       switch (dataType) {
         case 'products':
-          result = await this.cacheManager.ensureInitialized(businessId, branchId, fetchFunction)
+          result = await this.cacheManager.ensureInitialized(businessId, branchId, fetchFunction, userId)
           break
         default:
           throw new Error(`Unknown data type: ${dataType}`)
@@ -86,7 +86,7 @@ export class DataInitializer {
   }
 
   // Force refresh data from database
-  async forceRefresh(dataType, businessId, branchId = null, fetchFunction) {
+  async forceRefresh(dataType, businessId, branchId = null, fetchFunction, userId = null) {
     if (!fetchFunction) {
       throw new Error('Fetch function required for force refresh')
     }
@@ -94,7 +94,7 @@ export class DataInitializer {
     try {
       // Clear cache first
       if (dataType === 'products') {
-        this.cacheManager.invalidateProducts(businessId, branchId)
+        this.cacheManager.invalidateProducts(businessId, branchId, userId)
       }
 
       // Wait for auth
@@ -106,7 +106,7 @@ export class DataInitializer {
       // Update cache
       if (freshData && Array.isArray(freshData)) {
         if (dataType === 'products') {
-          this.cacheManager.setProducts(businessId, freshData, branchId)
+          this.cacheManager.setProducts(businessId, freshData, branchId, userId)
         }
         return { data: freshData, source: 'force_refresh' }
       }
@@ -119,11 +119,11 @@ export class DataInitializer {
   }
 
   // Check if data is healthy and needs refresh
-  async checkDataHealth(dataType, businessId, branchId = null) {
+  async checkDataHealth(dataType, businessId, branchId = null, userId = null) {
     try {
       if (!businessId) return { healthy: false, reason: 'no_business' }
 
-      const data = await this.cacheManager.hydrateProducts(businessId, branchId)
+      const data = await this.cacheManager.hydrateProducts(businessId, branchId, null, userId)
       
       // Health checks
       const isHealthy = data.data && 

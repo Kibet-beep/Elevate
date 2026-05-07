@@ -4,7 +4,7 @@ import { useNavigate } from "react-router-dom"
 import { useUser, useCurrentBusiness } from "../../hooks/useRole"
 import { useInstantAuth } from "../../hooks/useInstantAuth"
 import { AppShell, UiButton, UiCard } from "../../components/ui"
-import { useBranchContext } from "../../hooks/useBranchContext"
+import { useBranchContext } from "../../context/BranchContext"
 
 export default function Branches() {
   const navigate = useNavigate()

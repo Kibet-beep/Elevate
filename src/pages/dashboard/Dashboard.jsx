@@ -8,7 +8,7 @@ import { useUser, useIsOwnerOrManager, useIsCashier } from "../../hooks/useRole"
 import { usePreloadData } from "../../hooks/useCache"
 import { useInstantNavigation } from "../../hooks/useInstantNavigation"
 import { useInstantAuth } from "../../hooks/useInstantAuth"
-import { useBranchContext } from "../../hooks/useBranchContext"
+import { useBranchContext } from "../../context/BranchContext"
 import { BranchSelector } from "../../components/BranchSelector"
 
 const DASHBOARD_CACHE_KEY = 'elevate:dashboard:stats'
@@ -19,12 +19,12 @@ const EAT_OFFSET_MS = 3 * 60 * 60 * 1000
 export default function Dashboard() {
   const navigate = useNavigate()
   const { user: authUser } = useUser()
-  const { user: instantUser, business: instantBusiness } = useInstantAuth()
+  const { user: instantUser, business: instantBusiness, signOut } = useInstantAuth()
   const { navigateInstant } = useInstantNavigation()
   const { preloadTransactions, preloadProducts, preloadEmployees, preloadBusiness } = usePreloadData()
   const isOwnerOrManager = useIsOwnerOrManager()
   const isCashier = useIsCashier()
-  const { canViewAll, availableBranches, loading: branchLoading, activeBranch, viewMode, effectiveBranchId } = useBranchContext()
+  const { canViewAll, availableBranches, readyToFetch, activeBranch, viewMode, effectiveBranchId } = useBranchContext()
   const [business, setBusiness] = useState(null)
   const [stats, setStats] = useState({
     todaySales: 0,
@@ -83,9 +83,22 @@ export default function Dashboard() {
     }
   }, [instantUser, instantBusiness, authUser])
 
-  useEffect(() => { if (business && !branchLoading) fetchPeriodData() }, [period, selectedDay, business, effectiveBranchId, branchLoading])
-  useEffect(() => { if (business && !branchLoading) fetchTodayData() }, [business, effectiveBranchId, branchLoading])
-  useEffect(() => { if (business && !branchLoading) fetchDashboardData() }, [business?.id, effectiveBranchId, branchLoading])
+  useEffect(() => { if (business && readyToFetch) fetchPeriodData() }, [period, selectedDay, business, effectiveBranchId, readyToFetch])
+  useEffect(() => { if (business && readyToFetch) fetchTodayData() }, [business, effectiveBranchId, readyToFetch])
+  useEffect(() => { if (business && readyToFetch) fetchDashboardData() }, [business?.id, effectiveBranchId, readyToFetch])
+
+  // Re-fetch data when window gains focus
+  useEffect(() => {
+    const handleFocus = () => {
+      if (business && readyToFetch) {
+        fetchDashboardData()
+        fetchTodayData()
+        fetchPeriodData()
+      }
+    }
+    window.addEventListener('focus', handleFocus)
+    return () => window.removeEventListener('focus', handleFocus)
+  }, [business, readyToFetch])
 
   const getEATNow = () => new Date(Date.now() + EAT_OFFSET_MS)
 
@@ -440,7 +453,7 @@ export default function Dashboard() {
   }
 
   const handleSignOut = async () => {
-    await supabase.auth.signOut()
+    await signOut()
     navigateInstant("/")
   }
 

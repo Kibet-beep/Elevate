@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react"
 import { useNavigate } from "react-router-dom"
 import { AppShell, UiButton, UiCard, UiSectionTitle } from "../../components/ui"
 import PaymentIcon from "../../components/ui/PaymentIcon"
-import { useBranchContext } from "../../hooks/useBranchContext"
+import { useBranchContext } from "../../context/BranchContext"
 import { useCurrentBusiness, useUser } from "../../hooks/useRole"
 import { supabase } from "../../lib/supabase"
 import { BranchSelector } from "../../components/BranchSelector"
@@ -15,7 +15,7 @@ export default function HistoricalSales() {
     canViewAll,
     availableBranches,
     effectiveBranchId,
-    loading: branchLoading,
+    readyToFetch,
   } = useBranchContext()
 
   const [userId, setUserId] = useState(null)
@@ -39,10 +39,10 @@ export default function HistoricalSales() {
   const [todaysSales, setTodaysSales] = useState([])
 
   useEffect(() => {
-    if (businessId && authUser && !branchLoading) {
+    if (businessId && authUser && readyToFetch) {
       fetchInitialData()
     }
-  }, [businessId, authUser, resolvedBranchId, branchLoading])
+  }, [businessId, authUser, resolvedBranchId, readyToFetch])
 
   const fetchInitialData = async () => {
     try {

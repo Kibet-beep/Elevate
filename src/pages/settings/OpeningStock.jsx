@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useRef } from "react"
 import { supabase } from "../../lib/supabase"
 import { useNavigate } from "react-router-dom"
 import { useUser, useCurrentBusiness } from "../../hooks/useRole"
-import { useBranchContext } from "../../hooks/useBranchContext"
+import { useBranchContext } from "../../context/BranchContext"
 import { useCache } from "../../hooks/useCache"
 import { usePersistentStorage } from "../../hooks/usePersistentStorage"
 import { AppShell, UiButton, UiCard, UiSectionTitle, CategorySelect } from "../../components/ui"
@@ -16,11 +16,10 @@ export default function OpeningStock() {
   const {
     canViewAll,
     availableBranches,
-    activeBranch,
     effectiveBranchId,
     isOwner,
     isManager,
-    loading: branchLoading,
+    readyToFetch,
   } = useBranchContext()
   const { get, set, invalidate } = useCache()
   const { get: getPersistent, set: setPersistent } = usePersistentStorage()
@@ -31,7 +30,7 @@ export default function OpeningStock() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
   const [success, setSuccess] = useState(false)
-  const resolvedBranchId = effectiveBranchId || activeBranch?.id || null
+  const resolvedBranchId = effectiveBranchId
 
   // Product states
   const [existingProducts, setExistingProducts] = useState([])
@@ -67,10 +66,10 @@ export default function OpeningStock() {
   }, [existingProducts, addedStock])
 
   useEffect(() => {
-    if (businessId && authUser && !branchLoading) {
+    if (businessId && authUser && readyToFetch) {
       fetchInitialData()
     }
-  }, [businessId, authUser, resolvedBranchId, branchLoading, canViewAll])
+  }, [businessId, authUser, resolvedBranchId, readyToFetch, canViewAll])
 
   useEffect(() => {
     const previousBranchId = previousBranchIdRef.current
@@ -349,11 +348,11 @@ export default function OpeningStock() {
       if (upsertError) throw upsertError
 
       // Use unified cache invalidation
-      cacheManager.invalidateAfterStockEntry(businessId, resolvedBranchId)
+      cacheManager.invalidateAfterStockEntry(businessId, resolvedBranchId, authUser?.id)
       cacheManager.invalidateBusiness(businessId)
 
       // Save to persistent storage for offline access
-      cacheManager.setProducts(businessId, persistedItems, resolvedBranchId)
+      cacheManager.setProducts(businessId, persistedItems, resolvedBranchId, authUser?.id)
 
       setSuccess(true)
       setAddedStock(persistedItems)

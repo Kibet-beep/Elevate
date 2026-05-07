@@ -4,7 +4,7 @@ import { supabase } from "../../lib/supabase"
 import { useNavigate } from "react-router-dom"
 import { useCurrentBusiness } from "../../hooks/useRole"
 import { useInstantAuth } from "../../hooks/useInstantAuth"
-import { useBranchContext } from "../../hooks/useBranchContext"
+import { useBranchContext } from "../../context/BranchContext"
 import { enqueue } from "../../lib/outbox"
 import { runSync } from "../../lib/syncEngine"
 import { BranchSelector } from "../../components/BranchSelector"
@@ -161,14 +161,14 @@ export default function StockTake() {
   const [selectedVarianceId, setSelectedVarianceId] = useState(null)
   const { user } = useInstantAuth()
   const { businessId } = useCurrentBusiness()
-  const { canViewAll, currentBranchId, activeBranch, loading: branchLoading } = useBranchContext()
-  const resolvedBranchId = currentBranchId || activeBranch?.id || null
+  const { canViewAll, effectiveBranchId, readyToFetch } = useBranchContext()
+  const resolvedBranchId = effectiveBranchId
 
   useEffect(() => {
-    if (!branchLoading && businessId && user?.id) {
+    if (readyToFetch && businessId && user?.id) {
       fetchInitialData(businessId, user.id)
     }
-  }, [businessId, user?.id, branchLoading, resolvedBranchId])
+  }, [businessId, user?.id, readyToFetch, resolvedBranchId])
 
   const fetchInitialData = async (resolvedBusinessId, resolvedUserId) => {
     if (!resolvedBusinessId || !resolvedUserId) return

@@ -3,7 +3,7 @@ import { useState, useEffect, useMemo } from "react"
 import { supabase } from "../../lib/supabase"
 import { useNavigate } from "react-router-dom"
 import { useUser, useIsOwnerOrManager, useCurrentBusiness } from "../../hooks/useRole"
-import { useBranchContext } from "../../hooks/useBranchContext"
+import { useBranchContext } from "../../context/BranchContext"
 import { useCache } from "../../hooks/useCache"
 import { usePersistentStorage } from "../../hooks/usePersistentStorage"
 import { AppShell, UiButton, UiCard, UiSectionTitle, CategorySelect } from "../../components/ui"
@@ -17,7 +17,7 @@ export default function NewStock() {
   const { user: authUser } = useUser()
   const isOwnerOrManager = useIsOwnerOrManager()
   const { businessId } = useCurrentBusiness()
-  const { canViewAll, activeBranch, effectiveBranchId, loading: branchLoading } = useBranchContext()
+  const { canViewAll, effectiveBranchId, readyToFetch } = useBranchContext()
   const { get, set, invalidate } = useCache()
   const { get: getPersistent, set: setPersistent } = usePersistentStorage()
   
@@ -56,10 +56,10 @@ export default function NewStock() {
   }, [existingProducts])
 
   useEffect(() => {
-    if (businessId && authUser && !branchLoading) {
+    if (businessId && authUser && readyToFetch) {
       fetchInitialData()
     }
-  }, [businessId, authUser, branchLoading, effectiveBranchId, canViewAll])
+  }, [businessId, authUser, readyToFetch, effectiveBranchId, canViewAll])
 
   const fetchInitialData = async () => {
     if (canViewAll && !effectiveBranchId) {
@@ -159,7 +159,7 @@ export default function NewStock() {
     setLoading(true)
 
     const productId = isNewProduct ? crypto.randomUUID() : selectedProduct.id
-    const branchId = effectiveBranchId || activeBranch?.id || null
+    const branchId = effectiveBranchId || null
 
     const newProductData = isNewProduct ? {
       id:               productId,
@@ -209,7 +209,7 @@ export default function NewStock() {
 
     await runSync()
 
-    cacheManager.invalidateAfterStockEntry(businessId, branchId)
+    cacheManager.invalidateAfterStockEntry(businessId, branchId, authUser?.id)
 
     setSuccess(true)
     setLoading(false)

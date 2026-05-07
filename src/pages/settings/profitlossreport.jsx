@@ -2,7 +2,7 @@
 import { useState, useEffect } from "react"
 import { supabase } from "../../lib/supabase"
 import { useNavigate } from "react-router-dom"
-import { useBranchContext } from "../../hooks/useBranchContext"
+import { useBranchContext } from "../../context/BranchContext"
 import { BranchSelector } from "../../components/BranchSelector"
 
 const PERIODS = ["Day", "Week", "Month", "Quarter", "Year"]
@@ -10,7 +10,7 @@ const EAT_OFFSET_MS = 3 * 60 * 60 * 1000
 
 export default function ProfitLossReport() {
   const navigate = useNavigate()
-  const { canViewAll, availableBranches, effectiveBranchId, loading: branchLoading } = useBranchContext()
+  const { canViewAll, availableBranches, effectiveBranchId, readyToFetch } = useBranchContext()
   const goBack = () => {
     if (window.history.length > 1) {
       navigate(-1)
@@ -28,8 +28,8 @@ export default function ProfitLossReport() {
   }, [])
 
   useEffect(() => {
-    if (businessId && !branchLoading) fetchData()
-  }, [period, businessId, effectiveBranchId, branchLoading])
+    if (businessId && readyToFetch) fetchData()
+  }, [period, businessId, effectiveBranchId, readyToFetch])
 
   const fetchUser = async () => {
     const { data: { user } } = await supabase.auth.getUser()

@@ -2,7 +2,7 @@
 import { useState, useEffect, useMemo } from "react"
 import { supabase } from "../../lib/supabase"
 import { useNavigate, useSearchParams } from "react-router-dom"
-import { useBranchContext } from "../../hooks/useBranchContext"
+import { useBranchContext } from "../../context/BranchContext"
 import { useIsOwnerOrManager, useUser } from "../../hooks/useRole"
 import { BranchSelector } from "../../components/BranchSelector"
 
@@ -12,7 +12,7 @@ const EAT_OFFSET_MS = 3 * 60 * 60 * 1000
 export default function SalesReport() {
   const navigate = useNavigate()
   const { user } = useUser()
-  const { canViewAll, availableBranches, effectiveBranchId, loading: branchLoading } = useBranchContext()
+  const { canViewAll, availableBranches, effectiveBranchId, readyToFetch } = useBranchContext()
   const isOwnerOrManager = useIsOwnerOrManager()
   const goBack = () => {
     if (window.history.length > 1) {
@@ -23,8 +23,6 @@ export default function SalesReport() {
   }
   const [searchParams] = useSearchParams()
 
-  // Cashiers must always have a branch — block query if not resolved yet
-  const readyToFetch = !branchLoading && (canViewAll || !!effectiveBranchId)
   const todayIso = new Date().toISOString().split("T")[0]
 
   const [period, setPeriod] = useState("Day")
@@ -51,8 +49,8 @@ export default function SalesReport() {
   }, [])
 
   useEffect(() => {
-    if (businessId && !branchLoading && readyToFetch) fetchData()
-  }, [period, businessId, anchorDate, compareMode, compareType, compareDateA, compareDateB, effectiveBranchId, branchLoading, readyToFetch])
+    if (businessId && readyToFetch) fetchData()
+  }, [period, businessId, anchorDate, compareMode, compareType, compareDateA, compareDateB, effectiveBranchId, readyToFetch])
 
   const fetchUser = async () => {
     const { data: { user } } = await supabase.auth.getUser()

@@ -4,7 +4,7 @@ import { supabase } from "../../lib/supabase"
 import { useNavigate, useParams } from "react-router-dom"
 import { AppShell, UiButton, UiCard, UiSectionTitle } from "../../components/ui"
 import { useIsOwnerOrManager } from "../../hooks/useRole"
-import { useBranchContext } from "../../hooks/useBranchContext"
+import { useBranchContext } from "../../context/BranchContext"
 import { useCache } from "../../hooks/useCache"
 import { usePersistentStorage } from "../../hooks/usePersistentStorage"
 import { useInstantAuth } from "../../hooks/useInstantAuth"
@@ -13,7 +13,7 @@ import { createCacheManager } from "../../lib/cacheManager"
 export default function ProductDetail() {
   const navigate = useNavigate()
   const { id } = useParams()
-  const { business: instantBusiness } = useInstantAuth()
+  const { business: instantBusiness, user: instantUser } = useInstantAuth()
   const isOwnerOrManager = useIsOwnerOrManager()
   const { canViewAll, availableBranches, effectiveBranchId } = useBranchContext()
   const { get, set, invalidate } = useCache()
@@ -177,7 +177,7 @@ export default function ProductDetail() {
         
         // Use unified cache invalidation
         if (instantBusiness?.id) {
-          cacheManager.invalidateAfterBranchAssignment(instantBusiness.id, product?.branch_id, selectedBranch)
+          cacheManager.invalidateAfterBranchAssignment(instantBusiness.id, product?.branch_id, selectedBranch, instantUser?.id)
         }
         
         // Close modal and reset on success

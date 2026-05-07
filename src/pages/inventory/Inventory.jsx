@@ -8,7 +8,7 @@ import { useIsOwnerOrManager, useUser } from "../../hooks/useRole"
 import { useCache } from "../../hooks/useCache"
 import { usePersistentStorage } from "../../hooks/usePersistentStorage"
 import { useInstantAuth } from "../../hooks/useInstantAuth"
-import { useBranchContext } from "../../hooks/useBranchContext"
+import { useBranchContext } from "../../context/BranchContext"
 import { BranchSelector } from "../../components/BranchSelector"
 import { CacheKeys } from "../../lib/cacheKeys"
 import { createCacheManager } from "../../lib/cacheManager"
@@ -27,7 +27,7 @@ export default function Inventory() {
   const dataInitializer = useDataInitializer(cacheManager, { business: instantBusiness, initialized })
   const { user } = useUser()
   const isOwnerOrManager = useIsOwnerOrManager()
-  const { canViewAll, availableBranches, effectiveBranchId, loading: branchLoading } = useBranchContext()
+  const { canViewAll, availableBranches, effectiveBranchId, readyToFetch } = useBranchContext()
   const [products, setProducts] = useState([])
   const [filtered, setFiltered] = useState([])
   const [search, setSearch] = useState("")
@@ -40,9 +40,6 @@ export default function Inventory() {
 
   // Owners/managers can select a branch or see all.
   // Cashiers are hard-locked to their assigned branch — no fallback to null.
-  // Block the query until the branch is resolved for non-owners
-  const readyToFetch = !branchLoading && (canViewAll || !!effectiveBranchId)
-
   // Use standardized cache keys from CacheKeys utility
 
   // Define fetchProducts function before hydrate
@@ -89,7 +86,7 @@ export default function Inventory() {
       
       // Update cache in background (don't block)
       try {
-        cacheManager.setProducts(businessId, nextProducts, effectiveBranchId)
+        cacheManager.setProducts(businessId, nextProducts, effectiveBranchId, user?.id)
       } catch (cacheError) {
         console.warn('Cache update failed:', cacheError)
       }
@@ -109,12 +106,13 @@ export default function Inventory() {
       const businessId = instantBusiness?.id
       if (!businessId) return
 
-      if (!branchLoading && readyToFetch) {
+      if (readyToFetch) {
         try {
           const result = await cacheManager.hydrateProducts(
             businessId,
             effectiveBranchId,
-            () => fetchProducts(businessId, active)
+            () => fetchProducts(businessId, active),
+            user?.id
           )
 
           if (!active) {
@@ -166,7 +164,7 @@ export default function Inventory() {
     return () => {
       active = false
     }
-  }, [instantBusiness?.id, initialized, effectiveBranchId, branchLoading, readyToFetch, cacheManager, fetchProducts])
+  }, [instantBusiness?.id, initialized, effectiveBranchId, readyToFetch, cacheManager, fetchProducts])
 
   useEffect(() => {
     hydrate()
@@ -218,6 +216,13 @@ export default function Inventory() {
 
   const isLowStock = (p) => Number(p.current_quantity || 0) <= Number(p.reorder_point || 0)
 
+  const handleSignOut = async () => {
+    if (user?.id) {
+      cacheManager.clearUserCache(user.id)
+    }
+    await signOut()
+  }
+
   const fmt = (n) => `KES ${Number(n).toLocaleString("en-KE", { minimumFractionDigits: 2 })}`
 
   const metrics = useMemo(() => {
@@ -251,7 +256,7 @@ export default function Inventory() {
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {canViewAll ? <BranchSelector /> : null}
-          <UiButton variant="tertiary" size="sm" onClick={signOut} className="text-zinc-400 hover:text-red-400">
+          <UiButton variant="tertiary" size="sm" onClick={handleSignOut} className="text-zinc-400 hover:text-red-400">
             Sign out
           </UiButton>
         </div>

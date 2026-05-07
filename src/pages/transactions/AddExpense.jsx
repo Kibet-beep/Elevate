@@ -3,7 +3,7 @@ import { useState, useEffect } from "react"
 import { supabase } from "../../lib/supabase"
 import { useNavigate } from "react-router-dom"
 import { useUser, useCurrentBusiness } from "../../hooks/useRole"
-import { useBranchContext } from "../../hooks/useBranchContext"
+import { useBranchContext } from "../../context/BranchContext"
 import { BranchSelector } from "../../components/BranchSelector"
 import { AppShell, UiButton, UiCard, UiSectionTitle } from "../../components/ui"
 import { enqueue } from "../../lib/outbox"
@@ -29,7 +29,7 @@ export default function AddExpense() {
   const navigate = useNavigate()
   const { user: authUser } = useUser()
   const { businessId } = useCurrentBusiness()
-  const { canViewAll, currentBranchId, activeBranch, loading: branchLoading } = useBranchContext()
+  const { effectiveBranchId, canViewAll, readyToFetch } = useBranchContext()
   const [userId, setUserId] = useState(null)
   const [category, setCategory] = useState("")
   const [amount, setAmount] = useState("")
@@ -39,7 +39,7 @@ export default function AddExpense() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
   const [success, setSuccess] = useState(false)
-  const resolvedBranchId = currentBranchId || activeBranch?.id || null
+  const resolvedBranchId = effectiveBranchId
 
   useEffect(() => {
     if (businessId && authUser) {
@@ -58,7 +58,7 @@ export default function AddExpense() {
       return
     }
 
-    if (branchLoading) {
+    if (!readyToFetch) {
       setError("Loading branch context, please wait")
       return
     }
