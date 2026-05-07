@@ -1,5 +1,5 @@
 // src/pages/inventory/ProductDetail.jsx
-import { useState, useEffect } from "react"
+import { useState, useEffect, useMemo } from "react"
 import { useNavigate, useParams } from "react-router-dom"
 import { AppShell, UiButton, UiCard, UiSectionTitle } from "../../components/ui"
 import { useIsOwnerOrManager } from "../../hooks/useRole"
@@ -35,6 +35,12 @@ export default function ProductDetail() {
   const [sellingPrice, setSellingPrice] = useState("")
   const [buyingPrice, setBuyingPrice] = useState("")
   const [reorderPoint, setReorderPoint] = useState("")
+
+  // Get branch info once for reuse
+  const currentBranchInfo = useMemo(() => {
+    if (!product || !availableBranches.length) return null
+    return availableBranches.find(b => b.id === product.branch_id)
+  }, [product, availableBranches])
 
   useEffect(() => {
     if (allProducts.length > 0) {
@@ -364,13 +370,8 @@ export default function ProductDetail() {
                   { label: "Unit of measure", value: product?.unit_of_measure || "—" },
                   { 
                   label: "Branch", 
-                  value: product?.branches ? `${product.branches.name}${product.branches.code ? ` (${product.branches.code})` : ""}` : (
-                    needsBranchAssignment ? (
-                      <div className="flex items-center gap-2">
-                        <span className="text-red-400">Unassigned</span>
-                        {isOwnerOrManager && (
-                          <button
-                            onClick={() => setIsModalOpen(true)}
+                  value: currentBranchInfo ? `${currentBranchInfo.name}${currentBranchInfo.code ? ` (${currentBranchInfo.code})` : ""}` : product.branch_id || "Unassigned"
+                  },
                             className="text-xs bg-amber-500/10 text-amber-400 px-2 py-1 rounded-lg hover:bg-amber-500/20 transition-colors"
                           >
                             Assign Branch
