@@ -180,8 +180,15 @@ export default function Products() {
                         <td className="py-3 px-4 text-xs text-zinc-400">{p.category || "-"}</td>
                         <td className="py-3 px-4 text-xs text-zinc-400">
                           {(() => {
+                            if (!canViewAll) {
+                              // For non-owners/managers, don't show branch column
+                              return "-"
+                            }
+                            if (!availableBranches || availableBranches.length === 0) {
+                              return p.branch_id || "Loading..."
+                            }
                             const branch = availableBranches.find(b => b.id === p.branch_id)
-                            return branch ? `${branch.name}${branch.code ? ` (${branch.code})` : ""}` : "-"
+                            return branch ? `${branch.name}${branch.code ? ` (${branch.code})` : ""}` : p.branch_id || "Unknown"
                           })()}
                         </td>
                         <td className="py-3 px-4 text-xs text-right font-mono text-zinc-200">{quantity}</td>
