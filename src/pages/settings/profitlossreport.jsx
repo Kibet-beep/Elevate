@@ -1,9 +1,10 @@
 ﻿// src/pages/settings/reports/ProfitLossReport.jsx
-import { useState, useEffect } from "react"
-import { supabase } from "../../lib/supabase"
+import { useState, useEffect, useMemo } from "react"
 import { useNavigate } from "react-router-dom"
 import { useBranchContext } from "../../context/BranchContext"
 import { BranchSelector } from "../../components/BranchSelector"
+import { useTransactions } from "../../hooks/useTransactions"
+import { useProducts } from "../../hooks/useProducts"
 
 const PERIODS = ["Day", "Week", "Month", "Quarter", "Year"]
 const EAT_OFFSET_MS = 3 * 60 * 60 * 1000
@@ -19,27 +20,17 @@ export default function ProfitLossReport() {
     navigate("/settings", { replace: true })
   }
   const [period, setPeriod] = useState("Month")
-  const [businessId, setBusinessId] = useState(null)
   const [data, setData] = useState(null)
   const [loading, setLoading] = useState(true)
 
-  useEffect(() => {
-    fetchUser()
-  }, [])
+  // Get transactions and products from RxDB hooks
+  const { transactions: liveTransactions } = useTransactions(effectiveBranchId)
+  const { products: liveProducts } = useProducts(effectiveBranchId, canViewAll)
 
   useEffect(() => {
-    if (businessId && readyToFetch) fetchData()
-  }, [period, businessId, effectiveBranchId, readyToFetch])
-
-  const fetchUser = async () => {
-    const { data: { user } } = await supabase.auth.getUser()
-    const { data: userData } = await supabase
-      .from("users")
-      .select("business_id")
-      .eq("id", user.id)
-      .single()
-    setBusinessId(userData.business_id)
-  }
+    setData({ transactions: liveTransactions, products: liveProducts })
+    setLoading(false)
+  }, [liveTransactions, liveProducts])
 
   const getEATNow = () => new Date(Date.now() + EAT_OFFSET_MS)
   const toUtc = (eatDate) => new Date(eatDate.getTime() - EAT_OFFSET_MS).toISOString()

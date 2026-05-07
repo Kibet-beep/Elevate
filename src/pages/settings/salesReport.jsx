@@ -1,10 +1,10 @@
 // src/pages/settings/reports/SalesReport.jsx
 import { useState, useEffect, useMemo } from "react"
-import { supabase } from "../../lib/supabase"
 import { useNavigate, useSearchParams } from "react-router-dom"
 import { useBranchContext } from "../../context/BranchContext"
 import { useIsOwnerOrManager, useUser } from "../../hooks/useRole"
 import { BranchSelector } from "../../components/BranchSelector"
+import { useTransactions } from "../../hooks/useTransactions"
 
 const PERIODS = ["Day", "Week", "Month", "Quarter"]
 const EAT_OFFSET_MS = 3 * 60 * 60 * 1000
@@ -43,10 +43,14 @@ export default function SalesReport() {
   const [compareDateA, setCompareDateA] = useState(dateParam || todayIso)
   const [compareDateB, setCompareDateB] = useState(todayIso)
 
+  // Get transactions from RxDB hook
+  const { transactions: liveTransactions } = useTransactions(effectiveBranchId)
+
   useEffect(() => {
     if (dateParam) { setPeriod("Day"); setAnchorDate(dateParam) }
-    fetchUser()
-  }, [])
+    setTransactions(liveTransactions)
+    setLoading(false)
+  }, [liveTransactions, dateParam])
 
   useEffect(() => {
     if (businessId && readyToFetch) fetchData()
@@ -99,62 +103,6 @@ export default function SalesReport() {
     }
 
     return { start: start.toISOString(), end: end.toISOString() }
-  }
-
-  const fetchTxnsByRange = async (start, end) => {
-    // Cashier's branch not loaded yet — wait
-    if (!readyToFetch) return []
-
-    let query = supabase
-      .from("transactions")
-      .select(`id, branch_id, date, payment_account, sale_items(quantity, unit_price, total_amount, products(name, sku_id, category))`)
-      .eq("business_id", businessId)
-      .eq("type", "sale")
-      .gte("date", start)
-      .lte("date", end)
-      .order("date", { ascending: true })
-
-    if (effectiveBranchId) {
-      query = query.eq("branch_id", effectiveBranchId)
-    } else if (!isOwnerOrManager) {
-      // Cashier with no resolved branch — return nothing, never all branches
-      return []
-    }
-
-    const { data } = await query
-
-    return data || []
-  }
-
-  const fetchData = async () => {
-    setLoading(true)
-
-    if (compareMode && compareType === "custom") {
-      const aRange = getRange(compareDateA)
-      const bRange = getRange(compareDateB)
-      const [aData, bData] = await Promise.all([
-        fetchTxnsByRange(aRange.start, aRange.end),
-        fetchTxnsByRange(bRange.start, bRange.end),
-      ])
-      setPrevTransactions(aData)
-      setTransactions(bData)
-      setLoading(false)
-      return
-    }
-
-    const { start, end } = getRange(anchorDate)
-    const currentData = await fetchTxnsByRange(start, end)
-    setTransactions(currentData)
-
-    if (compareMode) {
-      const { start: ps, end: pe } = getRange(anchorDate, true)
-      const prevData = await fetchTxnsByRange(ps, pe)
-      setPrevTransactions(prevData)
-    } else {
-      setPrevTransactions([])
-    }
-
-    setLoading(false)
   }
 
   const fmt = (n) => `KES ${Number(n).toLocaleString("en-KE", { minimumFractionDigits: 2 })}`
