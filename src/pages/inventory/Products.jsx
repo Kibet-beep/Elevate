@@ -179,7 +179,10 @@ export default function Products() {
                         </td>
                         <td className="py-3 px-4 text-xs text-zinc-400">{p.category || "-"}</td>
                         <td className="py-3 px-4 text-xs text-zinc-400">
-                          {p.branches ? `${p.branches.name}${p.branches.code ? ` (${p.branches.code})` : ""}` : "-"}
+                          {(() => {
+                            const branch = availableBranches.find(b => b.id === p.branch_id)
+                            return branch ? `${branch.name}${branch.code ? ` (${branch.code})` : ""}` : "-"
+                          })()}
                         </td>
                         <td className="py-3 px-4 text-xs text-right font-mono text-zinc-200">{quantity}</td>
                         <td className="py-3 px-4 text-xs text-right font-mono text-zinc-300">{fmt(buying)}</td>
