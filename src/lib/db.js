@@ -244,6 +244,7 @@ export function startProductsReplication(collection, businessId) {
           .upsert(rows.map(r => r.newDocumentState))
       }
     },
+    live: true,
   })
 
   if (typeof window !== 'undefined') {

@@ -20,11 +20,12 @@ export function useProducts(branchId = null, isOwnerOrManager = false) {
     let replication
     let active = true
 
-    getDb().then((db) => {
+    getDb().then(async (db) => {
       if (!active) return
 
       replication = startProductsReplication(db.products, business.id)
 
+      // Initial data fetch - ensure we have data even if replication is slow
       const selector = {
         business_id: business.id,
         _deleted: { $ne: true },
@@ -32,6 +33,14 @@ export function useProducts(branchId = null, isOwnerOrManager = false) {
         ...(branchId ? { branch_id: branchId } : {}),
       }
 
+      // Try to get existing data first
+      const existingDocs = await db.products.find({ selector }).exec()
+      if (existingDocs.length > 0) {
+        setProducts(existingDocs.map((doc) => doc.toJSON()))
+        setLoading(false)
+      }
+
+      // Subscribe for live updates
       subscription = db.products
         .find({ selector, sort: [{ name: 'asc' }, { id: 'asc' }] })
         .$
