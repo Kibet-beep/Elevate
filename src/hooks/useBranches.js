@@ -21,6 +21,7 @@ export function useBranches(businessId = null) {
         replication = startBranchesReplication(db.branches, business.id)
       } catch (error) {
         console.error('Failed to start branches replication:', error)
+        console.warn('Running in offline mode - using cached data only')
       }
 
       const selector = {
@@ -31,9 +32,10 @@ export function useBranches(businessId = null) {
 
       try {
         const existingDocs = await db.branches.find({ selector, sort: [{ name: 'asc' }, { id: 'asc' }] }).exec()
-        if (!active) return
-        setBranches(existingDocs.map((doc) => doc.toJSON()))
-        setLoading(false)
+        if (existingDocs.length > 0) {
+          setBranches(existingDocs.map((doc) => doc.toJSON()))
+          setLoading(false)
+        }
       } catch (error) {
         console.error('useBranches initial fetch error:', error)
         setBranches([])
