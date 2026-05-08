@@ -39,11 +39,7 @@ export default function BusinessSettings() {
     navigate("/settings", { replace: true })
   }
 
-  useEffect(() => {
-    if (businessId) fetchBusinessSettings()
-  }, [businessId])
-
-  const fetchBusinessSettings = async () => {
+  async function fetchBusinessSettings() {
     const { data } = await supabase
       .from("businesses")
       .select("*")
@@ -66,6 +62,10 @@ export default function BusinessSettings() {
       setFinancialYearStart(data.financial_year_start || 1)
     }
   }
+
+  useEffect(() => {
+    if (businessId) void fetchBusinessSettings()
+  }, [businessId])
 
   const validateSettings = () => {
     if (!name.trim()) return "Business name is required"

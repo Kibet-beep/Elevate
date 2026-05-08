@@ -1,7 +1,6 @@
 // src/pages/dashboard/Dashboard.jsx
 import { useState, useEffect, useMemo } from "react"
 import { supabase } from "../../lib/supabase"
-import { useNavigate } from "react-router-dom"
 import FloatingBottomNav from "../../components/layout/FloatingBottomNav"
 import { AppShell, UiButton } from "../../components/ui"
 import { useUser, useIsOwnerOrManager, useIsCashier } from "../../hooks/useRole"
@@ -15,14 +14,120 @@ const WEEK_DAYS = ["All", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 const OWNER_PERIODS = ["Week", "Month"]
 const EAT_OFFSET_MS = 3 * 60 * 60 * 1000
 
+function QuickActions({ isOwnerOrManager, navigateInstant }) {
+  return (
+    <div className="flex flex-wrap gap-2">
+      <UiButton variant="primary" size="sm" onClick={() => navigateInstant("/transactions/add-sale")}>
+        + Sale
+      </UiButton>
+      {isOwnerOrManager && (
+        <UiButton variant="secondary" size="sm" onClick={() => navigateInstant("/transactions/add-expense")}>
+          + Expense
+        </UiButton>
+      )}
+    </div>
+  )
+}
+
+function TodayReport({ todayTransactions, todaySummary, stats, pendingActions, fmt }) {
+  return (
+    <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4 space-y-3">
+      <h3 className="text-white font-semibold text-sm">Today's activity</h3>
+      {todayTransactions.map((t, i) => (
+        <div key={i} className="py-2 border-b border-zinc-800 last:border-0">
+          <div className="flex items-center justify-between mb-1">
+            <p className="text-zinc-500 text-xs">
+              {new Date(t.date).toLocaleTimeString("en-KE", { hour: "2-digit", minute: "2-digit" })} · {t.payment_account === "mpesa" ? "M-Pesa" : t.payment_account}
+            </p>
+          </div>
+          {t.type === "sale" && t.sale_items?.length > 0 ? (
+            <table className="w-full">
+              <tbody>
+                {t.sale_items.map((item, j) => (
+                  <tr key={j}>
+                    <td className="text-white text-xs py-0.5">{item.products?.name}</td>
+                    <td className="text-zinc-500 text-xs py-0.5 text-right font-mono">{fmt(item.unit_price)}</td>
+                    <td className="text-zinc-500 text-xs py-0.5 text-right px-2">×{item.quantity}</td>
+                    <td className="text-emerald-400 text-xs py-0.5 text-right font-mono">{fmt(item.total_amount)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : (
+            <p className="text-white text-sm">{t.display_name}</p>
+          )}
+        </div>
+      ))}
+
+      <div className="border-t border-zinc-800 pt-3 space-y-2">
+        <div className="flex justify-between">
+          <p className="text-zinc-400 text-sm">Today's sales</p>
+          <p className="text-emerald-400 text-sm font-mono">{fmt(todaySummary.totalSales)}</p>
+        </div>
+        <div className="flex justify-between">
+          <p className="text-zinc-400 text-sm">Today's expenses</p>
+          <p className="text-red-400 text-sm font-mono">-{fmt(todaySummary.totalExpenses)}</p>
+        </div>
+        <div className="flex justify-between border-t border-zinc-800 pt-2">
+          <p className="text-white font-semibold text-sm">Net today</p>
+          <p className={`text-sm font-mono font-bold ${todaySummary.net >= 0 ? "text-white" : "text-red-400"}`}>
+            {fmt(todaySummary.net)}
+          </p>
+        </div>
+      </div>
+
+      <div className="border-t border-zinc-800 pt-3 space-y-3">
+        <p className="text-zinc-500 text-xs">Business pulse</p>
+        <div className="grid grid-cols-2 gap-2">
+          <div className="rounded-xl bg-zinc-800 px-4 py-3">
+            <p className="text-zinc-500 text-[11px] mb-1">Transactions today</p>
+            <p className="text-white text-sm font-semibold">{stats.transactions}</p>
+          </div>
+          <div className="rounded-xl bg-zinc-800 px-4 py-3">
+            <p className="text-zinc-500 text-[11px] mb-1">Low stock alerts</p>
+            <p className={`text-sm font-semibold ${stats.lowStock > 0 ? "text-red-400" : "text-emerald-400"}`}>
+              {stats.lowStock}
+            </p>
+          </div>
+        </div>
+        <div className="rounded-xl bg-zinc-800 px-4 py-3 border border-zinc-700">
+          <p className="text-zinc-500 text-[11px] mb-1">Pending actions</p>
+          {pendingActions.length > 0 ? (
+            <div className="space-y-2">
+              {pendingActions.map((action, index) => (
+                <div key={index} className="flex items-start justify-between gap-3 rounded-lg bg-zinc-900/80 px-3 py-2">
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-white">{action.title}</p>
+                    <p className="text-[11px] text-zinc-500">{action.detail}</p>
+                  </div>
+                  <span className={`shrink-0 rounded-full px-2 py-1 text-[10px] font-medium uppercase tracking-wider ${
+                    action.tone === "red"
+                      ? "bg-red-500/10 text-red-400"
+                      : action.tone === "amber"
+                      ? "bg-amber-500/10 text-amber-400"
+                      : "bg-zinc-700 text-zinc-300"
+                  }`}>
+                    {action.tone === "red" ? "Now" : action.tone === "amber" ? "Soon" : "Info"}
+                  </span>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-emerald-400 text-sm">All caught up</p>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 export default function Dashboard() {
-  const navigate = useNavigate()
   const { user: authUser } = useUser()
   const { user: instantUser, business: instantBusiness, signOut } = useInstantAuth()
   const { navigateInstant } = useInstantNavigation()
   const isOwnerOrManager = useIsOwnerOrManager()
   const isCashier = useIsCashier()
-  const { canViewAll, availableBranches, readyToFetch, activeBranch, viewMode, effectiveBranchId } = useBranchContext()
+  const { canViewAll, readyToFetch, activeBranch, viewMode, effectiveBranchId } = useBranchContext()
   const [business, setBusiness] = useState(null)
   const [stats, setStats] = useState({
     todaySales: 0,
@@ -45,12 +150,6 @@ export default function Dashboard() {
   const [periodLoading, setPeriodLoading] = useState(false)
   const [accessIssue, setAccessIssue] = useState("")
   
-  // Clear today's activity immediately when branch changes
-  useEffect(() => {
-    setTodayTransactions([])
-    setTodaySummary({ totalSales: 0, totalExpenses: 0, net: 0, cash: 0, mpesa: 0 })
-  }, [effectiveBranchId])
-
   const setBusinessFromProfile = (profile, fallbackBusiness) => {
     const resolvedBusiness = fallbackBusiness || profile?.businesses || null
     if (!resolvedBusiness) return null
@@ -64,21 +163,26 @@ export default function Dashboard() {
     return nextBusiness
   }
 
-  // Use instant auth data if available
-  useEffect(() => {
+  async function initializeDashboard() {
     if (instantUser && instantBusiness) {
       setBusiness({ ...instantBusiness, userName: instantUser.full_name })
       setLoading(false)
-      
-      fetchDashboardData()
-    } else if (authUser) {
-      fetchDashboardData()
+      await fetchDashboardData()
+      return
     }
+
+    if (authUser) {
+      await fetchDashboardData()
+    }
+  }
+
+  useEffect(() => {
+    void initializeDashboard()
   }, [instantUser, instantBusiness, authUser])
 
-  useEffect(() => { if (business && readyToFetch) fetchPeriodData() }, [period, selectedDay, business, effectiveBranchId, readyToFetch])
-  useEffect(() => { if (business && readyToFetch) fetchTodayData() }, [business, effectiveBranchId, readyToFetch])
-  useEffect(() => { if (business && readyToFetch) fetchDashboardData() }, [business?.id, effectiveBranchId, readyToFetch])
+  useEffect(() => { if (business && readyToFetch) void fetchPeriodData() }, [period, selectedDay, business, effectiveBranchId, readyToFetch])
+  useEffect(() => { if (business && readyToFetch) void fetchTodayData() }, [business, effectiveBranchId, readyToFetch])
+  useEffect(() => { if (business && readyToFetch) void fetchDashboardData() }, [business?.id, effectiveBranchId, readyToFetch])
 
   // Re-fetch data when window gains focus
   useEffect(() => {
@@ -145,7 +249,7 @@ export default function Dashboard() {
     return { start: toUtcIsoFromEAT(start), end: now.toISOString() }
   }
 
-  const fetchDashboardData = async () => {
+  async function fetchDashboardData() {
     if (!authUser) {
       setLoading(false)
       return
@@ -161,7 +265,9 @@ export default function Dashboard() {
         setStats(cachedStats)
         setLowStockItems(cachedLowStock)
       }
-    } catch {}
+    } catch (error) {
+      console.error('Failed to read cached dashboard stats:', error)
+    }
 
     const { data: userData, error: userError } = await supabase
       .from("users")
@@ -248,12 +354,14 @@ export default function Dashboard() {
         lowStockItems: filteredLowStock,
         cachedAt: Date.now(),
       }))
-    } catch {}
+    } catch (error) {
+      console.error('Failed to cache dashboard stats:', error)
+    }
 
     setLoading(false)
   }
 
-  const fetchTodayData = async () => {
+  async function fetchTodayData() {
     if (!business?.id) return
 
     const todayStart = getTodayStartUtcIsoEAT()
@@ -348,7 +456,7 @@ export default function Dashboard() {
     })
   }
 
-  const fetchPeriodData = async () => {
+  async function fetchPeriodData() {
     if (!business?.id) return
 
     setPeriodLoading(true)
@@ -529,19 +637,6 @@ export default function Dashboard() {
     return actions.slice(0, 3)
   }, [stats.lowStock, stats.totalRevenue, todaySummary.totalExpenses, todaySummary.totalSales])
 
-  const QuickActions = () => (
-    <div className="flex flex-wrap gap-2">
-      <UiButton variant="primary" size="sm" onClick={() => navigateInstant("/transactions/add-sale")}>
-        + Sale
-      </UiButton>
-      {isOwnerOrManager && (
-        <UiButton variant="secondary" size="sm" onClick={() => navigateInstant("/transactions/add-expense")}>
-          + Expense
-        </UiButton>
-      )}
-    </div>
-  )
-
   if (loading) return (
     <div className="min-h-screen bg-zinc-950 flex items-center justify-center">
       <p className="text-zinc-500 text-sm">Loading...</p>
@@ -564,97 +659,6 @@ export default function Dashboard() {
     )
   }
 
-  // ── SHARED TODAY COMPONENT ──
-  const TodayReport = () => (
-    <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4 space-y-3">
-      <h3 className="text-white font-semibold text-sm">Today's activity</h3>
-      {todayTransactions.map((t, i) => (
-        <div key={i} className="py-2 border-b border-zinc-800 last:border-0">
-          <div className="flex items-center justify-between mb-1">
-            <p className="text-zinc-500 text-xs">
-              {new Date(t.date).toLocaleTimeString("en-KE", { hour: "2-digit", minute: "2-digit" })} · {t.payment_account === "mpesa" ? "M-Pesa" : t.payment_account}
-            </p>
-          </div>
-          {t.type === "sale" && t.sale_items?.length > 0 ? (
-            <table className="w-full">
-              <tbody>
-                {t.sale_items.map((item, j) => (
-                  <tr key={j}>
-                    <td className="text-white text-xs py-0.5">{item.products?.name}</td>
-                    <td className="text-zinc-500 text-xs py-0.5 text-right font-mono">{fmt(item.unit_price)}</td>
-                    <td className="text-zinc-500 text-xs py-0.5 text-right px-2">×{item.quantity}</td>
-                    <td className="text-emerald-400 text-xs py-0.5 text-right font-mono">{fmt(item.total_amount)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          ) : (
-            <p className="text-white text-sm">{t.display_name}</p>
-          )}
-        </div>
-      ))}
-
-      <div className="border-t border-zinc-800 pt-3 space-y-2">
-        <div className="flex justify-between">
-          <p className="text-zinc-400 text-sm">Today's sales</p>
-          <p className="text-emerald-400 text-sm font-mono">{fmt(todaySummary.totalSales)}</p>
-        </div>
-        <div className="flex justify-between">
-          <p className="text-zinc-400 text-sm">Today's expenses</p>
-          <p className="text-red-400 text-sm font-mono">-{fmt(todaySummary.totalExpenses)}</p>
-        </div>
-        <div className="flex justify-between border-t border-zinc-800 pt-2">
-          <p className="text-white font-semibold text-sm">Net today</p>
-          <p className={`text-sm font-mono font-bold ${todaySummary.net >= 0 ? "text-white" : "text-red-400"}`}>
-            {fmt(todaySummary.net)}
-          </p>
-        </div>
-      </div>
-
-      <div className="border-t border-zinc-800 pt-3 space-y-3">
-        <p className="text-zinc-500 text-xs">Business pulse</p>
-        <div className="grid grid-cols-2 gap-2">
-          <div className="rounded-xl bg-zinc-800 px-4 py-3">
-            <p className="text-zinc-500 text-[11px] mb-1">Transactions today</p>
-            <p className="text-white text-sm font-semibold">{stats.transactions}</p>
-          </div>
-          <div className="rounded-xl bg-zinc-800 px-4 py-3">
-            <p className="text-zinc-500 text-[11px] mb-1">Low stock alerts</p>
-            <p className={`text-sm font-semibold ${stats.lowStock > 0 ? "text-red-400" : "text-emerald-400"}`}>
-              {stats.lowStock}
-            </p>
-          </div>
-        </div>
-        <div className="rounded-xl bg-zinc-800 px-4 py-3 border border-zinc-700">
-          <p className="text-zinc-500 text-[11px] mb-1">Pending actions</p>
-          {pendingActions.length > 0 ? (
-            <div className="space-y-2">
-              {pendingActions.map((action, index) => (
-                <div key={index} className="flex items-start justify-between gap-3 rounded-lg bg-zinc-900/80 px-3 py-2">
-                  <div className="min-w-0">
-                    <p className="text-sm font-medium text-white">{action.title}</p>
-                    <p className="text-[11px] text-zinc-500">{action.detail}</p>
-                  </div>
-                  <span className={`shrink-0 rounded-full px-2 py-1 text-[10px] font-medium uppercase tracking-wider ${
-                    action.tone === "red"
-                      ? "bg-red-500/10 text-red-400"
-                      : action.tone === "amber"
-                      ? "bg-amber-500/10 text-amber-400"
-                      : "bg-zinc-700 text-zinc-300"
-                  }`}>
-                    {action.tone === "red" ? "Now" : action.tone === "amber" ? "Soon" : "Info"}
-                  </span>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <p className="text-emerald-400 text-sm">All caught up</p>
-          )}
-        </div>
-      </div>
-    </div>
-  )
-
   // ── CASHIER VIEW ──
   if (isCashier) {
     return (
@@ -671,8 +675,14 @@ export default function Dashboard() {
               {new Date().toLocaleDateString("en-KE", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}
             </p>
           </div>
-          <QuickActions />
-          <TodayReport />
+          <QuickActions isOwnerOrManager={isOwnerOrManager} navigateInstant={navigateInstant} />
+          <TodayReport
+            todayTransactions={todayTransactions}
+            todaySummary={todaySummary}
+            stats={stats}
+            pendingActions={pendingActions}
+            fmt={fmt}
+          />
 
         <FloatingBottomNav
           activePath="/dashboard"
@@ -702,7 +712,7 @@ export default function Dashboard() {
             {new Date().toLocaleDateString("en-KE", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}
           </p>
         </div>
-        <QuickActions />
+        <QuickActions isOwnerOrManager={isOwnerOrManager} navigateInstant={navigateInstant} />
 
         {stats.totalRevenue === 0 && stats.lowStock === 0 && (
           <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-2xl p-4 flex items-center justify-between">
@@ -739,7 +749,13 @@ export default function Dashboard() {
         </div>
 
         {/* Today report */}
-        <TodayReport />
+        <TodayReport
+          todayTransactions={todayTransactions}
+          todaySummary={todaySummary}
+          stats={stats}
+          pendingActions={pendingActions}
+          fmt={fmt}
+        />
 
         {/* Period filter */}
         <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4 space-y-4">

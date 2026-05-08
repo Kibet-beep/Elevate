@@ -25,26 +25,34 @@ export default function Suppliers() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
 
-  const fetchSuppliers = async () => {
-    const { data } = await supabase
-      .from("suppliers").select("*")
-      .eq("business_id", businessId)
-      .order("name")
-
-    setSuppliers(data || [])
-  }
-
-  useEffect(() => { if (businessId) fetchSuppliers() }, [businessId, fetchSuppliers])
-
-  // Re-fetch suppliers when window gains focus
   useEffect(() => {
+    if (!businessId) return
+
+    let active = true
+
+    const fetchSuppliers = async () => {
+      const { data } = await supabase
+        .from("suppliers").select("*")
+        .eq("business_id", businessId)
+        .order("name")
+
+      if (!active) return
+      setSuppliers(data || [])
+    }
+
+    void fetchSuppliers()
+
     const handleFocus = () => {
       if (businessId) {
-        fetchSuppliers()
+        void fetchSuppliers()
       }
     }
+
     window.addEventListener('focus', handleFocus)
-    return () => window.removeEventListener('focus', handleFocus)
+    return () => {
+      active = false
+      window.removeEventListener('focus', handleFocus)
+    }
   }, [businessId])
 
   const handleAdd = async () => {

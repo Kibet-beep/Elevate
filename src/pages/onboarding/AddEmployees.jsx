@@ -13,7 +13,6 @@ export default function AddEmployees() {
   const [role, setRole] = useState("cashier")
   const [inviting, setInviting] = useState(false)
   const [saving, setSaving] = useState(false)
-  const [error, setError] = useState("")
   const [fieldError, setFieldError] = useState("")
 
   const handleInvite = async () => {

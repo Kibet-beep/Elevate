@@ -38,7 +38,7 @@ export default function ForgotPassword() {
 
       // All good — move to the "check your email" screen
       setScreen("sent")
-    } catch (err) {
+    } catch {
       setError("Something went wrong. Please try again.")
     }
 

@@ -1,6 +1,7 @@
 // src/context/BranchContext.jsx
 import { createContext, useContext, useState, useEffect, useCallback } from "react"
 import { supabase } from "../lib/supabase"
+import { getDb, startBranchesReplication } from "../lib/db"
 import { useUser, useCurrentBusiness } from "../hooks/useRole"
 import { useInstantAuth } from "../hooks/useInstantAuth"
 
@@ -75,61 +76,106 @@ export function BranchProvider({ children }) {
     setViewMode('branch')
   }, [isOwner, user?.default_branch_id])
 
-  const fetchBranches = useCallback(async () => {
-  console.log('fetchBranches called:', { userId: user?.id, resolvedBusinessId, initialized })
+  useEffect(() => {
+    let active = true
+    let subscription = null
+    let replication = null
 
-  if (!user?.id || !resolvedBusinessId || !initialized) {
-    setLoading(false)
-    return
-  }
-
-  setLoading(true)
-
-  try {
-    if (isOwner) {
-      const { data, error } = await supabase
-        .from('branches')
-        .select('*')
-        .eq('business_id', resolvedBusinessId)
-        .eq('is_active', true)
-        .order('name')
-
-      const branches = data || []
-      branchCache.set(`${user.id}-${resolvedBusinessId}-owner`, { branches, timestamp: Date.now() })
-      setAvailableBranches(branches)
-      applyDefaultBranch(branches)
-    } else {
-      // For managers/cashiers — use default_branch_id directly
-      // instead of querying user_branch_assignments which is hanging
-      const defaultBranchId = user?.default_branch_id
-      
-      if (!defaultBranchId) {
-        setAvailableBranches([])
-        setActiveBranchState(null)
+    async function init() {
+      if (!user?.id || !resolvedBusinessId || !initialized) {
         setLoading(false)
         return
       }
 
-      const { data, error } = await supabase
-        .from('branches')
-        .select('*')
-        .eq('id', defaultBranchId)
-        .single()
+      setLoading(true)
 
-      const branches = data ? [data] : []
-      setAvailableBranches(branches)
-      applyDefaultBranch(branches)
+      try {
+        const db = await getDb()
+        try {
+          replication = startBranchesReplication(db.branches, resolvedBusinessId)
+        } catch (err) {
+          console.error('Failed to start branches replication:', err)
+        }
+
+        const selector = {
+          business_id: resolvedBusinessId,
+          status: { $ne: 'archived' },
+          _deleted: { $ne: true },
+          ...(isOwner ? {} : { is_active: true }),
+        }
+
+        try {
+          const existing = await db.branches.find({ selector, sort: [{ name: 'asc' }, { id: 'asc' }] }).exec()
+          if (!active) return
+          const branches = (existing || []).map(d => d.toJSON())
+          setAvailableBranches(branches)
+          applyDefaultBranch(branches)
+          setLoading(false)
+        } catch (err) {
+          console.error('Initial branches fetch from RxDB failed:', err)
+        }
+
+        // Subscribe for live updates
+        subscription = db.branches
+          .find({ selector, sort: [{ name: 'asc' }, { id: 'asc' }] })
+          .$.subscribe({
+            next: (docs) => {
+              if (!active) return
+              const branches = (docs || []).map(d => d.toJSON())
+              setAvailableBranches(branches)
+              applyDefaultBranch(branches)
+              setLoading(false)
+            },
+            error: (err) => {
+              console.error('Branches subscription error:', err)
+              setLoading(false)
+            }
+          })
+      } catch (err) {
+        console.error('Failed to load branches from RxDB, falling back to Supabase:', err)
+        // Fallback to previous Supabase logic
+        try {
+          if (isOwner) {
+            const { data } = await supabase
+              .from('branches')
+              .select('*')
+              .eq('business_id', resolvedBusinessId)
+              .eq('is_active', true)
+              .order('name')
+            const branches = data || []
+            setAvailableBranches(branches)
+            applyDefaultBranch(branches)
+          } else {
+            const defaultBranchId = user?.default_branch_id
+            if (!defaultBranchId) {
+              setAvailableBranches([])
+              setActiveBranchState(null)
+              setLoading(false)
+              return
+            }
+            const { data } = await supabase
+              .from('branches')
+              .select('*')
+              .eq('id', defaultBranchId)
+              .single()
+            const branches = data ? [data] : []
+            setAvailableBranches(branches)
+            applyDefaultBranch(branches)
+          }
+        } catch (supErr) {
+          console.error('Supabase fallback failed:', supErr)
+        }
+      }
     }
-  } catch (error) {
-    console.error('Failed to fetch branches:', error)
-  } finally {
-    setLoading(false)
-  }
-}, [user?.id, user?.role, user?.default_branch_id, resolvedBusinessId, initialized, isOwner, applyDefaultBranch])
 
-  useEffect(() => {
-    fetchBranches()
-  }, [fetchBranches])
+    init()
+
+    return () => {
+      active = false
+      try { subscription?.unsubscribe() } catch {}
+      try { replication?.cancel() } catch {}
+    }
+  }, [user?.id, user?.role, user?.default_branch_id, resolvedBusinessId, initialized, isOwner, applyDefaultBranch])
 
   const effectiveBranchId = (() => {
     if (isCashier) {

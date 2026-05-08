@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import { useNavigate, useParams } from "react-router-dom"
 import { supabase } from "../../lib/supabase"
-import { useCurrentBusiness, useIsOwner } from "../../hooks/useRole"
+import { getDb } from "../../lib/db"
+import { useCurrentBusiness } from "../../hooks/useRole"
 import { useBranchContext } from "../../context/BranchContext"
 import { AppShell, UiButton, UiCard } from "../../components/ui"
 
@@ -9,8 +10,7 @@ export default function BranchDetail() {
   const { id } = useParams()
   const navigate = useNavigate()
   const { businessId } = useCurrentBusiness()
-  const { availableBranches, refreshBranches } = useBranchContext()
-  const isOwner = useIsOwner()
+  const { refreshBranches } = useBranchContext()
 
   const [branch, setBranch] = useState(null)
   const [employees, setEmployees] = useState([])
@@ -33,23 +33,37 @@ export default function BranchDetail() {
     navigate("/settings/branches", { replace: true })
   }
 
-  const loadBranch = async () => {
+  const loadBranch = useCallback(async () => {
     try {
-      const { data: branchData, error: branchError } = await supabase
-        .from("branches")
-        .select("*")
-        .eq("id", id)
-        .eq("business_id", businessId)
-        .single()
+      // Try RxDB first
+      const db = await getDb()
+      const doc = await db.branches.findOne(id).exec()
+      if (doc) {
+        const branchData = doc.toJSON()
+        setBranch(branchData)
+        setName(branchData.name || "")
+        setCode(branchData.code || "")
+        setAddress(branchData.address || "")
+        setPhone(branchData.phone || "")
+        setEmail(branchData.email || "")
+      } else {
+        // Fallback to Supabase if not in local DB
+        const { data: branchData, error: branchError } = await supabase
+          .from("branches")
+          .select("*")
+          .eq("id", id)
+          .eq("business_id", businessId)
+          .single()
 
-      if (branchError) throw branchError
+        if (branchError) throw branchError
 
-      setBranch(branchData)
-      setName(branchData.name || "")
-      setCode(branchData.code || "")
-      setAddress(branchData.address || "")
-      setPhone(branchData.phone || "")
-      setEmail(branchData.email || "")
+        setBranch(branchData)
+        setName(branchData.name || "")
+        setCode(branchData.code || "")
+        setAddress(branchData.address || "")
+        setPhone(branchData.phone || "")
+        setEmail(branchData.email || "")
+      }
 
       const { data: assignments, error: employeeError } = await supabase
         .from("user_branch_assignments")
@@ -65,13 +79,17 @@ export default function BranchDetail() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [businessId, id])
 
   useEffect(() => {
-    if (id && businessId) {
-      loadBranch()
-    }
-  }, [id, businessId])
+    if (!id || !businessId) return
+
+    const timer = window.setTimeout(() => {
+      void loadBranch()
+    }, 0)
+
+    return () => window.clearTimeout(timer)
+  }, [id, businessId, loadBranch])
 
   const assignedCount = useMemo(() => employees.length, [employees])
 
@@ -85,18 +103,14 @@ export default function BranchDetail() {
     setError("")
 
     try {
-      const { error: updateError } = await supabase
-        .from("branches")
-        .update({
-          name,
-          code: code || null,
-          address: address || null,
-          phone: phone || null,
-          email: email || null,
-        })
-        .eq("id", id)
-
-      if (updateError) throw updateError
+      const db = await getDb()
+      const doc = await db.branches.findOne(id).exec()
+      const payload = { name, code: code || null, address: address || null, phone: phone || null, email: email || null, _modified: Date.now() }
+      if (doc) {
+        await doc.incrementalPatch(payload)
+      } else {
+        await db.branches.upsert({ id, business_id: businessId, ...payload, _deleted: false })
+      }
 
       await refreshBranches?.()
       await loadBranch()
@@ -117,12 +131,13 @@ export default function BranchDetail() {
     setError("")
 
     try {
-      const { error: updateError } = await supabase
-        .from("branches")
-        .update({ is_active: !branch.is_active })
-        .eq("id", id)
-
-      if (updateError) throw updateError
+      const db = await getDb()
+      const doc = await db.branches.findOne(id).exec()
+      if (doc) {
+        await doc.incrementalPatch({ is_active: !branch.is_active, _modified: Date.now() })
+      } else {
+        await db.branches.upsert({ ...branch, is_active: !branch.is_active, _modified: Date.now() })
+      }
 
       await refreshBranches?.()
       await loadBranch()
@@ -140,12 +155,13 @@ export default function BranchDetail() {
     setError("")
 
     try {
-      const { error: deleteError } = await supabase
-        .from("branches")
-        .update({ status: "archived" })
-        .eq("id", id)
-
-      if (deleteError) throw deleteError
+      const db = await getDb()
+      const doc = await db.branches.findOne(id).exec()
+      if (doc) {
+        await doc.incrementalPatch({ status: 'archived', _modified: Date.now() })
+      } else {
+        await db.branches.upsert({ id, status: 'archived', business_id: businessId, _modified: Date.now() })
+      }
 
       await refreshBranches?.()
       navigate("/settings/branches", { replace: true })

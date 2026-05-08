@@ -25,19 +25,29 @@ export default function General() {
   const months = ["January","February","March","April","May","June",
     "July","August","September","October","November","December"]
 
-  const fetchData = async () => {
-    const { data } = await supabase
-      .from("businesses").select("vat_rate, low_stock_threshold, financial_year_start")
-      .eq("id", businessId).single()
-
-    setVatRate(data.vat_rate || 16)
-    setLowStockThreshold(data.low_stock_threshold || 10)
-    setFinancialYearStart(data.financial_year_start || 1)
-  }
-
   useEffect(() => {
-    if (businessId) fetchData()
-  }, [businessId, fetchData])
+    if (!businessId) return
+
+    let active = true
+
+    const fetchData = async () => {
+      const { data } = await supabase
+        .from("businesses").select("vat_rate, low_stock_threshold, financial_year_start")
+        .eq("id", businessId).single()
+
+      if (!active) return
+
+      setVatRate(data.vat_rate || 16)
+      setLowStockThreshold(data.low_stock_threshold || 10)
+      setFinancialYearStart(data.financial_year_start || 1)
+    }
+
+    void fetchData()
+
+    return () => {
+      active = false
+    }
+  }, [businessId])
 
   const validateSettings = () => {
     if (vatRate < 0 || vatRate > 100) return "VAT rate must be between 0 and 100"

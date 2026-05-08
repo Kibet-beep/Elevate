@@ -15,7 +15,6 @@ export default function Float() {
     navigate("/settings", { replace: true })
   }
   const { businessId } = useCurrentBusiness()
-  const [userId, setUserId] = useState(null)
   const [cash, setCash] = useState("")
   const [mpesa, setMpesa] = useState("")
   const [bank, setBank] = useState("")
@@ -25,30 +24,41 @@ export default function Float() {
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState("")
 
-  const fetchFloat = async () => {
-    const { data } = await supabase
-      .from("float_baseline")
-      .select("*")
-      .eq("business_id", businessId)
-      .maybeSingle()
+  useEffect(() => {
+    if (!businessId) return
 
-    if (data) {
-      setCash(data.cash_opening)
-      setMpesa(data.mpesa_opening)
-      setBank(data.bank_opening)
-      setLastSet(data.set_date)
+    let active = true
+
+    const fetchFloat = async () => {
+      const { data } = await supabase
+        .from("float_baseline")
+        .select("*")
+        .eq("business_id", businessId)
+        .maybeSingle()
+
+      if (!active) return
+
+      if (data) {
+        setCash(data.cash_opening)
+        setMpesa(data.mpesa_opening)
+        setBank(data.bank_opening)
+        setLastSet(data.set_date)
+      }
+
+      setLoading(false)
     }
 
-    setLoading(false)
-  }
+    void fetchFloat()
 
-  useEffect(() => {
-    if (businessId) fetchFloat()
-  }, [businessId, fetchFloat])
+    return () => {
+      active = false
+    }
+  }, [businessId])
 
   const handleSave = async () => {
     setSaving(true)
     setError("")
+    const { data: { user } } = await supabase.auth.getUser()
 
     const payload = {
       business_id: businessId,
@@ -56,7 +66,7 @@ export default function Float() {
       mpesa_opening: parseFloat(mpesa) || 0,
       bank_opening: parseFloat(bank) || 0,
       set_date: new Date().toISOString(),
-      created_by: userId,
+      created_by: user?.id,
       updated_at: new Date().toISOString(),
     }
 

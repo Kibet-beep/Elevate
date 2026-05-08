@@ -11,7 +11,7 @@ import { getRoleDisplayName } from "../../lib/roles"
 
 export function Settings() {
   const navigate = useNavigate()
-  const { user: authUser, userRole, logout } = useUser()
+  const { user: authUser, userRole } = useUser()
   const { business, signOut } = useInstantAuth()
   const { navigateInstant } = useInstantNavigation()
   const isOwner = useIsOwner()

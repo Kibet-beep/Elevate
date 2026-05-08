@@ -26,11 +26,7 @@ export default function Business() {
   const [error, setError] = useState("")
   const [saved, setSaved] = useState(false)
 
-  useEffect(() => {
-    if (businessId) fetchBusiness()
-  }, [businessId])
-
-  const fetchBusiness = async () => {
+  async function fetchBusiness() {
     const { data } = await supabase
       .from("businesses").select("*").eq("id", businessId).single()
 
@@ -44,6 +40,10 @@ export default function Business() {
       setRegNumber(data.reg_number || "")
     }
   }
+
+  useEffect(() => {
+    if (businessId) void fetchBusiness()
+  }, [businessId])
 
   const handleSave = async () => {
     setSaving(true)

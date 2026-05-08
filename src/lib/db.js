@@ -186,6 +186,42 @@ const transactionSchema = {
   required: ['id'],
 }
 
+const branchSchema = {
+  version: 0,
+  primaryKey: 'id',
+  type: 'object',
+  properties: {
+    id: { type: 'string', maxLength: 100 },
+    business_id: { type: 'string' },
+    name: { type: 'string' },
+    code: { type: ['string', 'null'] },
+    address: { type: ['string', 'null'] },
+    phone: { type: ['string', 'null'] },
+    email: { type: ['string', 'null'] },
+    is_active: { type: 'boolean' },
+    status: { type: 'string' },
+    _modified: { type: 'number' },
+    _deleted: { type: 'boolean' },
+  },
+  required: ['id'],
+}
+
+const branchAssignmentSchema = {
+  version: 0,
+  primaryKey: 'id',
+  type: 'object',
+  properties: {
+    id: { type: 'string', maxLength: 200 },
+    user_id: { type: 'string' },
+    branch_id: { type: 'string' },
+    role: { type: 'string' },
+    is_active: { type: 'boolean' },
+    _modified: { type: 'number' },
+    _deleted: { type: 'boolean' },
+  },
+  required: ['id', 'user_id', 'branch_id'],
+}
+
 let dbInstance = null
 let dbPromise = null
 
@@ -203,9 +239,11 @@ export async function getDb() {
     })
 
     await db.addCollections({
-      products:     { schema: productSchema },
-      transactions: { schema: transactionSchema },
+      products:      { schema: productSchema },
+      transactions:  { schema: transactionSchema },
       stock_entries: { schema: stockEntrySchema },
+      branches:      { schema: branchSchema },
+      branch_assignments: { schema: branchAssignmentSchema },
     })
 
     dbInstance = db
@@ -268,7 +306,7 @@ export function startTransactionsReplication(collection, businessId) {
           .order('id', { ascending: true })
           .limit(200)
 
-        if (checkpoint) {
+        if (checkpoint?.modified) {
           query = query.gt('_modified', checkpoint.modified)
         }
 
@@ -302,6 +340,113 @@ export function startStockEntriesReplication(collection, businessId) {
           .from('stock_entries')
           .upsert(rows.map(r => r.newDocumentState))
       }
+    },
+    live: true,
+  })
+
+  if (typeof window !== 'undefined') {
+    window.addEventListener('online', () => replication.reSync())
+  }
+  return replication
+}
+
+export function startBranchesReplication(collection, businessId) {
+  const replication = new SupabaseReplication({
+    replicationIdentifier: `branches-${businessId}`,
+    collection,
+    supabaseClient: supabase,
+    pull: {
+      queryBuilder: (checkpoint) => {
+        let query = supabase
+          .from('branches')
+          .select('*')
+          .eq('business_id', businessId)
+          .order('_modified', { ascending: true })
+          .order('id', { ascending: true })
+          .limit(200)
+
+        if (checkpoint?.modified) {
+          query = query.gt('_modified', checkpoint.modified)
+        }
+
+        return query
+      }
+    },
+    push: {
+      queryBuilder: (rows) => {
+        return supabase
+          .from('branches')
+          .upsert(rows.map(r => r.newDocumentState))
+      }
+    },
+    live: true,
+  })
+
+  if (typeof window !== 'undefined') {
+    window.addEventListener('online', () => replication.reSync())
+  }
+  return replication
+}
+
+export function startBranchAssignmentsReplication(collection, businessId) {
+  const replication = new SupabaseReplication({
+    replicationIdentifier: `branch-assignments-${businessId}`,
+    collection,
+    supabaseClient: supabase,
+    pull: {
+      queryBuilder: (checkpoint) => {
+        let query = supabase
+          .from('user_branch_assignments')
+          .select('*')
+          .order('_modified', { ascending: true })
+          .order('user_id', { ascending: true })
+          .order('branch_id', { ascending: true })
+          .limit(300)
+
+        if (checkpoint?.modified) {
+          query = query.gt('_modified', checkpoint.modified)
+        }
+
+        return query
+      },
+      mapDocument: (row) => ({
+        id: `${row.user_id}:${row.branch_id}`,
+        user_id: row.user_id,
+        branch_id: row.branch_id,
+        role: row.role,
+        is_active: row.is_active,
+        _modified: row._modified ?? Date.now(),
+        _deleted: false,
+      }),
+    },
+    push: {
+      customInsertHandler: async (doc) => {
+        const { error } = await supabase
+          .from('user_branch_assignments')
+          .upsert({
+            user_id: doc.user_id,
+            branch_id: doc.branch_id,
+            role: doc.role,
+            is_active: doc.is_active,
+          })
+
+        if (error) throw error
+        return []
+      },
+      customUpdateHandler: async (row) => {
+        const nextDoc = row.newDocumentState
+        const { error } = await supabase
+          .from('user_branch_assignments')
+          .upsert({
+            user_id: nextDoc.user_id,
+            branch_id: nextDoc.branch_id,
+            role: nextDoc.role,
+            is_active: nextDoc.is_active,
+          })
+
+        if (error) throw error
+        return true
+      },
     },
     live: true,
   })

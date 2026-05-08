@@ -39,12 +39,6 @@ export default function HistoricalSales() {
   const [datesWithSales, setDatesWithSales] = useState({})
   const [todaysSales, setTodaysSales] = useState([])
 
-  useEffect(() => {
-    if (businessId && authUser && readyToFetch) {
-      fetchInitialData()
-    }
-  }, [businessId, authUser, resolvedBranchId, readyToFetch])
-
   const fetchInitialData = async () => {
     try {
       const { data: baseline } = await supabase
@@ -123,6 +117,12 @@ export default function HistoricalSales() {
       setError(err.message || "Failed to load historical sales")
     }
   }
+
+  useEffect(() => {
+    if (businessId && authUser && readyToFetch) {
+      void fetchInitialData()
+    }
+  }, [businessId, authUser, resolvedBranchId, readyToFetch])
 
   const filteredProducts = useMemo(() => {
     const search = productSearch.trim().toLowerCase()
@@ -230,7 +230,7 @@ export default function HistoricalSales() {
     setError("")
 
     const pendingTransaction = {
-      id: `${selectedDate}-${Date.now()}`,
+      id: crypto.randomUUID(),
       date: selectedDate,
       branchId: resolvedBranchId,
       branchName: availableBranches.find(b => b.id === resolvedBranchId)?.name || "Unassigned branch",

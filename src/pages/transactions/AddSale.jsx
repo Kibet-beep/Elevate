@@ -14,7 +14,7 @@ export default function AddSale() {
   const [searchParams] = useSearchParams()
   const { user: authUser } = useUser()
   const { businessId } = useCurrentBusiness()
-  const { effectiveBranchId, viewMode, canViewAll, readyToFetch } = useBranchContext()
+  const { effectiveBranchId, viewMode, canViewAll, readyToFetch, availableBranches } = useBranchContext()
   const [userId, setUserId] = useState(null)
   const { products } = useProducts(readyToFetch ? (canViewAll ? null : effectiveBranchId) : null, readyToFetch && canViewAll)
   const [cartItems, setCartItems] = useState([])
@@ -31,6 +31,8 @@ export default function AddSale() {
   const [discountValue, setDiscountValue] = useState("")
   const [saleDate, setSaleDate] = useState(searchParams.get("date") || new Date().toISOString().split("T")[0])
   const resolvedBranchId = effectiveBranchId
+
+  const activeBranch = availableBranches?.find(b => b.id === effectiveBranchId)
 
   useEffect(() => {
     if (authUser?.id) {

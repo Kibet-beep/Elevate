@@ -1,5 +1,5 @@
 ﻿// src/pages/settings/reports/ProfitLossReport.jsx
-import { useState, useEffect, useMemo } from "react"
+import { useMemo, useState } from "react"
 import { useNavigate } from "react-router-dom"
 import { useBranchContext } from "../../context/BranchContext"
 import { BranchSelector } from "../../components/BranchSelector"
@@ -7,11 +7,10 @@ import { useTransactions } from "../../hooks/useTransactions"
 import { useProducts } from "../../hooks/useProducts"
 
 const PERIODS = ["Day", "Week", "Month", "Quarter", "Year"]
-const EAT_OFFSET_MS = 3 * 60 * 60 * 1000
 
 export default function ProfitLossReport() {
   const navigate = useNavigate()
-  const { canViewAll, availableBranches, effectiveBranchId, readyToFetch } = useBranchContext()
+  const { canViewAll, availableBranches, effectiveBranchId } = useBranchContext()
   const goBack = () => {
     if (window.history.length > 1) {
       navigate(-1)
@@ -20,124 +19,19 @@ export default function ProfitLossReport() {
     navigate("/settings", { replace: true })
   }
   const [period, setPeriod] = useState("Month")
-  const [data, setData] = useState(null)
-  const [loading, setLoading] = useState(true)
 
   // Get transactions and products from RxDB hooks
-  const { transactions: liveTransactions } = useTransactions(effectiveBranchId, true)
-  const { products: liveProducts } = useProducts(effectiveBranchId, true)
+  const { transactions: liveTransactions, loading: transactionsLoading } = useTransactions(effectiveBranchId, true)
+  const { products: liveProducts, loading: productsLoading } = useProducts(effectiveBranchId, true)
 
-  useEffect(() => {
-    setData({ transactions: liveTransactions, products: liveProducts })
-    setLoading(false)
-  }, [liveTransactions, liveProducts])
-
-  const getEATNow = () => new Date(Date.now() + EAT_OFFSET_MS)
-  const toUtc = (eatDate) => new Date(eatDate.getTime() - EAT_OFFSET_MS).toISOString()
-
-  const getRange = () => {
-    const now = getEATNow()
-    const start = new Date(now)
-
-    if (period === "Day") {
-      start.setUTCHours(0, 0, 0, 0)
-    } else if (period === "Week") {
-      const day = now.getUTCDay()
-      const daysSinceMonday = (day + 6) % 7
-      start.setUTCDate(now.getUTCDate() - daysSinceMonday)
-      start.setUTCHours(0, 0, 0, 0)
-    } else if (period === "Month") {
-      start.setUTCDate(1)
-      start.setUTCHours(0, 0, 0, 0)
-    } else if (period === "Quarter") {
-      const month = now.getUTCMonth()
-      const quarterStart = Math.floor(month / 3) * 3
-      start.setUTCMonth(quarterStart, 1)
-      start.setUTCHours(0, 0, 0, 0)
-    } else if (period === "Year") {
-      start.setUTCMonth(0, 1)
-      start.setUTCHours(0, 0, 0, 0)
-    }
-
-    return { start: toUtc(start), end: new Date().toISOString() }
-  }
-
-  const fetchData = async () => {
-    setLoading(true)
-    const { start, end } = getRange()
-
-    let salesQuery = supabase
-      .from("transactions")
-      .select("branch_id, sale_items(quantity, total_amount, products(buying_price))")
-      .eq("business_id", businessId)
-      .eq("type", "sale")
-      .gte("date", start)
-      .lte("date", end)
-
-    let expenseQuery = supabase
-      .from("transactions")
-      .select("branch_id, expenses(amount, category)")
-      .eq("business_id", businessId)
-      .eq("type", "expense")
-      .gte("date", start)
-      .lte("date", end)
-
-    if (effectiveBranchId) {
-      salesQuery = salesQuery.eq("branch_id", effectiveBranchId)
-      expenseQuery = expenseQuery.eq("branch_id", effectiveBranchId)
-    }
-
-    // Sales
-    const { data: saleTxns } = await salesQuery
-
-    // Expenses
-    const { data: expTxns } = await expenseQuery
-
-    // Revenue
-    const revenue = (saleTxns || []).reduce((s, txn) =>
-      s + (txn.sale_items?.reduce((a, i) => a + i.total_amount, 0) || 0), 0)
-
-    // COGS: landed cost per unit Ã— qty sold
-    const cogs = (saleTxns || []).reduce((s, txn) =>
-      s + (txn.sale_items?.reduce((a, i) =>
-        a + ((i.products?.buying_price || 0) * i.quantity), 0) || 0), 0)
-
-    const grossProfit = revenue - cogs
-    const grossMargin = revenue > 0 ? (grossProfit / revenue) * 100 : 0
-
-    // Operating expenses by category
-    const expenseMap = {}
-    for (const txn of expTxns || []) {
-      for (const exp of txn.expenses || []) {
-        const cat = exp.category || "Miscellaneous"
-        if (!expenseMap[cat]) expenseMap[cat] = 0
-        expenseMap[cat] += exp.amount
-      }
-    }
-
-    const totalOpex = Object.values(expenseMap).reduce((s, v) => s + v, 0)
-    const netProfit = grossProfit - totalOpex
-    const netMargin = revenue > 0 ? (netProfit / revenue) * 100 : 0
-
-    setData({
-      revenue,
-      cogs,
-      grossProfit,
-      grossMargin,
-      expenseMap,
-      totalOpex,
-      netProfit,
-      netMargin,
-    })
-
-    setLoading(false)
-  }
+  const loading = transactionsLoading || productsLoading
+  const data = useMemo(() => buildReportData(liveTransactions, liveProducts, period), [liveTransactions, liveProducts, period])
 
   const fmt = (n) => `KES ${Number(n).toLocaleString("en-KE", { minimumFractionDigits: 2 })}`
   const fmtPct = (n) => `${Number(n).toFixed(1)}%`
 
   const periodLabel = () => {
-    const now = getEATNow()
+    const now = new Date()
     if (period === "Day") return now.toLocaleDateString("en-KE", { weekday: "long", day: "numeric", month: "long", year: "numeric" })
     if (period === "Week") return `Week of ${now.toLocaleDateString("en-KE", { day: "numeric", month: "short", year: "numeric" })}`
     if (period === "Month") return now.toLocaleDateString("en-KE", { month: "long", year: "numeric" })
@@ -301,6 +195,78 @@ export default function ProfitLossReport() {
       </div>
     </div>
   )
+}
+
+function buildReportData(transactions, products, period) {
+  const productById = new Map((products || []).map((product) => [product.id, Number(product.buying_price || 0)]))
+  const now = new Date()
+  const start = new Date(now)
+
+  if (period === "Day") {
+    start.setHours(0, 0, 0, 0)
+  } else if (period === "Week") {
+    const day = start.getDay()
+    const daysSinceMonday = (day + 6) % 7
+    start.setDate(start.getDate() - daysSinceMonday)
+    start.setHours(0, 0, 0, 0)
+  } else if (period === "Month") {
+    start.setDate(1)
+    start.setHours(0, 0, 0, 0)
+  } else if (period === "Quarter") {
+    const quarterStart = Math.floor(start.getMonth() / 3) * 3
+    start.setMonth(quarterStart, 1)
+    start.setHours(0, 0, 0, 0)
+  } else if (period === "Year") {
+    start.setMonth(0, 1)
+    start.setHours(0, 0, 0, 0)
+  }
+
+  const startTime = start.getTime()
+  const endTime = now.getTime()
+  const periodTransactions = (transactions || []).filter((transaction) => {
+    const transactionTime = new Date(transaction.date).getTime()
+    return transactionTime >= startTime && transactionTime <= endTime
+  })
+
+  const saleTransactions = periodTransactions.filter((transaction) => transaction.type === "sale")
+  const expenseTransactions = periodTransactions.filter((transaction) => transaction.type === "expense")
+
+  const revenue = saleTransactions.reduce((sum, transaction) => {
+    const items = Array.isArray(transaction.sale_items) ? transaction.sale_items : []
+    return sum + items.reduce((itemSum, item) => itemSum + Number(item.total_amount || 0), 0)
+  }, 0)
+
+  const cogs = saleTransactions.reduce((sum, transaction) => {
+    const items = Array.isArray(transaction.sale_items) ? transaction.sale_items : []
+    return sum + items.reduce((itemSum, item) => {
+      const buyingPrice = productById.get(item.product_id) || 0
+      return itemSum + (buyingPrice * Number(item.quantity || 0))
+    }, 0)
+  }, 0)
+
+  const expenseMap = {}
+  for (const transaction of expenseTransactions) {
+    const category = transaction.expense?.category || transaction.display_name || "Miscellaneous"
+    const amount = Number(transaction.amount || transaction.expense?.amount || 0)
+    expenseMap[category] = (expenseMap[category] || 0) + amount
+  }
+
+  const grossProfit = revenue - cogs
+  const grossMargin = revenue > 0 ? (grossProfit / revenue) * 100 : 0
+  const totalOpex = Object.values(expenseMap).reduce((sum, value) => sum + value, 0)
+  const netProfit = grossProfit - totalOpex
+  const netMargin = revenue > 0 ? (netProfit / revenue) * 100 : 0
+
+  return {
+    revenue,
+    cogs,
+    grossProfit,
+    grossMargin,
+    expenseMap,
+    totalOpex,
+    netProfit,
+    netMargin,
+  }
 }
 
 function buildReportRows(reportData, fmtPctFn) {

@@ -25,32 +25,41 @@ export default function EmployeeDetails() {
     is_active: true
   })
 
-  const fetchEmployeeDetails = async (employeeId) => {
-    try {
-      const { data, fetchError } = await supabase
-        .from("users")
-        .select("*")
-        .eq("id", employeeId)
-        .single()
-
-      if (fetchError) throw fetchError
-
-      setEmployee(data)
-      setFormData({
-        full_name: data.full_name,
-        email: data.email,
-        role: data.role,
-        is_active: data.is_active
-      })
-    } catch (err) {
-      setError("Failed to load employee details")
-    } finally {
-      setLoading(false)
-    }
-  }
-
   useEffect(() => {
-    if (id) fetchEmployeeDetails(id)
+    if (!id) return
+
+    let active = true
+
+    const fetchEmployeeDetails = async () => {
+      try {
+        const { data, error } = await supabase
+          .from("users")
+          .select("*")
+          .eq("id", id)
+          .single()
+
+        if (error) throw error
+        if (!active) return
+
+        setEmployee(data)
+        setFormData({
+          full_name: data.full_name,
+          email: data.email,
+          role: data.role,
+          is_active: data.is_active
+        })
+      } catch {
+        if (active) setError("Failed to load employee details")
+      } finally {
+        if (active) setLoading(false)
+      }
+    }
+
+    void fetchEmployeeDetails()
+
+    return () => {
+      active = false
+    }
   }, [id])
 
   const handleSave = async () => {
@@ -68,7 +77,7 @@ export default function EmployeeDetails() {
 
       setEmployee({ ...employee, ...formData })
       setEditing(false)
-    } catch (err) {
+    } catch {
       setError("Failed to update employee")
     }
   }
@@ -87,7 +96,7 @@ export default function EmployeeDetails() {
       if (error) throw error
 
       navigate("/settings/employees")
-    } catch (err) {
+    } catch {
       setError("Failed to remove employee")
     }
   }

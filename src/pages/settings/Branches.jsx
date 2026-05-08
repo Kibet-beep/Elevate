@@ -1,20 +1,19 @@
-import { useState, useEffect, useMemo } from "react"
-import { supabase } from "../../lib/supabase"
+import { useState, useMemo } from "react"
+import { getDb } from "../../lib/db"
 import { useNavigate } from "react-router-dom"
-import { useUser, useCurrentBusiness } from "../../hooks/useRole"
+import { useCurrentBusiness } from "../../hooks/useRole"
 import { useInstantAuth } from "../../hooks/useInstantAuth"
 import { AppShell, UiButton, UiCard } from "../../components/ui"
 import { useBranchContext } from "../../context/BranchContext"
+import { useBranches } from "../../hooks/useBranches"
 
 export default function Branches() {
   const navigate = useNavigate()
-  const { user: authUser } = useUser()
   const { businessId } = useCurrentBusiness()
   const { business } = useInstantAuth()
   const { availableBranches, refreshBranches } = useBranchContext()
   const resolvedBusinessId = businessId || business?.id
-  
-  const [branches, setBranches] = useState([])
+  const { branches: liveBranches } = useBranches(resolvedBusinessId)
   const [search, setSearch] = useState("")
   const [adding, setAdding] = useState(false)
   const [editing, setEditing] = useState(null)
@@ -27,6 +26,11 @@ export default function Branches() {
   const [address, setAddress] = useState("")
   const [phone, setPhone] = useState("")
   const [email, setEmail] = useState("")
+
+  const branches = useMemo(
+    () => (liveBranches.length > 0 ? liveBranches : (availableBranches || [])),
+    [liveBranches, availableBranches],
+  )
 
   const activeBranches = useMemo(() => branches
     .filter((branch) => branch.is_active)
@@ -58,31 +62,6 @@ export default function Branches() {
     setAdding(false)
   }
 
-  useEffect(() => {
-    if (resolvedBusinessId) fetchBranches()
-  }, [resolvedBusinessId])
-
-  const fetchBranches = async () => {
-    if (!resolvedBusinessId) {
-      setBranches([])
-      return
-    }
-
-    const { data, error } = await supabase
-      .from("branches")
-      .select("*")
-      .eq("business_id", resolvedBusinessId)
-      .order("name")
-
-    if (error) {
-      setError(error.message)
-      setBranches([])
-      return
-    }
-
-    setBranches((data || []).filter((branch) => branch.status !== "archived"))
-  }
-
   const handleSave = async () => {
     setError("")
     
@@ -94,7 +73,7 @@ export default function Branches() {
     setLoading(true)
 
     try {
-      const branchData = {
+        const branchData = {
         business_id: resolvedBusinessId,
         name,
         code: code || null,
@@ -108,33 +87,26 @@ export default function Branches() {
         return
       }
 
-      if (editing) {
-        const { error } = await supabase
-          .from("branches")
-          .update(branchData)
-          .eq("id", editing.id)
+      const db = await getDb()
 
-        if (error) throw error
+      if (editing) {
+        const doc = await db.branches.findOne(editing.id).exec()
+        if (doc) {
+          await doc.incrementalPatch({ ...branchData, _modified: Date.now(), _deleted: false })
+        } else {
+          await db.branches.upsert({ id: editing.id, ...branchData, _modified: Date.now(), _deleted: false })
+        }
 
         closeForm()
-        await fetchBranches()
         if (refreshBranches) refreshBranches()
         return
       } else {
-        const { data, error } = await supabase
-          .from("branches")
-          .insert(branchData)
-          .select("id")
-          .single()
-
-        if (error) throw error
+        const id = crypto.randomUUID()
+        await db.branches.insert({ id, ...branchData, is_active: true, status: 'active', _modified: Date.now(), _deleted: false })
 
         closeForm()
-        await fetchBranches()
         if (refreshBranches) refreshBranches()
-        if (data?.id) {
-          navigate(`/settings/branches/${data.id}`)
-        }
+        navigate(`/settings/branches/${id}`)
         return
       }
 
@@ -157,14 +129,13 @@ export default function Branches() {
 
   const toggleActive = async (branch) => {
     try {
-      const { error } = await supabase
-        .from("branches")
-        .update({ is_active: !branch.is_active })
-        .eq("id", branch.id)
-
-      if (error) throw error
-      
-      await fetchBranches()
+      const db = await getDb()
+      const doc = await db.branches.findOne(branch.id).exec()
+      if (doc) {
+        await doc.incrementalPatch({ is_active: !branch.is_active, _modified: Date.now() })
+      } else {
+        await db.branches.upsert({ ...branch, is_active: !branch.is_active, _modified: Date.now() })
+      }
       if (refreshBranches) refreshBranches()
     } catch (error) {
       setError(error.message)
@@ -175,14 +146,13 @@ export default function Branches() {
     if (!confirm(`Are you sure you want to delete ${branch.name}? This action cannot be undone.`)) return
 
     try {
-      const { error } = await supabase
-        .from("branches")
-        .update({ status: "archived" })
-        .eq("id", branch.id)
-
-      if (error) throw error
-      
-      await fetchBranches()
+      const db = await getDb()
+      const doc = await db.branches.findOne(branch.id).exec()
+      if (doc) {
+        await doc.incrementalPatch({ status: 'archived', _modified: Date.now() })
+      } else {
+        await db.branches.upsert({ ...branch, status: 'archived', _modified: Date.now() })
+      }
       if (refreshBranches) refreshBranches()
     } catch (error) {
       setError(error.message)

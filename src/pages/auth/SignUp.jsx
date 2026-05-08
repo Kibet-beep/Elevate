@@ -1,6 +1,6 @@
 // src/pages/auth/SignUp.jsx
 import { useEffect, useState } from "react"
-import { Link, useNavigate } from "react-router-dom"
+import { useNavigate } from "react-router-dom"
 import { supabase } from "../../lib/supabase"
 import { getDb } from "../../lib/db"
 import { SessionShell, UiButton } from "../../components/ui"

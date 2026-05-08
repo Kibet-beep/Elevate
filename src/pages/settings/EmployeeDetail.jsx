@@ -1,14 +1,14 @@
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { supabase } from "../../lib/supabase"
 import { useNavigate, useParams } from "react-router-dom"
-import { useUser, useCurrentBusiness, useIsOwner } from "../../hooks/useRole"
+import { useCurrentBusiness, useIsOwner } from "../../hooks/useRole"
 import { useBranchContext } from "../../context/BranchContext"
+import { getDb, startBranchAssignmentsReplication } from "../../lib/db"
 import { AppShell, UiButton, UiCard } from "../../components/ui"
 
 export default function EmployeeDetail() {
   const navigate = useNavigate()
   const { id } = useParams()
-  const { user: authUser } = useUser()
   const { businessId } = useCurrentBusiness()
   const { availableBranches, effectiveBranchId, canViewAll } = useBranchContext()
   const isOwner = useIsOwner()
@@ -26,12 +26,15 @@ export default function EmployeeDetail() {
   const [selectedBranches, setSelectedBranches] = useState([])
   const [isActive, setIsActive] = useState(true)
 
-  useEffect(() => {
-    if (id && businessId) fetchEmployee()
-  }, [id, businessId])
-
-  const fetchEmployee = async () => {
+  const fetchEmployee = useCallback(async () => {
     try {
+      const db = await getDb()
+      try {
+        startBranchAssignmentsReplication(db.branch_assignments, businessId)
+      } catch (error) {
+        console.error("Failed to start branch assignments replication:", error)
+      }
+
       const { data: emp } = await supabase
         .from("users")
         .select("*")
@@ -46,14 +49,15 @@ export default function EmployeeDetail() {
         setRole(emp.role || "cashier")
         setIsActive(emp.is_active !== false)
         
-        // Fetch branch assignments
-        const { data: assignments } = await supabase
-          .from("user_branch_assignments")
-          .select("branch_id, branches(name, code)")
-          .eq("user_id", id)
-          .eq("is_active", true)
+        const assignmentDocs = await db.branch_assignments.find({
+          selector: {
+            user_id: id,
+            is_active: true,
+            _deleted: { $ne: true },
+          },
+        }).exec()
 
-        const assignedBranches = assignments?.map(a => a.branch_id) || []
+        const assignedBranches = assignmentDocs.map((doc) => doc.branch_id)
         if (!canViewAll && effectiveBranchId && !assignedBranches.includes(effectiveBranchId)) {
           setError("You do not have access to this employee.")
           setEmployee(null)
@@ -62,12 +66,22 @@ export default function EmployeeDetail() {
 
         setSelectedBranches(assignedBranches)
       }
-    } catch (error) {
+    } catch {
       setError("Failed to load employee")
     } finally {
       setLoading(false)
     }
-  }
+  }, [businessId, canViewAll, effectiveBranchId, id])
+
+  useEffect(() => {
+    if (!id || !businessId) return
+
+    const timer = window.setTimeout(() => {
+      void fetchEmployee()
+    }, 0)
+
+    return () => window.clearTimeout(timer)
+  }, [id, businessId, fetchEmployee])
 
   const handleSave = async () => {
     setError("")
@@ -90,31 +104,46 @@ export default function EmployeeDetail() {
 
       // Update branch assignments
       if (isOwner && availableBranches.length > 0) {
-        // Remove existing assignments
-        await supabase
-          .from("user_branch_assignments")
-          .delete()
-          .eq("user_id", id)
+        const db = await getDb()
+        const existingAssignments = await db.branch_assignments.find({
+          selector: {
+            user_id: id,
+            _deleted: { $ne: true },
+          },
+        }).exec()
 
-        // Add new assignments
-        if (selectedBranches.length > 0) {
-          const assignments = selectedBranches.map(branchId => ({
+        const existingByBranch = new Map(existingAssignments.map((doc) => [doc.branch_id, doc]))
+        const selectedSet = new Set(selectedBranches)
+
+        await Promise.all(selectedBranches.map(async (branchId) => {
+          const assignmentId = `${id}:${branchId}`
+          const existing = existingByBranch.get(branchId)
+          const payload = {
+            id: assignmentId,
             user_id: id,
             branch_id: branchId,
             role,
             is_active: true,
-          }))
+            _modified: Date.now(),
+            _deleted: false,
+          }
 
-          const { error: assignmentError } = await supabase
-            .from("user_branch_assignments")
-            .insert(assignments)
+          if (existing) {
+            await existing.incrementalPatch(payload)
+          } else {
+            await db.branch_assignments.upsert(payload)
+          }
+        }))
 
-          if (assignmentError) throw assignmentError
-        }
+        await Promise.all(
+          existingAssignments
+            .filter((doc) => !selectedSet.has(doc.branch_id))
+            .map((doc) => doc.incrementalPatch({ _deleted: true, _modified: Date.now() }))
+        )
       }
 
       setEditing(false)
-      fetchEmployee() // Refresh data
+      void fetchEmployee()
     } catch (error) {
       setError(error.message)
     } finally {

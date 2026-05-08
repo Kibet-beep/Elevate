@@ -135,12 +135,50 @@ class SupabaseReplication extends RxReplicationState {
         checkpoint: lastCheckpoint,
         documents: []
       };
-    } else {
-      return {
-        checkpoint: this.rowToCheckpoint(data[data.length - 1]),
-        documents: data.map(this.rowToRxDoc.bind(this))
-      };
     }
+
+    // Special handling for transactions: enrich with related sale_items and expenses
+    let enrichedData = data;
+    if (this.table === 'transactions') {
+      const txnIds = data.map(t => t.id);
+      const [saleItemsResult, expensesResult] = await Promise.all([
+        this.options.supabaseClient.from('sale_items').select('*').in('transaction_id', txnIds),
+        this.options.supabaseClient.from('expenses').select('*').in('transaction_id', txnIds)
+      ]);
+
+      const saleItemsMap = {};
+      const expensesMap = {};
+
+      if (saleItemsResult.data) {
+        saleItemsResult.data.forEach(item => {
+          if (!saleItemsMap[item.transaction_id]) saleItemsMap[item.transaction_id] = [];
+          saleItemsMap[item.transaction_id].push(item);
+        });
+      }
+
+      if (expensesResult.data) {
+        expensesResult.data.forEach(exp => {
+          if (!expensesMap[exp.transaction_id]) expensesMap[exp.transaction_id] = [];
+          expensesMap[exp.transaction_id].push(exp);
+        });
+      }
+
+      // Reconstruct transactions with related data
+      enrichedData = data.map(txn => ({
+        ...txn,
+        sale_items: saleItemsMap[txn.id] || [],
+        expenses: expensesMap[txn.id] || []
+      }));
+    }
+
+    const mappedData = this.options.pull?.mapDocument
+      ? enrichedData.map((row) => this.options.pull.mapDocument(row))
+      : enrichedData
+
+    return {
+      checkpoint: this.rowToCheckpoint(mappedData[mappedData.length - 1]),
+      documents: mappedData.map(this.rowToRxDoc.bind(this))
+    };
   }
   /**
    * Pushes local changes to supabase.
@@ -149,12 +187,27 @@ class SupabaseReplication extends RxReplicationState {
     if (rows.length != 1)
       throw new Error("Invalid batch size");
     const row = rows[0];
+    const nextDoc = row.newDocumentState
+    if (this.table === 'branch_assignments' && nextDoc._deleted) {
+      const { error } = await this.options.supabaseClient
+        .from('user_branch_assignments')
+        .delete()
+        .eq('user_id', nextDoc.user_id)
+        .eq('branch_id', nextDoc.branch_id)
+
+      if (error) throw error
+      return true
+    }
     return row.assumedMasterState ? this.handleUpdate(row) : this.handleInsertion(row.newDocumentState);
   }
   /**
    * Tries to insert a new row. Returns the current state of the row in case of a conflict.
    */
   async handleInsertion(doc) {
+    if (this.options.push?.customInsertHandler) {
+      return this.options.push.customInsertHandler(doc)
+    }
+
     if (this.table === 'transactions') {
       if (doc.type === 'stock_take_create' && doc.stock_take) {
         const { error: stockTakeError } = await this.options.supabaseClient.from('stock_takes').insert(doc.stock_take)
@@ -282,6 +335,10 @@ class SupabaseReplication extends RxReplicationState {
    * state is fetched and passed to the conflict handler.
    */
   async handleUpdate(row) {
+    if (this.options.push?.customUpdateHandler) {
+      return this.options.push.customUpdateHandler(row)
+    }
+
     const updateHandler = this.options.push?.updateHandler || this.defaultUpdateHandler.bind(this);
     if (await updateHandler(row))
       return [];

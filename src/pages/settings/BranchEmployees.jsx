@@ -1,8 +1,9 @@
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { supabase } from "../../lib/supabase"
 import { useLocation, useNavigate } from "react-router-dom"
 import { useUser, useCurrentBusiness, useIsOwner, useIsManager } from "../../hooks/useRole"
 import { useBranchContext } from "../../context/BranchContext"
+import { getDb, startBranchAssignmentsReplication } from "../../lib/db"
 import { AppShell, UiButton, UiCard } from "../../components/ui"
 import { BranchSelector } from "../../components/BranchSelector"
 
@@ -30,8 +31,10 @@ export default function BranchEmployees() {
   const branchIdFromNavigation = location.state?.branchId || null
   const branchNameFromNavigation = location.state?.branchName || null
   const currentBranchName = branchNameFromNavigation || activeBranch?.name || "All branches"
+  const resolvedTargetBranchId = viewMode === 'branch'
+    ? activeBranch?.id
+    : (targetBranchId || (canViewAll && availableBranches.length === 1 ? availableBranches[0].id : ""))
 
-  // Only allow access if user has branch access
   useEffect(() => {
     if (!readyToFetch) return
 
@@ -40,59 +43,71 @@ export default function BranchEmployees() {
       if (branch) {
         setActiveBranch(branch)
         setViewMode("branch")
-        setTargetBranchId(branch.id)
       }
-    }
-
-    if (!branchIdFromNavigation && canViewAll && !targetBranchId && availableBranches.length === 1) {
-      setTargetBranchId(availableBranches[0].id)
     }
 
     if (availableBranches.length === 0) {
       navigate("/settings")
     }
-  }, [availableBranches, branchIdFromNavigation, readyToFetch, canViewAll, navigate, setActiveBranch, setTargetBranchId, setViewMode, targetBranchId])
+  }, [availableBranches, branchIdFromNavigation, readyToFetch, navigate, setActiveBranch, setViewMode])
 
-  useEffect(() => { 
-    if (businessId && readyToFetch) {
-      fetchEmployees() 
-    } 
-  }, [businessId, activeBranch, viewMode, effectiveBranchId, readyToFetch])
-
-  const fetchEmployees = async () => {
+  const fetchEmployees = useCallback(async () => {
     if (!canViewAll && !effectiveBranchId) {
       setEmployees([])
       return
     }
 
-    let query = supabase
-      .from("users")
-      .select("*")
-      .eq("business_id", businessId)
-      .order("created_at")
+    const db = await getDb()
+
+    let replication
+    try {
+      replication = startBranchAssignmentsReplication(db.branch_assignments, businessId)
+    } catch (error) {
+      console.error("Failed to start branch assignments replication:", error)
+    }
 
     const scopeBranchId = viewMode === 'branch' ? activeBranch?.id : effectiveBranchId
+    const selector = {
+      _deleted: { $ne: true },
+      is_active: true,
+      ...(scopeBranchId ? { branch_id: scopeBranchId } : {}),
+    }
 
-    // If scoped to a branch, filter by assignments
-    if (scopeBranchId) {
-      const { data: assignments } = await supabase
-        .from("user_branch_assignments")
-        .select("user_id")
-        .eq("branch_id", scopeBranchId)
-        .eq("is_active", true)
+    try {
+      const assignmentDocs = await db.branch_assignments.find({ selector }).exec()
+      const userIds = [...new Set(assignmentDocs.map((doc) => doc.user_id))]
 
-      const userIds = assignments?.map(a => a.user_id) || []
-      if (userIds.length > 0) {
-        query = query.in("id", userIds)
-      } else {
+      if (userIds.length === 0) {
         setEmployees([])
         return
       }
-    }
 
-    const { data } = await query
-    setEmployees(data || [])
-  }
+      let query = supabase
+        .from("users")
+        .select("*")
+        .eq("business_id", businessId)
+        .in("id", userIds)
+        .order("created_at")
+
+      const { data } = await query
+      setEmployees(data || [])
+    } catch (error) {
+      console.error("Failed to load branch employees:", error)
+      setEmployees([])
+    } finally {
+      replication?.cancel?.()
+    }
+  }, [activeBranch?.id, businessId, canViewAll, effectiveBranchId, viewMode])
+
+  useEffect(() => {
+    if (!businessId || !readyToFetch) return
+
+    const timer = window.setTimeout(() => {
+      void fetchEmployees()
+    }, 0)
+
+    return () => window.clearTimeout(timer)
+  }, [businessId, readyToFetch, fetchEmployees])
 
   const handleAddEmployee = async () => {
     setError("")
@@ -119,7 +134,7 @@ export default function BranchEmployees() {
       return
     }
 
-    const branchId = viewMode === 'branch' ? activeBranch?.id : (targetBranchId || null)
+    const branchId = resolvedTargetBranchId || null
 
     if (!branchId) {
       setError("Please select a branch first.")
@@ -161,7 +176,7 @@ export default function BranchEmployees() {
     let result
     try {
       result = await response.json()
-    } catch (e) {
+    } catch {
       setError(`Server error: ${response.status} ${response.statusText}`)
       setLoading(false)
       return
@@ -189,7 +204,7 @@ export default function BranchEmployees() {
       setPassword("")
       setRole("cashier")
       setAdding(false)
-      fetchEmployees()
+      void fetchEmployees()
       setTimeout(() => setSuccess(false), 3000)
     }
 
@@ -198,7 +213,7 @@ export default function BranchEmployees() {
 
   const toggleActive = async (emp) => {
     await supabase.from("users").update({ is_active: !emp.is_active }).eq("id", emp.id)
-    fetchEmployees()
+    void fetchEmployees()
   }
 
   const goBack = () => {
@@ -269,7 +284,7 @@ export default function BranchEmployees() {
             ].map((f, i) => (
               <div key={i}>
                 <label className="text-zinc-400 text-xs mb-1 block">{f.label} {f.label === "Email" && <span className="text-red-400">*</span>}</label>
-                <input type={f.type || "text"} value={f.value} onChange={e => f.setter(e.target.value)}
+                <input type={f.type || "text"} value={f.value} onChange={(event) => f.setter(event.target.value)}
                   placeholder={f.placeholder}
                   className="w-full bg-zinc-800 border border-zinc-700 text-white rounded-xl px-4 py-3 text-sm outline-none focus:border-emerald-500 transition-colors placeholder:text-zinc-600" />
                 {f.label === "Email" && email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) && 
@@ -323,7 +338,7 @@ export default function BranchEmployees() {
               variant="primary" 
               className="w-full" 
               onClick={handleAddEmployee} 
-              disabled={loading || !fullName || !email || !password || password.length < 6 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || !(viewMode === 'branch' ? activeBranch?.id : targetBranchId)}
+              disabled={loading || !fullName || !email || !password || password.length < 6 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || !resolvedTargetBranchId}
             >
               {loading ? "Adding..." : "Add employee"}
             </UiButton>

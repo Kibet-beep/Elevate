@@ -40,13 +40,9 @@ export default function OpeningStock() {
   const [isNewProduct, setIsNewProduct] = useState(true)
   const previousBranchIdRef = useRef(null)
   const defaultUnit = "pcs"
-  const reservedSkus = new Set()
-
-  const getAllBranchesLabel = () => {
-    if (isOwner) return "All Branches"
-    if (isManager) return "All My Branches"
-    return "All Branches"
-  }
+  const activeBranchInfo = useMemo(() => {
+    return availableBranches.find((branch) => branch.id === resolvedBranchId) || null
+  }, [availableBranches, resolvedBranchId])
 
   const categoryOptions = useMemo(() => {
     return Array.from(
@@ -56,12 +52,6 @@ export default function OpeningStock() {
       ])
     ).sort((a, b) => String(a).localeCompare(String(b)))
   }, [existingProducts, addedStock])
-
-  useEffect(() => {
-    if (businessId && authUser && readyToFetch) {
-      fetchInitialData()
-    }
-  }, [businessId, authUser, resolvedBranchId, readyToFetch, canViewAll])
 
   useEffect(() => {
     const previousBranchId = previousBranchIdRef.current
@@ -109,6 +99,12 @@ export default function OpeningStock() {
     const { data: productsData } = await query
     setExistingProducts(productsData || [])
   }
+
+  useEffect(() => {
+    if (businessId && authUser && readyToFetch) {
+      void fetchInitialData()
+    }
+  }, [businessId, authUser, resolvedBranchId, readyToFetch, canViewAll])
 
   const generateSKU = (productName) => {
     const words = productName.trim().toUpperCase().split(" ")
@@ -237,7 +233,12 @@ export default function OpeningStock() {
       if (newProductPayload.length > 0) {
         const { data, error: insertError } = await supabase
           .from("products")
-          .insert(newProductPayload.map(({ index, sku, ...row }) => row))
+          .insert(newProductPayload.map((row) => {
+            const insertRow = { ...row }
+            delete insertRow.index
+            delete insertRow.sku
+            return insertRow
+          }))
           .select("id, name, sku_id")
 
         if (insertError) throw insertError
@@ -304,7 +305,7 @@ export default function OpeningStock() {
 
       const snapshot = {
         branchId,
-        branchName: activeBranch?.name || null,
+        branchName: activeBranchInfo?.name || null,
         stockTakeDate: openingDate,
         products: persistedItems.map((item) => ({
           productId: item.productId,

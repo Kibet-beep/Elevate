@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { getDb, startTransactionsReplication } from '../lib/db'
 import { useInstantAuth } from './useInstantAuth'
 
-export function useTransactions(branchId = null) {
+export function useTransactions(branchId = null, isOwnerOrManager = false) {
   const { business } = useInstantAuth()
   const [transactions, setTransactions] = useState([])
   const [loading, setLoading] = useState(true)
@@ -17,37 +17,49 @@ export function useTransactions(branchId = null) {
     getDb().then((db) => {
       if (!active) return
 
-      replication = startTransactionsReplication(db.transactions, business.id)
+      try {
+        replication = startTransactionsReplication(db.transactions, business.id)
+      } catch (error) {
+        console.error('Failed to start transactions replication:', error)
+        setLoading(false)
+      }
 
       const selector = {
         business_id: business.id,
         _deleted: { $ne: true },
-        ...(branchId ? { branch_id: branchId } : {}),
+        ...(branchId && !isOwnerOrManager ? { branch_id: branchId } : {}),
       }
 
       subscription = db.transactions
         .find({ selector, sort: [{ date: 'desc' }, { id: 'desc' }] })
         .$
-        .subscribe((docs) => {
-          if (!active) return
-          setTransactions(docs.map((doc) => {
-            const transaction = doc.toJSON()
-            if (!['sale', 'expense'].includes(transaction.type)) return null
-            const saleItems = Array.isArray(transaction.sale_items) ? transaction.sale_items : []
-            const expenses = Array.isArray(transaction.expenses) ? transaction.expenses : []
-            const amount = transaction.amount ?? (
-              transaction.type === 'sale'
-                ? saleItems.reduce((sum, item) => sum + Number(item.total_amount || 0), 0)
-                : expenses.reduce((sum, expense) => sum + Number(expense.amount || 0), 0)
-            ) ?? 0
+        .subscribe({
+          next: (docs) => {
+            if (!active) return
+            setTransactions(docs.map((doc) => {
+              const transaction = doc.toJSON()
+              // Only include actual sales and expenses, not operation docs
+              if (!['sale', 'expense'].includes(transaction.type)) return null
+              
+              const saleItems = Array.isArray(transaction.sale_items) ? transaction.sale_items : []
+              const amount = transaction.amount ?? (
+                transaction.type === 'sale'
+                  ? saleItems.reduce((sum, item) => sum + Number(item.total_amount || 0), 0)
+                  : 0
+              ) ?? 0
 
-            return {
-              ...transaction,
-              amount,
-              display_name: transaction.display_name || (transaction.type === 'sale' ? 'Sale' : 'Expense'),
-            }
-          }).filter(Boolean))
-          setLoading(false)
+              return {
+                ...transaction,
+                amount,
+                display_name: transaction.display_name || (transaction.type === 'sale' ? 'Sale' : 'Expense'),
+              }
+            }).filter(Boolean))
+            setLoading(false)
+          },
+          error: (error) => {
+            console.error('useTransactions subscription error:', error)
+            setLoading(false)
+          }
         })
     })
 
@@ -56,7 +68,7 @@ export function useTransactions(branchId = null) {
       subscription?.unsubscribe()
       replication?.cancel()
     }
-  }, [business?.id, branchId])
+  }, [business?.id, branchId, isOwnerOrManager])
 
   return { transactions, loading }
 }
