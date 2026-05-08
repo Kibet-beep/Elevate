@@ -1,10 +1,20 @@
 import { createRxDatabase } from 'rxdb'
+import { addRxPlugin } from 'rxdb'
+import { RxDBMigrationPlugin } from 'rxdb/plugins/migration'
 import { getRxStorageDexie } from 'rxdb/plugins/storage-dexie'
 import { SupabaseReplication } from './supabase-replication.js'
+import { attachAutoResync, stripSyncMetadata } from './sync.js'
 import { supabase } from './supabase'
 
+addRxPlugin(RxDBMigrationPlugin)
+
+const noopMigrationStrategies = {
+  1: (doc) => doc,
+  2: (doc) => doc,
+}
+
 const productSchema = {
-  version: 0,
+  version: 2,
   primaryKey: 'id',
   type: 'object',
   properties: {
@@ -21,6 +31,9 @@ const productSchema = {
     branch_id: { type: 'string' },
     business_id: { type: 'string' },
     is_active: { type: 'boolean' },
+    syncStatus: { type: ['string', 'null'] },
+    syncError: { type: ['string', 'null'] },
+    syncedAt: { type: ['number', 'null'] },
     _modified: { type: 'number' },
     _deleted: { type: 'boolean' },
   },
@@ -28,7 +41,7 @@ const productSchema = {
 }
 
 const stockEntrySchema = {
-  version: 0,
+  version: 2,
   primaryKey: 'id',
   type: 'object',
   properties: {
@@ -57,6 +70,9 @@ const stockEntrySchema = {
     },
     total_cost: { type: 'number' },
     created_by: { type: 'string' },
+    syncStatus: { type: ['string', 'null'] },
+    syncError: { type: ['string', 'null'] },
+    syncedAt: { type: ['number', 'null'] },
     _modified: { type: 'number' },
     _deleted: { type: 'boolean' },
   },
@@ -64,7 +80,7 @@ const stockEntrySchema = {
 }
 
 const transactionSchema = {
-  version: 0,
+  version: 2,
   primaryKey: 'id',
   type: 'object',
   properties: {
@@ -180,6 +196,9 @@ const transactionSchema = {
         endDate: { type: 'string' },
       },
     },
+    syncStatus: { type: ['string', 'null'] },
+    syncError: { type: ['string', 'null'] },
+    syncedAt: { type: ['number', 'null'] },
     _modified: { type: 'number' },
     _deleted: { type: 'boolean' },
   },
@@ -187,7 +206,7 @@ const transactionSchema = {
 }
 
 const branchSchema = {
-  version: 0,
+  version: 2,
   primaryKey: 'id',
   type: 'object',
   properties: {
@@ -200,6 +219,9 @@ const branchSchema = {
     email: { type: ['string', 'null'] },
     is_active: { type: 'boolean' },
     status: { type: 'string' },
+    syncStatus: { type: ['string', 'null'] },
+    syncError: { type: ['string', 'null'] },
+    syncedAt: { type: ['number', 'null'] },
     _modified: { type: 'number' },
     _deleted: { type: 'boolean' },
   },
@@ -207,7 +229,7 @@ const branchSchema = {
 }
 
 const branchAssignmentSchema = {
-  version: 0,
+  version: 2,
   primaryKey: 'id',
   type: 'object',
   properties: {
@@ -216,6 +238,9 @@ const branchAssignmentSchema = {
     branch_id: { type: 'string' },
     role: { type: 'string' },
     is_active: { type: 'boolean' },
+    syncStatus: { type: ['string', 'null'] },
+    syncError: { type: ['string', 'null'] },
+    syncedAt: { type: ['number', 'null'] },
     _modified: { type: 'number' },
     _deleted: { type: 'boolean' },
   },
@@ -226,8 +251,37 @@ let dbInstance = null
 let dbPromise = null
 
 export async function getDb() {
-  if (dbInstance) return dbInstance
-  
+  if (dbInstance) {
+    // Ensure any newly added collections are present on existing db instances
+    const missing = {}
+    if (!dbInstance.products) missing.products = { schema: productSchema }
+    if (!dbInstance.transactions) missing.transactions = { schema: transactionSchema }
+    if (!dbInstance.stock_entries) missing.stock_entries = { schema: stockEntrySchema }
+    if (!dbInstance.branches) missing.branches = { schema: branchSchema }
+    if (!dbInstance.branch_assignments) missing.branch_assignments = { schema: branchAssignmentSchema }
+
+    if (Object.keys(missing).length > 0) {
+      try {
+        // addCollections is safe to call for missing collections
+        // (it will throw if a collection already exists)
+        // We ignore errors to avoid breaking existing usage.
+        const collections = Object.fromEntries(
+          Object.entries(missing).map(([name, value]) => [
+            name,
+            {
+              ...value,
+              migrationStrategies: noopMigrationStrategies,
+            },
+          ])
+        )
+        await dbInstance.addCollections(collections)
+      } catch (err) {
+        console.warn('Failed to add missing collections to existing DB instance', err)
+      }
+    }
+
+    return dbInstance
+  }
   // If already initializing, wait for the same promise
   if (dbPromise) return dbPromise
 
@@ -239,11 +293,11 @@ export async function getDb() {
     })
 
     await db.addCollections({
-      products:      { schema: productSchema },
-      transactions:  { schema: transactionSchema },
-      stock_entries: { schema: stockEntrySchema },
-      branches:      { schema: branchSchema },
-      branch_assignments: { schema: branchAssignmentSchema },
+      products:      { schema: productSchema, migrationStrategies: noopMigrationStrategies },
+      transactions:  { schema: transactionSchema, migrationStrategies: noopMigrationStrategies },
+      stock_entries: { schema: stockEntrySchema, migrationStrategies: noopMigrationStrategies },
+      branches:      { schema: branchSchema, migrationStrategies: noopMigrationStrategies },
+      branch_assignments: { schema: branchAssignmentSchema, migrationStrategies: noopMigrationStrategies },
     })
 
     dbInstance = db
@@ -279,15 +333,13 @@ export function startProductsReplication(collection, businessId) {
       queryBuilder: (rows) => {
         return supabase
           .from('products')
-          .upsert(rows.map(r => r.newDocumentState))
+          .upsert(rows.map(r => stripSyncMetadata(r.newDocumentState)))
       }
     },
     live: true,
   })
 
-  if (typeof window !== 'undefined') {
-    window.addEventListener('online', () => replication.reSync())
-  }
+  attachAutoResync(replication)
   return replication
 }
 
@@ -317,14 +369,12 @@ export function startTransactionsReplication(collection, businessId) {
       queryBuilder: (rows) => {
         return supabase
           .from('transactions')
-          .upsert(rows.map(r => r.newDocumentState))
+          .upsert(rows.map(r => stripSyncMetadata(r.newDocumentState)))
       }
     },
   })
 
-  if (typeof window !== 'undefined') {
-    window.addEventListener('online', () => replication.reSync())
-  }
+  attachAutoResync(replication)
   return replication
 }
 
@@ -338,15 +388,13 @@ export function startStockEntriesReplication(collection, businessId) {
       queryBuilder: (rows) => {
         return supabase
           .from('stock_entries')
-          .upsert(rows.map(r => r.newDocumentState))
+          .upsert(rows.map(r => stripSyncMetadata(r.newDocumentState)))
       }
     },
     live: true,
   })
 
-  if (typeof window !== 'undefined') {
-    window.addEventListener('online', () => replication.reSync())
-  }
+  attachAutoResync(replication)
   return replication
 }
 
@@ -376,15 +424,13 @@ export function startBranchesReplication(collection, businessId) {
       queryBuilder: (rows) => {
         return supabase
           .from('branches')
-          .upsert(rows.map(r => r.newDocumentState))
+          .upsert(rows.map(r => stripSyncMetadata(r.newDocumentState)))
       }
     },
     live: true,
   })
 
-  if (typeof window !== 'undefined') {
-    window.addEventListener('online', () => replication.reSync())
-  }
+  attachAutoResync(replication)
   return replication
 }
 
@@ -415,6 +461,9 @@ export function startBranchAssignmentsReplication(collection, businessId) {
         branch_id: row.branch_id,
         role: row.role,
         is_active: row.is_active,
+        syncStatus: 'synced',
+        syncError: null,
+        syncedAt: row._modified ?? Date.now(),
         _modified: row._modified ?? Date.now(),
         _deleted: false,
       }),
@@ -423,12 +472,12 @@ export function startBranchAssignmentsReplication(collection, businessId) {
       customInsertHandler: async (doc) => {
         const { error } = await supabase
           .from('user_branch_assignments')
-          .upsert({
+          .upsert(stripSyncMetadata({
             user_id: doc.user_id,
             branch_id: doc.branch_id,
             role: doc.role,
             is_active: doc.is_active,
-          })
+          }))
 
         if (error) throw error
         return []
@@ -437,12 +486,12 @@ export function startBranchAssignmentsReplication(collection, businessId) {
         const nextDoc = row.newDocumentState
         const { error } = await supabase
           .from('user_branch_assignments')
-          .upsert({
+          .upsert(stripSyncMetadata({
             user_id: nextDoc.user_id,
             branch_id: nextDoc.branch_id,
             role: nextDoc.role,
             is_active: nextDoc.is_active,
-          })
+          }))
 
         if (error) throw error
         return true
@@ -450,6 +499,8 @@ export function startBranchAssignmentsReplication(collection, businessId) {
     },
     live: true,
   })
+
+  attachAutoResync(replication)
 
   if (typeof window !== 'undefined') {
     window.addEventListener('online', () => replication.reSync())

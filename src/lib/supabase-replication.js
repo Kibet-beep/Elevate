@@ -198,6 +198,15 @@ class SupabaseReplication extends RxReplicationState {
       if (error) throw error
       return true
     }
+
+    if (this.options.push?.queryBuilder) {
+      const result = await this.options.push.queryBuilder(rows)
+      if (result?.error) {
+        throw result.error
+      }
+      return []
+    }
+
     return row.assumedMasterState ? this.handleUpdate(row) : this.handleInsertion(row.newDocumentState);
   }
   /**

@@ -28,18 +28,21 @@ export default function Branches() {
   const [email, setEmail] = useState("")
 
   const branches = useMemo(
-    () => (liveBranches.length > 0 ? liveBranches : (availableBranches || [])),
+    () => {
+      const branchList = liveBranches.length > 0 ? liveBranches : (availableBranches || [])
+      return Array.isArray(branchList) ? branchList.filter(Boolean) : []
+    },
     [liveBranches, availableBranches],
   )
 
   const activeBranches = useMemo(() => branches
     .filter((branch) => branch.is_active)
-    .filter((branch) => branch.name.toLowerCase().includes(search.toLowerCase()) || 
+    .filter((branch) => (branch.name || '').toLowerCase().includes(search.toLowerCase()) || 
                         (branch.code && branch.code.toLowerCase().includes(search.toLowerCase())))
   , [branches, search])
   const inactiveBranches = useMemo(() => branches
     .filter((branch) => !branch.is_active)
-    .filter((branch) => branch.name.toLowerCase().includes(search.toLowerCase()) ||
+    .filter((branch) => (branch.name || '').toLowerCase().includes(search.toLowerCase()) ||
                         (branch.code && branch.code.toLowerCase().includes(search.toLowerCase())))
   , [branches, search])
 

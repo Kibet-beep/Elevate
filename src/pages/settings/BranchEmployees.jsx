@@ -1,11 +1,11 @@
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useRef } from "react"
 import { useLocation, useNavigate } from "react-router-dom"
 import { useUser, useCurrentBusiness, useIsOwner, useIsManager } from "../../hooks/useRole"
 import { useBranchContext } from "../../context/BranchContext"
+import { supabase } from "../../lib/supabase"
 import { getDb, startBranchAssignmentsReplication } from "../../lib/db"
 import { AppShell, UiButton, UiCard } from "../../components/ui"
 import { BranchSelector } from "../../components/BranchSelector"
-import { useBranches } from "../../hooks/useBranches"
 
 export default function BranchEmployees() {
   const navigate = useNavigate()
@@ -15,7 +15,7 @@ export default function BranchEmployees() {
   const { activeBranch, viewMode, canViewAll, availableBranches, readyToFetch, setActiveBranch, setViewMode, effectiveBranchId } = useBranchContext()
   const isOwner = useIsOwner()
   const isManager = useIsManager()
-  
+
   const [employees, setEmployees] = useState([])
   const [adding, setAdding] = useState(false)
   const [fullName, setFullName] = useState("")
@@ -23,10 +23,12 @@ export default function BranchEmployees() {
   const [password, setPassword] = useState("")
   const [role, setRole] = useState("cashier")
   const [targetBranchId, setTargetBranchId] = useState("")
-  const [loading, setLoading] = useState(false)
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
   const [error, setError] = useState("")
   const [success, setSuccess] = useState(false)
   const [successMessage, setSuccessMessage] = useState("")
+  const branchAssignmentsReplicationStartedRef = useRef(false)
 
   const branchIdFromNavigation = location.state?.branchId || null
   const branchNameFromNavigation = location.state?.branchName || null
@@ -51,52 +53,92 @@ export default function BranchEmployees() {
     }
   }, [availableBranches, branchIdFromNavigation, readyToFetch, navigate, setActiveBranch, setViewMode])
 
-  const fetchEmployees = useCallback(async () => {
-    if (!canViewAll && !effectiveBranchId) {
-      setEmployees([])
-      return
-    }
-
-    const db = await getDb()
-
-    let replication
-    try {
-      replication = startBranchAssignmentsReplication(db.branch_assignments, businessId)
-    } catch (error) {
-      console.error("Failed to start branch assignments replication:", error)
-    }
-
-    const scopeBranchId = viewMode === 'branch' ? activeBranch?.id : effectiveBranchId
-    const selector = {
-    }
-
-    try {
-      const db = await getDb()
-      const selector = {
-        business_id: businessId,
-        _deleted: { $ne: true },
-        ...(userIds.length > 0 ? { id: { $in: userIds } } : {})
-      }
-      
-      const existingDocs = await db.users.find({ selector }).exec()
-      setEmployees(existingDocs.map((doc) => doc.toJSON()))
-    } catch (error) {
-      console.error('Failed to fetch employees:', error)
-      setEmployees([])
-    } finally {
-      setLoading(false)
-    }
-  }, [activeBranch?.id, businessId, canViewAll, effectiveBranchId, viewMode])
-
   useEffect(() => {
     if (!businessId || !readyToFetch) return
 
+    let active = true
+
+    const loadEmployees = async () => {
+      setLoading(true)
+
+      try {
+        const db = await getDb()
+        if (!branchAssignmentsReplicationStartedRef.current) {
+          try {
+            startBranchAssignmentsReplication(db.branch_assignments, businessId)
+            branchAssignmentsReplicationStartedRef.current = true
+          } catch (replicationError) {
+            console.error("Failed to start branch assignments replication:", replicationError)
+          }
+        }
+
+        const branchIds = viewMode === 'branch'
+          ? [activeBranch?.id || effectiveBranchId].filter(Boolean)
+          : canViewAll
+            ? availableBranches.map((branch) => branch.id)
+            : [effectiveBranchId].filter(Boolean)
+
+        if (branchIds.length === 0) {
+          if (active) setEmployees([])
+          return
+        }
+
+        const assignmentDocs = await db.branch_assignments.find({
+          selector: {
+            branch_id: { $in: branchIds },
+            _deleted: { $ne: true },
+          },
+        }).exec()
+
+        const userIds = [...new Set(assignmentDocs.map((doc) => doc.user_id).filter(Boolean))]
+        if (userIds.length === 0) {
+          if (active) setEmployees([])
+          return
+        }
+
+        const { data, error: usersError } = await supabase
+          .from('users')
+          .select('id, full_name, email, role, business_id, default_branch_id, is_active')
+          .eq('business_id', businessId)
+          .in('id', userIds)
+          .order('full_name', { ascending: true })
+
+        if (usersError) throw usersError
+
+        const assignmentByUser = new Map()
+        assignmentDocs.forEach((doc) => {
+          if (!assignmentByUser.has(doc.user_id)) {
+            assignmentByUser.set(doc.user_id, [])
+          }
+          assignmentByUser.get(doc.user_id).push(doc.branch_id)
+        })
+
+        if (active) {
+          setEmployees((data || []).map((user) => ({
+            ...user,
+            branch_ids: assignmentByUser.get(user.id) || [],
+          })))
+        }
+      } catch (fetchError) {
+        console.error('Failed to fetch employees:', fetchError)
+        if (active) {
+          setError(fetchError.message || 'Failed to load employees')
+          setEmployees([])
+        }
+      } finally {
+        if (active) setLoading(false)
+      }
+    }
+
     const timer = window.setTimeout(() => {
-      void fetchEmployees()
+      void loadEmployees()
     }, 0)
 
-    return () => window.clearTimeout(timer)
-  }, [businessId, readyToFetch, fetchEmployees])
+    return () => {
+      active = false
+      window.clearTimeout(timer)
+    }
+  }, [activeBranch?.id, availableBranches, businessId, canViewAll, effectiveBranchId, readyToFetch, viewMode])
 
   const handleAddEmployee = async () => {
     setError("")
@@ -106,7 +148,6 @@ export default function BranchEmployees() {
       return
     }
 
-    // Email validation
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
     if (!emailRegex.test(email)) {
       setError("Invalid email format")
@@ -123,51 +164,177 @@ export default function BranchEmployees() {
       return
     }
 
-    setLoading(true)
-
-    try {
-      // Use RxDB for user creation
-      const db = await getDb()
-      const userPayload = {
-        email,
-        full_name: fullName,
-        role,
-        business_id: businessId,
-        is_active: true,
-        _modified: Date.now(),
-      }
-
-      // Create user in RxDB
-      await db.users.upsert(userPayload)
-
-      setLoading(false)
+    if (!resolvedTargetBranchId) {
+      setError("Select a branch before adding the employee")
       return
-    } catch (error) {
-      setError(error.message || "Failed to add employee")
-    } finally {
-      setLoading(false)
     }
 
-    if (error) {
-      setError(error)
-    } else {
-      setSuccessMessage(`${fullName} has been added to the team`)
+    const validBranchIds = new Set((availableBranches || []).map((branch) => branch.id))
+    const localCandidateBranchId = validBranchIds.has(resolvedTargetBranchId)
+      ? resolvedTargetBranchId
+      : (validBranchIds.has(effectiveBranchId) ? effectiveBranchId : null)
+
+    if (!localCandidateBranchId) {
+      setError("Selected branch is not in your current business scope. Refresh branches and try again.")
+      return
+    }
+
+    setSaving(true)
+
+    try {
+      // Check online status before calling edge function
+      const isOnline = typeof navigator !== 'undefined' ? navigator.onLine : true
+      if (!isOnline) {
+        setError('You are offline. Adding employees requires internet connection because account creation happens on Supabase.')
+        setSaving(false)
+        return
+      }
+
+      // Server preflight: ensure the branch exists on Supabase for this business.
+      const { data: serverBranches, error: serverBranchesError } = await supabase
+        .from('branches')
+        .select('id, name, is_active')
+        .eq('business_id', businessId)
+        .eq('is_active', true)
+
+      if (serverBranchesError) {
+        throw new Error(serverBranchesError.message || 'Failed to verify branches on server')
+      }
+
+      const activeServerBranches = serverBranches || []
+      if (activeServerBranches.length === 0) {
+        throw new Error('No active branches found on server for this business')
+      }
+
+      const selectedServerBranch = activeServerBranches.find((branch) => branch.id === localCandidateBranchId)
+      const serverBranchToUse = selectedServerBranch || activeServerBranches[0]
+
+      if (!selectedServerBranch) {
+        console.warn('Local branch not found on server, falling back to first active server branch', {
+          localCandidateBranchId,
+          fallbackBranchId: serverBranchToUse.id,
+        })
+      }
+
+      const { data, error: invokeError } = await supabase.functions.invoke('create-employee', {
+        body: {
+          email: email.trim().toLowerCase(),
+          password,
+          fullName: fullName.trim(),
+          role,
+          businessId,
+          branchId: serverBranchToUse.id,
+        },
+      })
+
+      console.log('Edge function response:', { data, invokeError })
+
+      if (invokeError) {
+        console.error('Edge function invoke error (full object):', invokeError)
+        console.error('invokeError.message:', invokeError.message)
+        console.error('invokeError.status:', invokeError.status)
+        console.error('invokeError.context:', invokeError.context)
+        
+        // Extract error details from FunctionsHttpError
+        let errorMessage = invokeError.message || 'Edge function failed'
+        
+        // invokeError.context is a Response object - try to read its body
+        if (invokeError.context && typeof invokeError.context.json === 'function') {
+          try {
+            const responseBody = await invokeError.context.json()
+            console.error('Edge function response body:', responseBody)
+            if (responseBody.error) {
+              errorMessage = responseBody.error
+            }
+          } catch (parseErr) {
+            console.error('Could not parse error response:', parseErr)
+          }
+        }
+        
+        // Try to parse data if available
+        if (data) {
+          console.error('Edge function data:', data)
+          if (data.error) {
+            errorMessage = data.error
+          }
+        }
+        
+        // Check if it's a network error
+        if (errorMessage.includes('Failed to fetch') || errorMessage.includes('fetch')) {
+          throw new Error('Network error: Could not reach the server. Please check your internet connection.')
+        }
+        if (errorMessage.includes('Branch not found or does not belong to this business')) {
+          throw new Error('The selected branch is not linked to your current business on the server. Open branch selector, reselect a branch, then try again.')
+        }
+        throw new Error(errorMessage)
+      }
+
+      if (data?.error) {
+        console.error('Edge function returned error:', data.error)
+        throw new Error(data.error)
+      }
+
+      setSuccessMessage(data?.message || `${fullName} has been added to the team`)
       setSuccess(true)
+      if (data?.user) {
+        setEmployees((prev) => [{
+          id: data.user.id,
+          full_name: data.user.fullName,
+          email: data.user.email,
+          role: data.user.role,
+          business_id: businessId,
+          default_branch_id: data.user.branchId,
+          is_active: true,
+          branch_ids: [data.user.branchId],
+        }, ...prev])
+      }
       setFullName("")
       setEmail("")
       setPassword("")
       setRole("cashier")
       setAdding(false)
-      void fetchEmployees()
-      setTimeout(() => setSuccess(false), 3000)
+      setTargetBranchId("")
+      window.setTimeout(() => setSuccess(false), 3000)
+    } catch (addError) {
+      console.error('Add employee error:', addError)
+      setError(addError.message || 'Failed to add employee')
+    } finally {
+      setSaving(false)
     }
-
-    setLoading(false)
   }
 
   const toggleActive = async (emp) => {
-    await supabase.from("users").update({ is_active: !emp.is_active }).eq("id", emp.id)
-    void fetchEmployees()
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      setError('Changing employee status requires internet')
+      return
+    }
+
+    try {
+      setSaving(true)
+      const nextActive = !emp.is_active
+      const { error: updateError } = await supabase
+        .from('users')
+        .update({ is_active: nextActive })
+        .eq('id', emp.id)
+        .eq('business_id', businessId)
+
+      if (updateError) throw updateError
+
+      const { error: assignmentError } = await supabase
+        .from('user_branch_assignments')
+        .update({ is_active: nextActive })
+        .eq('user_id', emp.id)
+
+      if (assignmentError) throw assignmentError
+
+      setEmployees((prev) => prev.map((item) =>
+        item.id === emp.id ? { ...item, is_active: nextActive } : item
+      ))
+    } catch (toggleError) {
+      setError(toggleError.message || 'Failed to update employee')
+    } finally {
+      setSaving(false)
+    }
   }
 
   const goBack = () => {
@@ -210,7 +377,6 @@ export default function BranchEmployees() {
         {error && <p className="text-red-400 text-sm bg-red-400/10 px-3 py-2 rounded-lg">{error}</p>}
         {success && <p className="text-emerald-400 text-sm bg-emerald-400/10 px-3 py-2 rounded-lg">{successMessage}</p>}
 
-        {/* Scope Badge */}
         <UiCard className="p-3 bg-zinc-800/50 border-zinc-700/50">
           <p className="text-zinc-500 text-xs uppercase tracking-wider">Current scope</p>
           <p className="text-white text-sm font-semibold mt-1">{currentBranchName}</p>
@@ -238,9 +404,13 @@ export default function BranchEmployees() {
             ].map((f, i) => (
               <div key={i}>
                 <label className="text-zinc-400 text-xs mb-1 block">{f.label} {f.label === "Email" && <span className="text-red-400">*</span>}</label>
-                <input type={f.type || "text"} value={f.value} onChange={(event) => f.setter(event.target.value)}
+                <input
+                  type={f.type || "text"}
+                  value={f.value}
+                  onChange={(event) => f.setter(event.target.value)}
                   placeholder={f.placeholder}
-                  className="w-full bg-zinc-800 border border-zinc-700 text-white rounded-xl px-4 py-3 text-sm outline-none focus:border-emerald-500 transition-colors placeholder:text-zinc-600" />
+                  className="w-full bg-zinc-800 border border-zinc-700 text-white rounded-xl px-4 py-3 text-sm outline-none focus:border-emerald-500 transition-colors placeholder:text-zinc-600"
+                />
                 {f.label === "Email" && email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) && 
                   <p className="text-red-400 text-xs mt-1">Invalid email format</p>
                 }
@@ -259,8 +429,11 @@ export default function BranchEmployees() {
             </div>
             <div>
               <label className="text-zinc-400 text-xs mb-1 block">Role</label>
-              <select value={role} onChange={e => setRole(e.target.value)}
-                className="w-full bg-zinc-800 border border-zinc-700 text-white rounded-xl px-4 py-3 text-sm outline-none focus:border-emerald-500 transition-colors">
+              <select
+                value={role}
+                onChange={e => setRole(e.target.value)}
+                className="w-full bg-zinc-800 border border-zinc-700 text-white rounded-xl px-4 py-3 text-sm outline-none focus:border-emerald-500 transition-colors"
+              >
                 <option value="cashier">Cashier</option>
                 <option value="manager">Manager</option>
               </select>
@@ -288,21 +461,29 @@ export default function BranchEmployees() {
                 </select>
               </div>
             )}
-            <UiButton 
-              variant="primary" 
-              className="w-full" 
-              onClick={handleAddEmployee} 
-              disabled={loading || !fullName || !email || !password || password.length < 6 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || !resolvedTargetBranchId}
+            <UiButton
+              variant="primary"
+              className="w-full"
+              onClick={handleAddEmployee}
+              disabled={saving || !fullName || !email || !password || password.length < 6 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || !resolvedTargetBranchId}
             >
-              {loading ? "Adding..." : "Add employee"}
+              {saving ? "Adding..." : "Add employee"}
             </UiButton>
           </UiCard>
         )}
 
         <div className="space-y-2">
-          {employees.map((emp, i) => (
+          {loading ? (
+            <UiCard className="p-4">
+              <p className="text-zinc-500 text-sm">Loading employees...</p>
+            </UiCard>
+          ) : employees.length === 0 ? (
+            <UiCard className="p-4">
+              <p className="text-zinc-500 text-sm">No employees found for this scope.</p>
+            </UiCard>
+          ) : employees.map((emp) => (
             <div
-              key={i} 
+              key={emp.id}
               className="bg-zinc-900 border border-zinc-800 rounded-2xl px-4 py-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between hover:border-emerald-500/30 transition-colors cursor-pointer"
               onClick={() => navigate(`/settings/employees/${emp.id}`)}
             >
@@ -311,7 +492,8 @@ export default function BranchEmployees() {
                   <span className="text-white text-sm font-bold">{emp.full_name?.charAt(0)}</span>
                 </div>
                 <div className="min-w-0">
-                  <p className="text-white text-sm font-medium">{emp.full_name}
+                  <p className="text-white text-sm font-medium">
+                    {emp.full_name}
                     {emp.id === authUser.id && <span className="text-zinc-500 text-xs ml-1">(you)</span>}
                   </p>
                   <p className="text-zinc-500 text-xs capitalize break-words">{emp.role} · {emp.email}</p>
@@ -327,14 +509,15 @@ export default function BranchEmployees() {
                   {emp.role}
                 </span>
                 {emp.id !== authUser.id && (
-                  <button 
+                  <button
                     onClick={(e) => {
                       e.stopPropagation()
-                      toggleActive(emp)
+                      void toggleActive(emp)
                     }}
                     className={`text-xs px-3 py-1.5 rounded-xl transition-colors flex-shrink-0 ${
                       emp.is_active ? "bg-zinc-800 text-zinc-400 hover:text-red-400" : "bg-emerald-500/10 text-emerald-400"
-                    }`}>
+                    }`}
+                  >
                     {emp.is_active ? "Deactivate" : "Activate"}
                   </button>
                 )}

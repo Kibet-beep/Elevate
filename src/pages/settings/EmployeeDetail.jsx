@@ -131,7 +131,17 @@ export default function EmployeeDetail() {
           if (existing) {
             await existing.incrementalPatch(payload)
           } else {
-            await db.branch_assignments.upsert(payload)
+            if (db.branch_assignments && typeof db.branch_assignments.upsert === 'function') {
+              await db.branch_assignments.upsert(payload)
+            } else {
+              // Fallback: try server upsert if local collection is unavailable
+              console.warn('branch_assignments collection not available locally; falling back to server upsert')
+              const { error: upsertError } = await supabase
+                .from('user_branch_assignments')
+                .upsert({ user_id: id, branch_id: branchId, role, is_active: true })
+
+              if (upsertError) throw upsertError
+            }
           }
         }))
 
