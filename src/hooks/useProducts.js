@@ -24,7 +24,12 @@ export function useProducts(branchId = null, isOwnerOrManager = false) {
     getDb().then(async (db) => {
       if (!active) return
 
-      replication = startProductsReplication(db.products, business.id)
+      try {
+        replication = startProductsReplication(db.products, business.id)
+      } catch (error) {
+        console.error('Failed to start products replication:', error)
+        // Continue without replication - we'll still have cached data
+      }
 
       // Initial data fetch - ensure we have data even if replication is slow
       const selector = {
@@ -49,6 +54,7 @@ export function useProducts(branchId = null, isOwnerOrManager = false) {
         }
       } catch (error) {
         console.error('useProducts initial fetch error:', error)
+        setProducts([]) // Set empty array on error to prevent infinite loading
         setLoading(false)
       }
 

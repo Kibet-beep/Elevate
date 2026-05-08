@@ -35,11 +35,11 @@ Define one consistent branch-scope model for UI, route guards, and data writes.
 
 - Any operation that impacts branch P&L, stock, or reconciliation must include a concrete `branch_id`.
 - Owner in all-branch mode must explicitly select a target branch before submitting branch-bound writes.
-- Outbox payloads must carry `branch_id` and replay must validate it before insert/update.
+- RxDB operation docs must carry `branch_id` and replication must validate it before insert/update.
 
 ## Enforcement Layers
 
 - UI: disable submit when branch scope is unresolved.
 - Router: role-gate paths according to role matrix.
-- Sync engine: reject branch-bound writes missing `branch_id`.
+- Replication layer: reject branch-bound writes missing `branch_id`.
 - Database: enforce branch access with RLS for select/insert/update/delete.

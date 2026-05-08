@@ -368,28 +368,36 @@ export default function ProductDetail() {
                 {[
                   { label: "Category", value: product?.category || "—" },
                   { label: "Unit of measure", value: product?.unit_of_measure || "—" },
-                  { 
-                  label: "Branch", 
-                  value: currentBranchInfo ? `${currentBranchInfo.name}${currentBranchInfo.code ? ` (${currentBranchInfo.code})` : ""}` : product.branch_id || "Unassigned"
+                  {
+                    label: "Branch",
+                    value: currentBranchInfo
+                      ? `${currentBranchInfo.name}${currentBranchInfo.code ? ` (${currentBranchInfo.code})` : ""}`
+                      : product?.branch_id || "Unassigned",
                   },
-                            className="text-xs bg-amber-500/10 text-amber-400 px-2 py-1 rounded-lg hover:bg-amber-500/20 transition-colors"
-                          >
-                            Assign Branch
-                          </button>
-                        )}
-                      </div>
-                    ) : "—"
-                  )
-                },
-                  { label: "Reorder point", value: product?.reorder_point },
+                  { label: "Reorder point", value: product?.reorder_point ?? "—" },
                   { label: "Supplier", value: product?.suppliers?.name || "—" },
-                  { label: "Added on", value: new Date(product?.created_at).toLocaleDateString("en-KE") },
+                  {
+                    label: "Added on",
+                    value: product?.created_at
+                      ? new Date(product.created_at).toLocaleDateString("en-KE")
+                      : "—",
+                  },
                 ].map((r, i) => (
                   <div key={i} className="flex items-center justify-between gap-3 border-b border-zinc-800 last:border-0 pb-2 last:pb-0">
                     <p className="text-zinc-500 text-sm">{r.label}</p>
                     <p className="text-sm text-white text-right">{r.value}</p>
                   </div>
                 ))}
+                {needsBranchAssignment && (
+                  <UiButton
+                    variant="secondary"
+                    size="sm"
+                    className="w-full mt-2"
+                    onClick={() => setIsModalOpen(true)}
+                  >
+                    Assign Branch
+                  </UiButton>
+                )}
               </div>
             )}
           </UiCard>
