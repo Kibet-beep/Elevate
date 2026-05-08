@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { useNavigate, useParams } from "react-router-dom"
-import { supabase } from "../../lib/supabase"
 import { getDb } from "../../lib/db"
 import { useCurrentBusiness } from "../../hooks/useRole"
 import { useBranchContext } from "../../context/BranchContext"
+import { useBranches } from "../../hooks/useBranches"
 import { AppShell, UiButton, UiCard } from "../../components/ui"
 
 export default function BranchDetail() {
@@ -25,6 +25,8 @@ export default function BranchDetail() {
   const [phone, setPhone] = useState("")
   const [email, setEmail] = useState("")
 
+  const { branches: liveBranches } = useBranches(businessId)
+
   const goBack = () => {
     if (window.history.length > 1) {
       navigate(-1)
@@ -33,63 +35,23 @@ export default function BranchDetail() {
     navigate("/settings/branches", { replace: true })
   }
 
-  const loadBranch = useCallback(async () => {
-    try {
-      // Try RxDB first
-      const db = await getDb()
-      const doc = await db.branches.findOne(id).exec()
-      if (doc) {
-        const branchData = doc.toJSON()
-        setBranch(branchData)
-        setName(branchData.name || "")
-        setCode(branchData.code || "")
-        setAddress(branchData.address || "")
-        setPhone(branchData.phone || "")
-        setEmail(branchData.email || "")
-      } else {
-        // Fallback to Supabase if not in local DB
-        const { data: branchData, error: branchError } = await supabase
-          .from("branches")
-          .select("*")
-          .eq("id", id)
-          .eq("business_id", businessId)
-          .single()
-
-        if (branchError) throw branchError
-
-        setBranch(branchData)
-        setName(branchData.name || "")
-        setCode(branchData.code || "")
-        setAddress(branchData.address || "")
-        setPhone(branchData.phone || "")
-        setEmail(branchData.email || "")
-      }
-
-      const { data: assignments, error: employeeError } = await supabase
-        .from("user_branch_assignments")
-        .select("user_id, users(id, full_name, email, role, is_active)")
-        .eq("branch_id", id)
-        .eq("is_active", true)
-
-      if (employeeError) throw employeeError
-
-      setEmployees((assignments || []).map((item) => item.users).filter(Boolean))
-    } catch (err) {
-      setError(err.message || "Failed to load branch")
-    } finally {
-      setLoading(false)
-    }
-  }, [businessId, id])
-
+  // Load branch data from live branches
   useEffect(() => {
     if (!id || !businessId) return
 
-    const timer = window.setTimeout(() => {
-      void loadBranch()
-    }, 0)
-
-    return () => window.clearTimeout(timer)
-  }, [id, businessId, loadBranch])
+    const foundBranch = liveBranches.find(b => b.id === id)
+    if (foundBranch) {
+      setBranch(foundBranch)
+      setName(foundBranch.name || "")
+      setCode(foundBranch.code || "")
+      setAddress(foundBranch.address || "")
+      setPhone(foundBranch.phone || "")
+      setEmail(foundBranch.email || "")
+      setLoading(false)
+    } else {
+      setLoading(false)
+    }
+  }, [liveBranches, id, businessId])
 
   const assignedCount = useMemo(() => employees.length, [employees])
 
