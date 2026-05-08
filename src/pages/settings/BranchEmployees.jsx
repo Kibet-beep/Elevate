@@ -1,11 +1,11 @@
 import { useState, useEffect, useCallback } from "react"
-import { supabase } from "../../lib/supabase"
 import { useLocation, useNavigate } from "react-router-dom"
 import { useUser, useCurrentBusiness, useIsOwner, useIsManager } from "../../hooks/useRole"
 import { useBranchContext } from "../../context/BranchContext"
 import { getDb, startBranchAssignmentsReplication } from "../../lib/db"
 import { AppShell, UiButton, UiCard } from "../../components/ui"
 import { BranchSelector } from "../../components/BranchSelector"
+import { useBranches } from "../../hooks/useBranches"
 
 export default function BranchEmployees() {
   const navigate = useNavigate()
@@ -68,34 +68,23 @@ export default function BranchEmployees() {
 
     const scopeBranchId = viewMode === 'branch' ? activeBranch?.id : effectiveBranchId
     const selector = {
-      _deleted: { $ne: true },
-      is_active: true,
-      ...(scopeBranchId ? { branch_id: scopeBranchId } : {}),
     }
 
     try {
-      const assignmentDocs = await db.branch_assignments.find({ selector }).exec()
-      const userIds = [...new Set(assignmentDocs.map((doc) => doc.user_id))]
-
-      if (userIds.length === 0) {
-        setEmployees([])
-        return
+      const db = await getDb()
+      const selector = {
+        business_id: businessId,
+        _deleted: { $ne: true },
+        ...(userIds.length > 0 ? { id: { $in: userIds } } : {})
       }
-
-      let query = supabase
-        .from("users")
-        .select("*")
-        .eq("business_id", businessId)
-        .in("id", userIds)
-        .order("created_at")
-
-      const { data } = await query
-      setEmployees(data || [])
+      
+      const existingDocs = await db.users.find({ selector }).exec()
+      setEmployees(existingDocs.map((doc) => doc.toJSON()))
     } catch (error) {
-      console.error("Failed to load branch employees:", error)
+      console.error('Failed to fetch employees:', error)
       setEmployees([])
     } finally {
-      replication?.cancel?.()
+      setLoading(false)
     }
   }, [activeBranch?.id, businessId, canViewAll, effectiveBranchId, viewMode])
 
@@ -134,68 +123,33 @@ export default function BranchEmployees() {
       return
     }
 
-    const branchId = resolvedTargetBranchId || null
-
-    if (!branchId) {
-      setError("Please select a branch first.")
-      return
-    }
-
     setLoading(true)
 
-    const { data: { session } } = await supabase.auth.getSession()
-
-    if (!session?.access_token) {
-      setError("Your session has expired. Please sign in again.")
-      setLoading(false)
-      return
-    }
-
-    const requestBody = {
-      email,
-      password,
-      fullName,
-      role,
-      businessId,
-      branchId,
-    }
-    console.log("Sending create-employee request with:", requestBody)
-
-    const response = await fetch(
-      `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/create-employee`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${session.access_token}`,
-        },
-        body: JSON.stringify(requestBody),
-      }
-    )
-
-    let result
     try {
-      result = await response.json()
-    } catch {
-      setError(`Server error: ${response.status} ${response.statusText}`)
+      // Use RxDB for user creation
+      const db = await getDb()
+      const userPayload = {
+        email,
+        full_name: fullName,
+        role,
+        business_id: businessId,
+        is_active: true,
+        _modified: Date.now(),
+      }
+
+      // Create user in RxDB
+      await db.users.upsert(userPayload)
+
       setLoading(false)
       return
-    }
-
-    if (!response.ok) {
-      const errorMessage = result.error || `Request failed with status ${response.status}`
-      setError(errorMessage)
-      console.error("Employee creation failed:", { 
-        status: response.status, 
-        error: result,
-        sent: requestBody
-      })
+    } catch (error) {
+      setError(error.message || "Failed to add employee")
+    } finally {
       setLoading(false)
-      return
     }
 
-    if (result.error) {
-      setError(result.error)
+    if (error) {
+      setError(error)
     } else {
       setSuccessMessage(`${fullName} has been added to the team`)
       setSuccess(true)
