@@ -351,7 +351,273 @@ export default function AddSale() {
             />
           </UiCard>
 
-          {/* Keep the rest of your existing UI unchanged */}
+          <UiCard className="space-y-3 p-4">
+            <UiSectionTitle
+              title="Add products"
+              caption="Search and select products to add to cart"
+            />
+
+            <div className="space-y-2">
+              <input
+                type="text"
+                placeholder="Search by product name or SKU..."
+                value={productSearch}
+                onChange={(e) => setProductSearch(e.target.value)}
+                className="w-full rounded-xl border border-zinc-800 bg-zinc-950 px-4 py-3 text-sm text-white outline-none transition-colors focus:border-emerald-500"
+              />
+
+              {productSearch && products?.length > 0 && (
+                <div className="bg-zinc-900 rounded-xl border border-zinc-800 max-h-60 overflow-y-auto">
+                  {products
+                    .filter(
+                      (p) =>
+                        p.name
+                          ?.toLowerCase()
+                          .includes(productSearch.toLowerCase()) ||
+                        p.sku
+                          ?.toLowerCase()
+                          .includes(productSearch.toLowerCase())
+                    )
+                    .slice(0, 10)
+                    .map((product) => (
+                      <button
+                        key={product.id}
+                        onClick={() => addToCart(product)}
+                        className="w-full text-left px-4 py-3 hover:bg-zinc-800 transition-colors border-b border-zinc-800 last:border-b-0 text-sm"
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="flex-1 min-w-0">
+                            <p className="text-white font-medium truncate">
+                              {product.name}
+                            </p>
+                            <p className="text-zinc-400 text-xs">
+                              SKU: {product.sku} • Stock: {product.current_quantity}
+                            </p>
+                          </div>
+                          <div className="text-right whitespace-nowrap">
+                            <p className="text-emerald-400 font-mono text-sm">
+                              {fmt(product.selling_price)}
+                            </p>
+                          </div>
+                        </div>
+                      </button>
+                    ))}
+                </div>
+              )}
+            </div>
+          </UiCard>
+
+          {cartItems.length > 0 && (
+            <UiCard className="space-y-3 p-4">
+              <UiSectionTitle title="Cart" caption={`${itemCount} items`} />
+
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-zinc-800">
+                      <th className="text-left py-2 px-2 text-zinc-400 font-medium">
+                        Product
+                      </th>
+                      <th className="text-right py-2 px-2 text-zinc-400 font-medium">
+                        Unit Price
+                      </th>
+                      <th className="text-center py-2 px-2 text-zinc-400 font-medium">
+                        Qty
+                      </th>
+                      <th className="text-right py-2 px-2 text-zinc-400 font-medium">
+                        Total
+                      </th>
+                      <th className="text-center py-2 px-2"></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {cartItems.map((item) => (
+                      <tr key={item.product_id} className="border-b border-zinc-800">
+                        <td className="py-3 px-2 text-white">{item.name}</td>
+                        <td className="py-3 px-2 text-right text-zinc-300">
+                          {fmt(item.unit_price)}
+                        </td>
+                        <td className="py-3 px-2">
+                          <div className="flex items-center justify-center gap-1">
+                            <button
+                              onClick={() =>
+                                updateQty(item.product_id, item.quantity - 1)
+                              }
+                              className="w-6 h-6 flex items-center justify-center bg-zinc-800 hover:bg-zinc-700 text-white rounded text-xs"
+                            >
+                              −
+                            </button>
+                            <input
+                              type="number"
+                              value={item.quantity}
+                              onChange={(e) =>
+                                updateQty(
+                                  item.product_id,
+                                  parseInt(e.target.value) || 0
+                                )
+                              }
+                              className="w-10 h-6 bg-zinc-900 border border-zinc-800 rounded text-center text-white text-xs outline-none"
+                            />
+                            <button
+                              onClick={() =>
+                                updateQty(item.product_id, item.quantity + 1)
+                              }
+                              className="w-6 h-6 flex items-center justify-center bg-zinc-800 hover:bg-zinc-700 text-white rounded text-xs"
+                            >
+                              +
+                            </button>
+                          </div>
+                        </td>
+                        <td className="py-3 px-2 text-right font-mono text-emerald-400">
+                          {fmt(item.unit_price * item.quantity)}
+                        </td>
+                        <td className="py-3 px-2 text-center">
+                          <button
+                            onClick={() => updateQty(item.product_id, 0)}
+                            className="text-red-400 hover:text-red-300 text-xs font-semibold"
+                          >
+                            Remove
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </UiCard>
+          )}
+
+          <UiCard className="space-y-3 p-4">
+            <UiSectionTitle
+              title="Payment & Pricing"
+              caption="Configure payment details and discounts"
+            />
+
+            <div className="space-y-3">
+              <div>
+                <label className="block text-xs font-semibold text-zinc-400 mb-2">
+                  Payment account
+                </label>
+                <select
+                  value={paymentAccount}
+                  onChange={(e) => setPaymentAccount(e.target.value)}
+                  className="w-full rounded-xl border border-zinc-800 bg-zinc-950 px-4 py-3 text-sm text-white outline-none transition-colors focus:border-emerald-500"
+                >
+                  <option value="cash">Cash</option>
+                  <option value="bank">Bank Transfer</option>
+                  <option value="card">Card</option>
+                  <option value="mpesa">M-Pesa</option>
+                </select>
+              </div>
+
+              <div className="flex items-center gap-2 pt-2 border-t border-zinc-800">
+                <input
+                  type="checkbox"
+                  id="discountEnabled"
+                  checked={discountEnabled}
+                  onChange={(e) => setDiscountEnabled(e.target.checked)}
+                  className="rounded"
+                />
+                <label htmlFor="discountEnabled" className="text-sm text-white">
+                  Apply discount
+                </label>
+              </div>
+
+              {discountEnabled && (
+                <div className="flex gap-2 pl-6">
+                  <select
+                    value={discountType}
+                    onChange={(e) => setDiscountType(e.target.value)}
+                    className="flex-shrink-0 rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-white outline-none focus:border-emerald-500"
+                  >
+                    <option value="pct">%</option>
+                    <option value="fixed">Fixed</option>
+                  </select>
+                  <input
+                    type="number"
+                    placeholder={discountType === "pct" ? "0" : "0"}
+                    value={discountValue}
+                    onChange={(e) => setDiscountValue(e.target.value)}
+                    className="flex-1 rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-white outline-none focus:border-emerald-500"
+                  />
+                </div>
+              )}
+
+              <div className="flex items-center gap-2 pt-2 border-t border-zinc-800">
+                <input
+                  type="checkbox"
+                  id="vatApplied"
+                  checked={vatApplied}
+                  onChange={(e) => setVatApplied(e.target.checked)}
+                  className="rounded"
+                />
+                <label htmlFor="vatApplied" className="text-sm text-white">
+                  VAT (16%)
+                </label>
+              </div>
+
+              {vatApplied && (
+                <div className="pl-6">
+                  <input
+                    type="text"
+                    placeholder="e-TIMS receipt number (optional)"
+                    value={etimsNo}
+                    onChange={(e) => setEtimsNo(e.target.value)}
+                    className="w-full rounded-xl border border-zinc-800 bg-zinc-950 px-3 py-2 text-sm text-white outline-none focus:border-emerald-500"
+                  />
+                </div>
+              )}
+            </div>
+          </UiCard>
+        </div>
+
+        <div className="space-y-4">
+          {cartItems.length > 0 && (
+            <UiCard className="space-y-4 p-4 sticky top-20">
+              <UiSectionTitle title="Summary" />
+
+              <div className="space-y-2 text-sm">
+                <div className="flex items-center justify-between">
+                  <span className="text-zinc-400">Subtotal</span>
+                  <span className="text-white font-mono">
+                    {fmt(subtotal)}
+                  </span>
+                </div>
+
+                {discountAmount > 0 && (
+                  <div className="flex items-center justify-between text-red-400">
+                    <span>Discount</span>
+                    <span className="font-mono">−{fmt(discountAmount)}</span>
+                  </div>
+                )}
+
+                {vatApplied && vatAmount > 0 && (
+                  <div className="flex items-center justify-between text-blue-400">
+                    <span>VAT (16%)</span>
+                    <span className="font-mono">+{fmt(vatAmount)}</span>
+                  </div>
+                )}
+
+                <div className="border-t border-zinc-800 pt-2 flex items-center justify-between">
+                  <span className="font-semibold text-white">Total</span>
+                  <span className="text-emerald-400 font-mono font-bold text-lg">
+                    {fmt(total)}
+                  </span>
+                </div>
+              </div>
+
+              <div className="hidden md:flex md:flex-col md:gap-2 pt-4 border-t border-zinc-800">
+                <UiButton
+                  variant="primary"
+                  className="w-full"
+                  onClick={handleSubmit}
+                  disabled={loading || cartItems.length === 0}
+                >
+                  {loading ? "Recording..." : "Record sale"}
+                </UiButton>
+              </div>
+            </UiCard>
+          )}
         </div>
       </div>
 
@@ -359,17 +625,6 @@ export default function AddSale() {
         <UiButton
           variant="primary"
           className="w-full"
-          onClick={handleSubmit}
-          disabled={loading || cartItems.length === 0}
-        >
-          {loading ? "Recording..." : `Record sale • ${fmt(total)}`}
-        </UiButton>
-      </div>
-
-      <div className="hidden md:flex md:justify-end md:gap-2 md:sticky md:bottom-6 md:right-6 md:pr-6">
-        <UiButton
-          variant="primary"
-          className="px-6 py-3"
           onClick={handleSubmit}
           disabled={loading || cartItems.length === 0}
         >

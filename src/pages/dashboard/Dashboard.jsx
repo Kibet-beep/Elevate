@@ -107,7 +107,7 @@ function DashboardAccessIssue({ issue }) {
 }
 
 export default function Dashboard() {
-  const navigateInstant = useInstantNavigation()
+  const { navigateInstant } = useInstantNavigation()
   const { canViewAll, activeBranch, viewMode } = useBranchContext()
   
   // Single source of truth for auth/business/branch state
