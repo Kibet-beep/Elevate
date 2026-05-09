@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react"
 import { useNavigate, useSearchParams } from "react-router-dom"
 import { useUser, useCurrentBusiness } from "../../hooks/useRole"
 import { useBranchContext } from "../../context/BranchContext"
+import { useInstantAuth } from "../../hooks/useInstantAuth"
 import { AppShell, UiButton, UiCard, UiSectionTitle } from "../../components/ui"
 import { BranchSelector } from "../../components/BranchSelector"
 import { getDb } from "../../lib/db"
@@ -18,6 +19,7 @@ export default function AddSale() {
 
   const { user: authUser } = useUser()
   const { businessId } = useCurrentBusiness()
+  const { business: instantBusiness, signOut } = useInstantAuth()
 
   const {
     effectiveBranchId,
@@ -305,31 +307,42 @@ export default function AddSale() {
     )
   }
 
-  return (
-    <AppShell
-      title="New Sale"
-      subtitle={`${
-        viewMode === "branch" && activeBranch
-          ? `${activeBranch.name} • ` 
-          : ""
-      }Record a sale transaction`}
-      contentClassName="max-w-6xl"
-      right={
-        <div className="flex w-full flex-wrap items-stretch gap-1.5 sm:w-auto sm:items-center sm:gap-3">
-          <UiButton
-            variant="secondary"
-            size="sm"
-            onClick={() => navigate("/transactions")}
-            className="flex-1 px-2 text-xs sm:flex-none sm:px-3"
-          >
-            Back
-          </UiButton>
+  const goBack = () => {
+    if (window.history.length > 1) navigate(-1)
+    else navigate("/transactions", { replace: true })
+  }
 
-          {canViewAll ? <BranchSelector /> : null}
+  return (
+    <AppShell showHeader={false} className="pb-24" contentClassName="max-w-6xl space-y-4">
+      {/* Back button */}
+      <div className="px-4 sm:px-5 pt-4 pb-2">
+        <button onClick={goBack} className="flex items-center gap-2 text-zinc-500 hover:text-white transition-colors text-sm">
+          ← Back
+        </button>
+      </div>
+      
+      {/* Hero header */}
+      <div className="px-4 sm:px-5 pb-4">
+        <div className="rounded-2xl border border-zinc-800 bg-zinc-900/80 p-4 sm:p-5 shadow-lg shadow-black/10">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="text-[10px] uppercase tracking-[0.24em] text-zinc-500">Transactions</p>
+              <h1 className="text-white text-xl sm:text-2xl font-semibold tracking-tight">New Sale</h1>
+              <p className="mt-1 text-zinc-400 text-xs sm:text-sm">
+                {instantBusiness?.name} • {viewMode === "branch" && activeBranch ? `${activeBranch.name} • ` : ""}Record a sale transaction
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              {canViewAll ? <BranchSelector /> : null}
+              <button onClick={() => signOut()} className="text-zinc-400 hover:text-red-400 transition-colors text-sm">
+                Sign out
+              </button>
+            </div>
+          </div>
         </div>
-      }
-    >
-      <div className="grid gap-4 lg:grid-cols-[1.35fr_0.65fr]">
+      </div>
+      <div className="px-4 sm:px-5">
+        <div className="grid gap-4 lg:grid-cols-[1.35fr_0.65fr]">
         <div className="space-y-4">
           {error ? (
             <p className="rounded-lg bg-red-400/10 px-3 py-2 text-sm text-red-400">
@@ -619,6 +632,7 @@ export default function AddSale() {
             </UiCard>
           )}
         </div>
+      </div>
       </div>
 
       <div className="fixed bottom-24 left-4 right-4 z-30 md:hidden">

@@ -3,6 +3,7 @@ import { useState, useEffect } from "react"
 import { useNavigate } from "react-router-dom"
 import { useUser, useCurrentBusiness } from "../../hooks/useRole"
 import { useBranchContext } from "../../context/BranchContext"
+import { useInstantAuth } from "../../hooks/useInstantAuth"
 import { BranchSelector } from "../../components/BranchSelector"
 import { AppShell, UiButton, UiCard, UiSectionTitle } from "../../components/ui"
 import { getDb } from "../../lib/db"
@@ -28,8 +29,14 @@ export default function AddExpense() {
   const navigate = useNavigate()
   const { user: authUser } = useUser()
   const { businessId } = useCurrentBusiness()
+  const { business: instantBusiness, signOut } = useInstantAuth()
   const { effectiveBranchId, canViewAll, readyToFetch } = useBranchContext()
   const [userId, setUserId] = useState(null)
+  
+  const goBack = () => {
+    if (window.history.length > 1) navigate(-1)
+    else navigate("/transactions", { replace: true })
+  }
   const [category, setCategory] = useState("")
   const [amount, setAmount] = useState("")
   const [description, setDescription] = useState("")
@@ -157,17 +164,36 @@ export default function AddExpense() {
   }
 
   return (
-    <AppShell
-      title="New Expense"
-      subtitle="Record a business expense"
-      contentClassName="max-w-6xl"
-      right={
-        <div className="flex items-center gap-2">
-          <UiButton variant="secondary" size="sm" onClick={() => navigate("/transactions")}>← Back</UiButton>
-          {canViewAll ? <BranchSelector /> : null}
+    <AppShell showHeader={false} className="pb-24" contentClassName="max-w-6xl space-y-4">
+      {/* Back button */}
+      <div className="px-4 sm:px-5 pt-4 pb-2">
+        <button onClick={goBack} className="flex items-center gap-2 text-zinc-500 hover:text-white transition-colors text-sm">
+          ← Back
+        </button>
+      </div>
+      
+      {/* Hero header */}
+      <div className="px-4 sm:px-5 pb-4">
+        <div className="rounded-2xl border border-zinc-800 bg-zinc-900/80 p-4 sm:p-5 shadow-lg shadow-black/10">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="text-[10px] uppercase tracking-[0.24em] text-zinc-500">Transactions</p>
+              <h1 className="text-white text-xl sm:text-2xl font-semibold tracking-tight">New Expense</h1>
+              <p className="mt-1 text-zinc-400 text-xs sm:text-sm">
+                {instantBusiness?.name} • Record a business expense
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              {canViewAll ? <BranchSelector /> : null}
+              <button onClick={() => signOut()} className="text-zinc-400 hover:text-red-400 transition-colors text-sm">
+                Sign out
+              </button>
+            </div>
+          </div>
         </div>
-      }
-    >
+      </div>
+      
+      <div className="px-4 sm:px-5">
       <div className="grid gap-4 lg:grid-cols-[1.35fr_0.65fr]">
         <div className="space-y-4">
           {error && <p className="text-red-400 text-sm bg-red-400/10 px-3 py-2 rounded-lg">{error}</p>}
@@ -259,6 +285,7 @@ export default function AddExpense() {
         <UiButton variant="primary" className="w-full" onClick={handleSubmit} disabled={loading || !category || !amount}>
           {loading ? "Recording..." : "Record expense"}
         </UiButton>
+      </div>
       </div>
     </AppShell>
   )
