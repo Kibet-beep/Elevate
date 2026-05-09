@@ -3,10 +3,12 @@ import { useState, useEffect } from "react"
 import { useNavigate } from "react-router-dom"
 import { AppShell, UiButton } from "../../components/ui"
 import { useBranchContext } from "../../context/BranchContext"
+import { useInstantAuth } from "../../hooks/useInstantAuth"
 import { useProducts } from "../../hooks/useProducts"
 
 export default function Products() {
   const navigate = useNavigate()
+  const { business: instantBusiness, signOut } = useInstantAuth()
   const { canViewAll, availableBranches, effectiveBranchId } = useBranchContext()
   const [branchFilter, setBranchFilter] = useState("all")
   
@@ -76,12 +78,34 @@ export default function Products() {
   const outOfStockProducts = products.filter((p) => Number(p.current_quantity || 0) === 0).length
 
   return (
-    <AppShell
-      title="Products"
-      subtitle={canViewAll ? "Complete product catalog across all branches" : "Product catalog for your branch"}
-      contentClassName="max-w-7xl"
-      right={<UiButton variant="secondary" size="sm" onClick={() => navigate("/inventory")}>← Back to Inventory</UiButton>}
-    >
+    <AppShell showHeader={false} contentClassName="max-w-7xl space-y-4 pb-24">
+      {/* Back button */}
+      <div className="px-4 sm:px-5 pt-4 pb-2">
+        <button onClick={() => navigate("/inventory")} className="flex items-center gap-2 text-zinc-500 hover:text-white transition-colors text-sm">
+          ← Back
+        </button>
+      </div>
+      {/* Hero header */}
+      <div className="px-4 sm:px-5 pb-4">
+        <div className="rounded-2xl border border-zinc-800 bg-zinc-900/80 p-4 sm:p-5 shadow-lg shadow-black/10">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="text-[10px] uppercase tracking-[0.24em] text-zinc-500">Inventory</p>
+              <h1 className="text-white text-xl sm:text-2xl font-semibold tracking-tight">All Products</h1>
+              <p className="mt-1 text-zinc-400 text-xs sm:text-sm">
+                {instantBusiness?.name} · {canViewAll ? "Complete catalog across all branches" : "Product catalog for your branch"}
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <button onClick={() => signOut()} className="text-zinc-400 hover:text-red-400 transition-colors text-sm">
+                Sign out
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="px-4 sm:px-5">
       <div className="space-y-4">
         {/* Metrics */}
         <div className="grid gap-3 grid-cols-2 md:grid-cols-4">
@@ -236,6 +260,7 @@ export default function Products() {
             </div>
           )}
         </div>
+      </div>
       </div>
     </AppShell>
   )

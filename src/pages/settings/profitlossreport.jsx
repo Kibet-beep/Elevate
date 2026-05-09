@@ -5,12 +5,14 @@ import { useBranchContext } from "../../context/BranchContext"
 import { BranchSelector } from "../../components/BranchSelector"
 import { useTransactions } from "../../hooks/useTransactions"
 import { useProducts } from "../../hooks/useProducts"
+import { useInstantAuth } from "../../hooks/useInstantAuth"
 
 const PERIODS = ["Day", "Week", "Month", "Quarter", "Year"]
 
 export default function ProfitLossReport() {
   const navigate = useNavigate()
   const { canViewAll, availableBranches, effectiveBranchId } = useBranchContext()
+  const { business: instantBusiness, signOut } = useInstantAuth()
   const goBack = () => {
     if (window.history.length > 1) {
       navigate(-1)
@@ -49,25 +51,39 @@ export default function ProfitLossReport() {
   return (
     <div className="min-h-screen bg-zinc-950 pb-16">
       <div className="px-4 sm:px-6 pt-8 pb-6 max-w-3xl mx-auto">
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-          <div>
-            <button
-              onClick={goBack}
-              aria-label="Back"
-              className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-zinc-700 text-zinc-300 hover:text-white hover:border-zinc-500 transition-colors mb-6"
-            >
-              ←
-            </button>
-            <h1 className="text-white font-bold text-2xl tracking-tight">Profit & Loss</h1>
-            <p className="text-zinc-500 text-sm mt-1">
-              {effectiveBranchId ? `${availableBranches.find(b => b.id === effectiveBranchId)?.name} • ` : ''}{periodLabel()}
-            </p>
+        <button
+          type="button"
+          onClick={goBack}
+          className="flex items-center gap-2 text-zinc-500 hover:text-zinc-300 text-xs"
+        >
+          <span aria-hidden="true">←</span>
+          <span>Back to settings</span>
+        </button>
+
+        <div className="mt-4 rounded-2xl border border-zinc-800 bg-zinc-900/80 p-4 sm:p-5 shadow-lg shadow-black/10">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <p className="text-[10px] font-medium uppercase tracking-[0.22em] text-zinc-500">Settings</p>
+              <h1 className="mt-2 text-white font-semibold text-2xl tracking-tight">Profit &amp; Loss Report</h1>
+              <p className="mt-1 text-zinc-400 text-xs sm:text-sm">
+                {instantBusiness?.name || "Your business"} • {effectiveBranchId ? `${availableBranches.find(b => b.id === effectiveBranchId)?.name} • ` : ""}{periodLabel()}
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              {canViewAll ? (
+                <BranchSelector value={effectiveBranchId || "all"} />
+              ) : null}
+              <button
+                type="button"
+                onClick={() => {
+                  signOut?.()
+                }}
+                className="text-xs font-medium px-3 py-2 rounded-xl border border-zinc-700 text-zinc-300 hover:text-white hover:border-zinc-500 transition-colors"
+              >
+                Sign out
+              </button>
+            </div>
           </div>
-          {canViewAll ? (
-            <BranchSelector 
-              value={effectiveBranchId || 'all'}
-            />
-          ) : null}
         </div>
       </div>
 

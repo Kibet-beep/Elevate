@@ -159,9 +159,9 @@ export default function StockTake() {
   const [pastStockTakes, setPastStockTakes] = useState([])
   const [selectedVarianceId, setSelectedVarianceId] = useState(null)
   const replicationRef = useRef(null)
-  const { user } = useInstantAuth()
+  const { user, business: instantBusiness, signOut } = useInstantAuth()
   const { businessId } = useCurrentBusiness()
-  const { canViewAll, effectiveBranchId, readyToFetch } = useBranchContext()
+  const { canViewAll, effectiveBranchId, readyToFetch, availableBranches } = useBranchContext()
   const resolvedBranchId = effectiveBranchId
 
   useEffect(() => {
@@ -379,17 +379,36 @@ export default function StockTake() {
       { value: "spot_check", label: "Spot check", desc: "One specific product", count: 1 },
     ]
 
+    const handleSignOut = async () => {
+      await signOut()
+    }
+
     return (
       <div className="min-h-screen bg-zinc-950 pb-16">
-        {/* Header */}
-        <div className="px-5 pt-8 pb-6">
-          <button onClick={() => navigate("/inventory")} className="flex items-center gap-2 text-zinc-500 hover:text-white transition-colors text-sm mb-6">
+        {/* Back button */}
+        <div className="px-5 pt-4 pb-2">
+          <button onClick={() => navigate("/inventory")} className="flex items-center gap-2 text-zinc-500 hover:text-white transition-colors text-sm">
             ← Back
           </button>
-          <h1 className="text-white font-bold text-2xl tracking-tight">Stock Take</h1>
-          <p className="text-zinc-500 text-sm mt-1">Choose the type of count to run</p>
-          <div className="mt-3">
-            {canViewAll ? <BranchSelector /> : null}
+        </div>
+        {/* Hero header */}
+        <div className="px-5 pb-4">
+          <div className="rounded-2xl border border-zinc-800 bg-zinc-900/80 p-4 sm:p-5 shadow-lg shadow-black/10">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="text-[10px] uppercase tracking-[0.24em] text-zinc-500">Inventory</p>
+                <h1 className="text-white text-xl sm:text-2xl font-semibold tracking-tight">Stock Take</h1>
+                <p className="mt-1 text-zinc-400 text-xs sm:text-sm">
+                  {instantBusiness?.name}{effectiveBranchId ? ` • ${availableBranches.find(b => b.id === effectiveBranchId)?.name}` : ''} · Choose the type of count to run
+                </p>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                {canViewAll ? <BranchSelector value={effectiveBranchId || "all"} /> : null}
+                <button onClick={handleSignOut} className="text-zinc-400 hover:text-red-400 transition-colors text-sm">
+                  Sign out
+                </button>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -512,12 +531,20 @@ export default function StockTake() {
 
     return (
       <div className="min-h-screen bg-zinc-950 pb-16">
-        <div className="px-5 pt-8 pb-6">
-          <button onClick={() => setStep("setup")} className="flex items-center gap-2 text-zinc-500 hover:text-white transition-colors text-sm mb-6">
+        {/* Back button */}
+        <div className="px-5 pt-4 pb-2">
+          <button onClick={() => setStep("setup")} className="flex items-center gap-2 text-zinc-500 hover:text-white transition-colors text-sm">
             ← Back
           </button>
-          <h1 className="text-white font-bold text-2xl tracking-tight">{typeLabel}</h1>
-          <p className="text-zinc-500 text-sm mt-1">{products.length} product{products.length !== 1 ? "s" : ""} to count</p>
+        </div>
+        <div className="px-5 pb-4">
+          <div className="rounded-2xl border border-zinc-800 bg-zinc-900/80 p-4 sm:p-5 shadow-lg shadow-black/10">
+            <div>
+              <p className="text-[10px] uppercase tracking-[0.24em] text-zinc-500">Stock take</p>
+              <h1 className="text-white text-xl sm:text-2xl font-semibold tracking-tight">{typeLabel}</h1>
+              <p className="mt-1 text-zinc-400 text-xs sm:text-sm">{products.length} product{products.length !== 1 ? "s" : ""} to count</p>
+            </div>
+          </div>
         </div>
 
         <div className="px-5 max-w-2xl mx-auto space-y-4">
@@ -593,21 +620,32 @@ export default function StockTake() {
 
     return (
       <div className="min-h-screen bg-zinc-950 pb-28">
-        {/* Header */}
-        <div className="px-5 pt-8 pb-5 border-b border-zinc-800">
-          <div className="flex items-center justify-between mb-1">
-            <h1 className="text-white font-bold text-2xl tracking-tight">Counting</h1>
-            <span className="text-[10px] font-mono px-2.5 py-1 rounded-full bg-amber-400/10 text-amber-400">
-              In progress
-            </span>
-          </div>
-          <p className="text-zinc-500 text-sm">{type.replace("_", " ")} · {products.length} products</p>
+        {/* Back button */}
+        <div className="px-5 pt-4 pb-2">
+          <button onClick={() => setStep("brief")} className="flex items-center gap-2 text-zinc-500 hover:text-white transition-colors text-sm">
+            ← Back
+          </button>
+        </div>
+        {/* Hero header */}
+        <div className="px-5 pb-4">
+          <div className="rounded-2xl border border-zinc-800 bg-zinc-900/80 p-4 sm:p-5 shadow-lg shadow-black/10">
+            <div className="flex items-start justify-between gap-3 mb-3">
+              <div>
+                <p className="text-[10px] uppercase tracking-[0.24em] text-zinc-500">Stock take</p>
+                <h1 className="text-white text-xl sm:text-2xl font-semibold tracking-tight">Counting</h1>
+                <p className="mt-1 text-zinc-400 text-xs sm:text-sm">{type.replace("_", " ")} · {products.length} products</p>
+              </div>
+              <span className="text-[10px] font-mono px-2.5 py-1 rounded-full bg-amber-400/10 text-amber-400 whitespace-nowrap shrink-0">
+                In progress
+              </span>
+            </div>
 
-          {/* Progress strip */}
-          <div className="mt-4 grid grid-cols-3 gap-2">
-            <StatPill label="Total" value={products.length} />
-            <StatPill label="Variances" value={countedWithVariance} amber={countedWithVariance > 0} accent={countedWithVariance === 0} />
-            <StatPill label="KES impact" value={fmt(Math.abs(totalKesVariance()))} red={totalKesVariance() < 0} accent={totalKesVariance() >= 0 && countedWithVariance > 0} />
+            {/* Progress strip */}
+            <div className="grid grid-cols-3 gap-2">
+              <StatPill label="Total" value={products.length} />
+              <StatPill label="Variances" value={countedWithVariance} amber={countedWithVariance > 0} accent={countedWithVariance === 0} />
+              <StatPill label="KES impact" value={fmt(Math.abs(totalKesVariance()))} red={totalKesVariance() < 0} accent={totalKesVariance() >= 0 && countedWithVariance > 0} />
+            </div>
           </div>
         </div>
 
@@ -718,11 +756,22 @@ export default function StockTake() {
 
     return (
       <div className="min-h-screen bg-zinc-950 pb-28">
-        <div className="px-5 pt-8 pb-6">
-          <h1 className="text-white font-bold text-2xl tracking-tight">Variance Review</h1>
-          <p className="text-zinc-500 text-sm mt-1">
-            {variances.length} item{variances.length !== 1 ? "s" : ""} with variance · review before approving
-          </p>
+        {/* Back button */}
+        <div className="px-5 pt-4 pb-2">
+          <button onClick={() => setStep("counting")} className="flex items-center gap-2 text-zinc-500 hover:text-white transition-colors text-sm">
+            ← Back
+          </button>
+        </div>
+        <div className="px-5 pb-4">
+          <div className="rounded-2xl border border-zinc-800 bg-zinc-900/80 p-4 sm:p-5 shadow-lg shadow-black/10">
+            <div>
+              <p className="text-[10px] uppercase tracking-[0.24em] text-zinc-500">Stock take</p>
+              <h1 className="text-white text-xl sm:text-2xl font-semibold tracking-tight">Variance Review</h1>
+              <p className="mt-1 text-zinc-400 text-xs sm:text-sm">
+                {variances.length} item{variances.length !== 1 ? "s" : ""} with variance · review before approving
+              </p>
+            </div>
+          </div>
         </div>
 
         <div className="px-5 max-w-2xl mx-auto space-y-4">

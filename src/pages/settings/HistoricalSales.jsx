@@ -4,6 +4,7 @@
 import { useMemo, useState } from "react"
 import { useNavigate } from "react-router-dom"
 import { AppShell, UiButton } from "../../components/ui"
+import { useInstantAuth } from "../../hooks/useInstantAuth"
 import { useBranchContext } from "../../context/BranchContext"
 import { useCurrentBusiness } from "../../hooks/useRole"
 import { useBranchScopedProducts } from "../../hooks/useBranchScopedProducts"
@@ -12,6 +13,7 @@ import { commitHistoricalSales } from "../../services/salesService"
 
 export default function HistoricalSales() {
   const navigate = useNavigate()
+  const { business: instantBusiness, signOut } = useInstantAuth()
   const { businessId } = useCurrentBusiness()
   const { availableBranches, effectiveBranchId, canViewAll } = useBranchContext()
 
@@ -132,12 +134,34 @@ export default function HistoricalSales() {
 
   return (
     <AppShell showHeader={false} className="pb-24" contentClassName="max-w-4xl space-y-4">
-      <div className="rounded-2xl border border-zinc-800 bg-zinc-900/80 p-4 sm:p-5 shadow-lg shadow-black/10">
-        <div className="mb-6">
-          <UiButton variant="secondary" onClick={goBack}>
-            ← Back to Settings
-          </UiButton>
+      {/* Back button */}
+      <div className="px-4 sm:px-5 pt-4 pb-2">
+        <button onClick={goBack} className="flex items-center gap-2 text-zinc-500 hover:text-white transition-colors text-sm">
+          ← Back
+        </button>
+      </div>
+      {/* Hero header */}
+      <div className="px-4 sm:px-5 pb-4">
+        <div className="rounded-2xl border border-zinc-800 bg-zinc-900/80 p-4 sm:p-5 shadow-lg shadow-black/10">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="text-[10px] uppercase tracking-[0.24em] text-zinc-500">Settings</p>
+              <h1 className="text-white text-xl sm:text-2xl font-semibold tracking-tight">Historical Sales</h1>
+              <p className="mt-1 text-zinc-400 text-xs sm:text-sm">
+                {instantBusiness?.name} · Record sales from the past
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <button onClick={() => signOut()} className="text-zinc-400 hover:text-red-400 transition-colors text-sm">
+                Sign out
+              </button>
+            </div>
+          </div>
         </div>
+      </div>
+
+      <div className="px-4 sm:px-5">
+      <div className="rounded-2xl border border-zinc-800 bg-zinc-900/80 p-4 sm:p-5 shadow-lg shadow-black/10">
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
           {/* Left: Date Selection */}
@@ -241,6 +265,7 @@ export default function HistoricalSales() {
             <p className="text-red-400 text-sm">{error}</p>
           </div>
         )}
+      </div>
       </div>
     </AppShell>
   )

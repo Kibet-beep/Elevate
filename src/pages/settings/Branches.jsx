@@ -10,9 +10,9 @@ import { useBranches } from "../../hooks/useBranches"
 export default function Branches() {
   const navigate = useNavigate()
   const { businessId } = useCurrentBusiness()
-  const { business } = useInstantAuth()
+  const { business: instantBusiness, signOut } = useInstantAuth()
   const { availableBranches, refreshBranches } = useBranchContext()
-  const resolvedBusinessId = businessId || business?.id
+  const resolvedBusinessId = businessId || instantBusiness?.id
   const { branches: liveBranches } = useBranches(resolvedBusinessId)
   const [search, setSearch] = useState("")
   const [adding, setAdding] = useState(false)
@@ -182,19 +182,47 @@ export default function Branches() {
 
   return (
     <AppShell
-      title="Branches"
-      subtitle="Create, inspect, and switch between locations without leaving settings"
-      showHeader={true}
-      right={(
-        <div className="flex items-center gap-1.5 sm:gap-3 max-w-[calc(100vw-2rem)] sm:max-w-none">
-          <UiButton variant="secondary" size="sm" type="button" onClick={goBack} className="flex-shrink-0 text-xs px-2 sm:px-3" aria-label="Back">←</UiButton>
-          <UiButton variant="primary" size="sm" type="button" onClick={adding ? closeForm : openCreateForm} className="flex-shrink-0 text-xs px-2 sm:px-3">
-            {adding ? "Cancel" : "Add branch"}
-          </UiButton>
-        </div>
-      )}
+      showHeader={false}
     >
-      <div className="space-y-4">
+      <div className="space-y-4 px-4 sm:px-5">
+        <button
+          type="button"
+          onClick={goBack}
+          className="flex items-center gap-2 text-zinc-500 hover:text-zinc-300 text-xs"
+        >
+          <span aria-hidden="true">←</span>
+          <span>Back to settings</span>
+        </button>
+
+        <div className="rounded-2xl border border-zinc-800 bg-zinc-900/80 p-4 sm:p-5 shadow-lg shadow-black/10">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+            <div>
+              <p className="text-[10px] font-medium uppercase tracking-[0.22em] text-zinc-500">Settings</p>
+              <h1 className="mt-2 text-xl sm:text-2xl font-semibold tracking-tight text-white">Branches</h1>
+              <p className="mt-1 text-xs sm:text-sm text-zinc-400">
+                {instantBusiness?.name || "Your business"} • Create, inspect, and switch locations.
+              </p>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <UiButton variant="primary" size="sm" type="button" onClick={adding ? closeForm : openCreateForm}>
+                {adding ? "Cancel" : "Add branch"}
+              </UiButton>
+              <UiButton
+                variant="ghost"
+                size="sm"
+                type="button"
+                onClick={() => {
+                  signOut?.()
+                }}
+              >
+                Sign out
+              </UiButton>
+            </div>
+          </div>
+        </div>
+
+        <div className="space-y-4">
         {error && <p className="text-red-400 text-sm bg-red-400/10 px-3 py-2 rounded-lg">{error}</p>}
 
         {/* Scope Badge */}
@@ -344,8 +372,15 @@ export default function Branches() {
                   <span className="text-white text-sm font-bold">{branch.name?.charAt(0)}</span>
                 </div>
                 <div className="min-w-0">
-                  <p className="text-white text-sm font-medium">{branch.name}</p>
-                  <p className="text-zinc-500 text-xs break-words">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <p className="text-white text-sm font-medium">{branch.name}</p>
+                    <span className={`text-[11px] px-2 py-0.5 rounded-full font-medium ${
+                      branch.is_active ? "bg-emerald-500/10 text-emerald-400" : "bg-red-500/10 text-red-400"
+                    }`}>
+                      {branch.is_active ? "Active" : "Inactive"}
+                    </span>
+                  </div>
+                  <p className="text-zinc-500 text-xs break-words mt-0.5">
                     {branch.code || "No code"} · {branch.address || "No address"}
                   </p>
                   <div className="mt-2 flex flex-wrap gap-2">
@@ -355,32 +390,31 @@ export default function Branches() {
                 </div>
               </div>
               
-              <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-center lg:justify-end">
-                <span className={`text-xs px-2.5 py-1 rounded-full font-medium flex-shrink-0 ${
-                  branch.is_active ? "bg-emerald-500/10 text-emerald-400" : "bg-red-500/10 text-red-400"
-                }`}>
-                  {branch.is_active ? "Active" : "Inactive"}
-                </span>
-
+              <div className="flex flex-wrap items-center gap-2 lg:justify-end">
                 <button
+                  type="button"
                   onClick={(e) => {
                     e.stopPropagation()
                     viewBranchDetails(branch)
                   }}
-                  className="text-xs px-3 py-1.5 rounded-xl bg-zinc-800 text-zinc-400 hover:text-white transition-colors flex-shrink-0"
+                  className="text-xs px-3 py-1.5 rounded-xl bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25 transition-colors flex-shrink-0"
                 >
                   View
                 </button>
 
                 <button
-                  onClick={() => manageBranchEmployees(branch)}
-                  onMouseDown={(e) => e.stopPropagation()}
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    manageBranchEmployees(branch)
+                  }}
                   className="text-xs px-3 py-1.5 rounded-xl bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20 transition-colors flex-shrink-0"
                 >
                   Employees
                 </button>
                 
                 <button
+                  type="button"
                   onClick={(e) => {
                     e.stopPropagation()
                     handleEdit(branch)
@@ -391,6 +425,7 @@ export default function Branches() {
                 </button>
                 
                 <button
+                  type="button"
                   onClick={(e) => {
                     e.stopPropagation()
                     toggleActive(branch)
@@ -403,6 +438,7 @@ export default function Branches() {
                 </button>
                 
                 <button
+                  type="button"
                   onClick={(e) => {
                     e.stopPropagation()
                     handleDelete(branch)
@@ -414,6 +450,7 @@ export default function Branches() {
               </div>
             </div>
           ))}
+        </div>
         </div>
       </div>
     </AppShell>

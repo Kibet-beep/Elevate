@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from "react"
 import { useLocation, useNavigate } from "react-router-dom"
 import { useUser, useCurrentBusiness, useIsOwner, useIsManager } from "../../hooks/useRole"
+import { useInstantAuth } from "../../hooks/useInstantAuth"
 import { useBranchContext } from "../../context/BranchContext"
 import { supabase } from "../../lib/supabase"
 import { getDb, startBranchAssignmentsReplication } from "../../lib/db"
@@ -12,6 +13,7 @@ export default function BranchEmployees() {
   const location = useLocation()
   const { user: authUser } = useUser()
   const { businessId } = useCurrentBusiness()
+  const { business: instantBusiness, signOut } = useInstantAuth()
   const { activeBranch, viewMode, canViewAll, availableBranches, readyToFetch, setActiveBranch, setViewMode, effectiveBranchId } = useBranchContext()
   const isOwner = useIsOwner()
   const isManager = useIsManager()
@@ -374,18 +376,48 @@ export default function BranchEmployees() {
 
   return (
     <AppShell
-      title="Employees"
-      subtitle={`Manage your team and access roles${getBranchContext()}`}
-      showHeader={true}
-      right={(
-        <div className="flex w-full flex-wrap items-stretch gap-1.5 sm:w-auto sm:items-center sm:gap-3 max-w-[calc(100vw-2rem)] sm:max-w-none">
-          <UiButton variant="secondary" size="sm" onClick={goBack} className="flex-1 text-xs px-2 sm:flex-none sm:px-3" aria-label="Back">←</UiButton>
-          {canViewAll ? <BranchSelector /> : null}
-          <UiButton variant="primary" size="sm" onClick={() => setAdding(!adding)} className="flex-1 text-xs px-2 sm:flex-none sm:px-3">{adding ? "Cancel" : "+ Add"}</UiButton>
-        </div>
-      )}
+      showHeader={false}
     >
-      <div className="space-y-4">
+      <div className="space-y-4 px-4 sm:px-5">
+        <button
+          type="button"
+          onClick={goBack}
+          className="flex items-center gap-2 text-zinc-500 hover:text-zinc-300 text-xs"
+        >
+          <span aria-hidden="true">←</span>
+          <span>Back to settings</span>
+        </button>
+
+        <div className="rounded-2xl border border-zinc-800 bg-zinc-900/80 p-4 sm:p-5 shadow-lg shadow-black/10">
+          <div className="flex w-full flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+            <div>
+              <p className="text-[10px] font-medium uppercase tracking-[0.22em] text-zinc-500">Settings</p>
+              <h1 className="mt-2 text-xl sm:text-2xl font-semibold tracking-tight text-white">Branch Employees</h1>
+              <p className="mt-1 text-xs sm:text-sm text-zinc-400">
+                {instantBusiness?.name || "Your business"} • Manage your team and access roles{getBranchContext()}.
+              </p>
+            </div>
+
+            <div className="flex w-full flex-wrap items-stretch gap-2 sm:w-auto sm:items-center">
+              {canViewAll ? <BranchSelector /> : null}
+              <UiButton variant="primary" size="sm" onClick={() => setAdding(!adding)}>
+                {adding ? "Cancel" : "+ Add"}
+              </UiButton>
+              <UiButton
+                variant="ghost"
+                size="sm"
+                type="button"
+                onClick={() => {
+                  signOut?.()
+                }}
+              >
+                Sign out
+              </UiButton>
+            </div>
+          </div>
+        </div>
+
+        <div className="space-y-4">
         {error && <p className="text-red-400 text-sm bg-red-400/10 px-3 py-2 rounded-lg">{error}</p>}
         {success && <p className="text-emerald-400 text-sm bg-emerald-400/10 px-3 py-2 rounded-lg">{successMessage}</p>}
 
@@ -536,6 +568,7 @@ export default function BranchEmployees() {
               </div>
             </div>
           ))}
+        </div>
         </div>
       </div>
     </AppShell>

@@ -6,6 +6,7 @@ import { useIsOwnerOrManager } from "../../hooks/useRole"
 import { BranchSelector } from "../../components/BranchSelector"
 import { useTransactions } from "../../hooks/useTransactions"
 import { useProducts } from "../../hooks/useProducts"
+import { useInstantAuth } from "../../hooks/useInstantAuth"
 
 const PERIODS = ["Day", "Week", "Month", "Quarter"]
 
@@ -72,6 +73,7 @@ const SalesTable = ({ rows, isDay, fmtShort, accountLabel }) => (
 export default function SalesReport() {
   const navigate = useNavigate()
   const { canViewAll, availableBranches, effectiveBranchId } = useBranchContext()
+  const { business: instantBusiness, signOut } = useInstantAuth()
   const isOwnerOrManager = useIsOwnerOrManager()
   
   const goBack = () => {
@@ -314,35 +316,43 @@ export default function SalesReport() {
 
   return (
     <div className="min-h-screen bg-zinc-950 pb-16">
+      <div className="px-4 pt-6 pb-4 w-full max-w-screen-2xl mx-auto space-y-4">
+        <button
+          type="button"
+          onClick={goBack}
+          className="flex items-center gap-2 text-zinc-500 hover:text-zinc-300 text-xs"
+        >
+          <span aria-hidden="true">←</span>
+          <span>Back to settings</span>
+        </button>
 
-      {/* Header */}
-      <div className="px-4 pt-6 pb-4 w-full max-w-screen-2xl mx-auto">
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-          <div>
-            <button
-              onClick={goBack}
-              aria-label="Back"
-              className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-zinc-700 text-zinc-300 hover:text-white hover:border-zinc-500 transition-colors mb-5"
-            >
-              ←
-            </button>
+        <div className="rounded-2xl border border-zinc-800 bg-zinc-900/80 p-4 sm:p-5 shadow-lg shadow-black/10">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
             <div>
-              <h1 className="text-white font-bold text-xl tracking-tight">Sales Records</h1>
-              <p className="text-zinc-500 text-xs mt-0.5">
-                {effectiveBranchId ? `${availableBranches.find(b => b.id === effectiveBranchId)?.name} • ` : ''}{periodLabel(anchorDate)}
+              <p className="text-[10px] font-medium uppercase tracking-[0.22em] text-zinc-500">Settings</p>
+              <h1 className="mt-2 text-white font-semibold text-xl tracking-tight">Sales Report</h1>
+              <p className="mt-1 text-zinc-400 text-xs sm:text-sm">
+                {instantBusiness?.name || "Your business"} • {effectiveBranchId ? `${availableBranches.find(b => b.id === effectiveBranchId)?.name} • ` : ""}{periodLabel(anchorDate)}
               </p>
             </div>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-              {canViewAll && (
-                <BranchSelector value={effectiveBranchId || "all"} />
-              )}
-            <button
-              onClick={() => setCompareMode(v => !v)}
-              className={`text-xs font-medium px-3 py-2 rounded-xl transition-colors ${compareMode ? "bg-emerald-500 text-black" : "bg-zinc-800 text-zinc-400"}`}
-            >
-              Compare
-            </button>
+            <div className="flex flex-wrap items-center gap-2">
+              {canViewAll && <BranchSelector value={effectiveBranchId || "all"} />}
+              <button
+                onClick={() => setCompareMode(v => !v)}
+                className={`text-xs font-medium px-3 py-2 rounded-xl transition-colors ${compareMode ? "bg-emerald-500 text-black" : "bg-zinc-800 text-zinc-400"}`}
+              >
+                Compare
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  signOut?.()
+                }}
+                className="text-xs font-medium px-3 py-2 rounded-xl border border-zinc-700 text-zinc-300 hover:text-white hover:border-zinc-500 transition-colors"
+              >
+                Sign out
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -350,12 +360,12 @@ export default function SalesReport() {
       <div className="px-4 w-full max-w-screen-2xl mx-auto space-y-3">
 
         {/* Period selector */}
-        <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-1 flex gap-1">
+        <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-1 grid grid-cols-2 sm:grid-cols-4 gap-1">
           {PERIODS.map(p => (
             <button
               key={p}
               onClick={() => { setPeriod(p); setSearch(""); setCategoryFilter("all") }}
-              className={`flex-1 py-2 rounded-xl text-xs font-medium transition-colors ${period === p ? "bg-emerald-500 text-black" : "text-zinc-400"}`}
+              className={`py-2 rounded-xl text-xs font-medium transition-colors ${period === p ? "bg-emerald-500 text-black" : "text-zinc-400 hover:text-white"}`}
             >
               {p}
             </button>
@@ -365,23 +375,25 @@ export default function SalesReport() {
         {/* Compare type + date pickers */}
         {compareMode ? (
           <div className="space-y-3">
-            <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-1 flex gap-1">
+            <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-1 grid grid-cols-2 gap-1">
               <button
+                type="button"
                 onClick={() => setCompareType("relative")}
-                className={`flex-1 py-2 rounded-xl text-xs font-medium transition-colors ${compareType === "relative" ? "bg-emerald-500 text-black" : "text-zinc-400"}`}
+                className={`py-2 rounded-xl text-xs font-medium transition-colors ${compareType === "relative" ? "bg-emerald-500 text-black" : "text-zinc-400 hover:text-white"}`}
               >
                 Relative
               </button>
               <button
+                type="button"
                 onClick={() => setCompareType("custom")}
-                className={`flex-1 py-2 rounded-xl text-xs font-medium transition-colors ${compareType === "custom" ? "bg-emerald-500 text-black" : "text-zinc-400"}`}
+                className={`py-2 rounded-xl text-xs font-medium transition-colors ${compareType === "custom" ? "bg-emerald-500 text-black" : "text-zinc-400 hover:text-white"}`}
               >
                 Custom
               </button>
             </div>
 
             {compareType === "relative" ? (
-              <div className="bg-zinc-900 border border-zinc-800 rounded-2xl px-4 py-3 flex items-center justify-between gap-3">
+              <div className="bg-zinc-900 border border-zinc-800 rounded-2xl px-4 py-3 flex flex-col items-start sm:flex-row sm:items-center sm:justify-between gap-3">
                 <p className="text-zinc-500 text-xs">
                   {period === "Day" ? "Pick a date" : period === "Week" ? "Pick any date in the week" : period === "Month" ? "Pick any date in the month" : "Pick any date in the quarter"}
                 </p>
@@ -418,7 +430,7 @@ export default function SalesReport() {
             )}
           </div>
         ) : (
-          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl px-4 py-3 flex items-center justify-between gap-3">
+          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl px-4 py-3 flex flex-col items-start sm:flex-row sm:items-center sm:justify-between gap-3">
             <p className="text-zinc-500 text-xs">
               {period === "Day" ? "Pick a date" : period === "Week" ? "Pick any date in the week" : period === "Month" ? "Pick any date in the month" : "Pick any date in the quarter"}
             </p>

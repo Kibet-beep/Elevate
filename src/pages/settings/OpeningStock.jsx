@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useRef } from "react"
 import { useNavigate } from "react-router-dom"
 import { useUser, useCurrentBusiness } from "../../hooks/useRole"
+import { useInstantAuth } from "../../hooks/useInstantAuth"
 import { useBranchContext } from "../../context/BranchContext"
 import { useProducts } from "../../hooks/useProducts"
 import { createOpeningBaseline } from "../../services/inventoryService"
@@ -9,6 +10,7 @@ import { BranchSelector } from "../../components/BranchSelector"
 
 export default function OpeningStock() {
   const navigate = useNavigate()
+  const { business: instantBusiness, signOut } = useInstantAuth()
   const { user: authUser } = useUser()
   const { businessId } = useCurrentBusiness()
   const {
@@ -242,17 +244,35 @@ export default function OpeningStock() {
   }
 
   return (
-    <AppShell
-      title="Reorientation stock"
-      subtitle={`Step ${step} of 4 · Product → Opening qty → Pricing → Review`}
-      contentClassName="max-w-6xl"
-      right={
-        <div className="flex items-center gap-2">
-          <UiButton variant="tertiary" size="sm" onClick={goBack}>← Back</UiButton>
-          {canViewAll ? <BranchSelector /> : null}
+    <AppShell showHeader={false} contentClassName="max-w-6xl space-y-4 pb-24">
+      {/* Back button */}
+      <div className="px-4 sm:px-5 pt-4 pb-2">
+        <button onClick={goBack} className="flex items-center gap-2 text-zinc-500 hover:text-white transition-colors text-sm">
+          ← Back
+        </button>
+      </div>
+      {/* Hero header */}
+      <div className="px-4 sm:px-5 pb-4">
+        <div className="rounded-2xl border border-zinc-800 bg-zinc-900/80 p-4 sm:p-5 shadow-lg shadow-black/10">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="text-[10px] uppercase tracking-[0.24em] text-zinc-500">Settings</p>
+              <h1 className="text-white text-xl sm:text-2xl font-semibold tracking-tight">Opening Stock</h1>
+              <p className="mt-1 text-zinc-400 text-xs sm:text-sm">
+                {instantBusiness?.name} · Step {step} of 4
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              {canViewAll ? <BranchSelector value={effectiveBranchId || "all"} /> : null}
+              <button onClick={() => signOut()} className="text-zinc-400 hover:text-red-400 transition-colors text-sm">
+                Sign out
+              </button>
+            </div>
+          </div>
         </div>
-      }
-    >
+      </div>
+
+      <div className="px-4 sm:px-5">
       <div className="grid gap-4 lg:grid-cols-[1.3fr_0.7fr]">
         <div className="space-y-4">
           {error && (
@@ -550,6 +570,7 @@ export default function OpeningStock() {
             ))}
           </UiCard>
         </div>
+      </div>
       </div>
     </AppShell>
   )

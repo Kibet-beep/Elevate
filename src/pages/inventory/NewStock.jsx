@@ -3,6 +3,7 @@ import { useState, useEffect, useMemo } from "react"
 import { supabase } from "../../lib/supabase"
 import { useNavigate } from "react-router-dom"
 import { useUser, useIsOwnerOrManager, useCurrentBusiness } from "../../hooks/useRole"
+import { useInstantAuth } from "../../hooks/useInstantAuth"
 import { useBranchContext } from "../../context/BranchContext"
 import { AppShell, UiButton, UiCard, UiSectionTitle, CategorySelect } from "../../components/ui"
 import { getDb, startProductsReplication, startStockEntriesReplication } from "../../lib/db"
@@ -10,10 +11,11 @@ import { BranchSelector } from "../../components/BranchSelector"
 
 export default function NewStock() {
   const navigate = useNavigate()
+  const { business: instantBusiness, signOut } = useInstantAuth()
   const { user: authUser } = useUser()
   const isOwnerOrManager = useIsOwnerOrManager()
   const { businessId } = useCurrentBusiness()
-  const { canViewAll, effectiveBranchId, readyToFetch } = useBranchContext()
+  const { canViewAll, effectiveBranchId, readyToFetch, availableBranches } = useBranchContext()
   const [userId, setUserId] = useState(null)
   const [suppliers, setSuppliers] = useState([])
   const [loading, setLoading] = useState(false)
@@ -264,51 +266,76 @@ export default function NewStock() {
     )
   }
 
+  const handleSignOut = async () => {
+    await signOut()
+  }
+
   return (
-    <AppShell
-      title="Receive Stock"
-      subtitle={`Step ${composerStep} of 4 · Product → Sourcing → Pricing → Review`}
-      contentClassName="max-w-6xl"
-      right={
-        <div className="flex items-center gap-2">
-          <UiButton variant="tertiary" size="sm" onClick={() => navigate("/inventory")}>← Back</UiButton>
-          {canViewAll ? <BranchSelector /> : null}
+    <AppShell showHeader={false} contentClassName="max-w-6xl space-y-4 pb-24">
+      {/* Back button */}
+      <div className="px-4 sm:px-5 pt-4 pb-2">
+        <button onClick={() => navigate("/inventory")} className="flex items-center gap-2 text-zinc-500 hover:text-white transition-colors text-sm">
+          ← Back
+        </button>
+      </div>
+      {/* Hero header */}
+      <div className="px-4 sm:px-5 pb-4">
+        <div className="rounded-2xl border border-zinc-800 bg-zinc-900/80 p-4 sm:p-5 shadow-lg shadow-black/10">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="text-[10px] uppercase tracking-[0.24em] text-zinc-500">Inventory</p>
+              <h1 className="text-white text-xl sm:text-2xl font-semibold tracking-tight">Receive Stock</h1>
+              <p className="mt-1 text-zinc-400 text-xs sm:text-sm">
+                {instantBusiness?.name}{effectiveBranchId ? ` • ${availableBranches.find(b => b.id === effectiveBranchId)?.name}` : ''} · Step {composerStep} of 4
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              {canViewAll ? <BranchSelector value={effectiveBranchId || "all"} /> : null}
+              <button onClick={handleSignOut} className="text-zinc-400 hover:text-red-400 transition-colors text-sm">
+                Sign out
+              </button>
+            </div>
+          </div>
         </div>
-      }
-    >
-      <div className="grid gap-4 lg:grid-cols-[1.3fr_0.7fr]">
+      </div>
+
+      {/* Step indicator buttons */}
+      <div className="px-4 sm:px-5">
+        <div className="grid grid-cols-4 gap-2 mb-4">
+          {[
+            { n: 1, label: "Identity" },
+            { n: 2, label: "Sourcing" },
+            { n: 3, label: "Pricing" },
+            { n: 4, label: "Review" },
+          ].map((s) => (
+            <button
+              key={s.n}
+              onClick={() => {
+                if (s.n === 1) setComposerStep(1)
+                if (s.n === 2 && canProceedStep1) setComposerStep(2)
+                if (s.n === 3 && canProceedStep1 && canProceedStep2) setComposerStep(3)
+                if (s.n === 4 && canSubmit) setComposerStep(4)
+              }}
+              className={`rounded-xl px-3 py-2 text-xs font-medium transition-colors ${
+                composerStep === s.n
+                  ? "bg-emerald-500 text-black"
+                  : "bg-zinc-900 border border-zinc-800 text-zinc-500"
+              }`}
+            >
+              {s.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="px-4 sm:px-5">
+        <div className="grid gap-4 lg:grid-cols-[1.3fr_0.7fr]">
         <div className="space-y-4">
           {error && (
             <div className="bg-red-400/10 border border-red-400/20 rounded-xl px-4 py-3">
               <p className="text-red-400 text-sm">{error}</p>
             </div>
           )}
-
-          <div className="grid grid-cols-4 gap-2">
-            {[
-              { n: 1, label: "Identity" },
-              { n: 2, label: "Sourcing" },
-              { n: 3, label: "Pricing" },
-              { n: 4, label: "Review" },
-            ].map((s) => (
-              <button
-                key={s.n}
-                onClick={() => {
-                  if (s.n === 1) setComposerStep(1)
-                  if (s.n === 2 && canProceedStep1) setComposerStep(2)
-                  if (s.n === 3 && canProceedStep1 && canProceedStep2) setComposerStep(3)
-                  if (s.n === 4 && canSubmit) setComposerStep(4)
-                }}
-                className={`rounded-xl px-3 py-2 text-xs font-medium transition-colors ${
-                  composerStep === s.n
-                    ? "bg-emerald-500 text-black"
-                    : "bg-zinc-900 border border-zinc-800 text-zinc-500"
-                }`}
-              >
-                {s.label}
-              </button>
-            ))}
-          </div>
 
           {composerStep === 1 && (
             <Section label="01 — Product Identity">
@@ -566,6 +593,7 @@ export default function NewStock() {
             ))}
           </UiCard>
         </div>
+      </div>
       </div>
     </AppShell>
   )
