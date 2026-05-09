@@ -35,7 +35,7 @@ export function BranchProvider({ children }) {
   const isOwner = user?.role === 'owner'
   const isManager = user?.role === 'manager'
   const isCashier = user?.role === 'cashier'
-  const canViewAll = isOwner
+  const canViewAll = isOwner || isManager
 
   const [availableBranches, setAvailableBranches] = useState([])
   const [activeBranch, setActiveBranchState] = useState(null)
@@ -44,8 +44,7 @@ export function BranchProvider({ children }) {
   const [refreshToken, setRefreshToken] = useState(0)
 
   const applyDefaultBranch = useCallback((branches) => {
-  console.log('applyDefaultBranch called, branches:', branches.length, 'stored:', getStoredBranch())
-  if (branches.length === 0) {
+    if (branches.length === 0) {
       setActiveBranchState(null)
       setViewMode(isOwner ? 'all' : 'branch')
       // Clear stored branch if no branches available
@@ -64,12 +63,13 @@ export function BranchProvider({ children }) {
         setViewMode('branch')
         return
       }
+      // If stored branch still exists, do not reset it
+      if (branches.some(b => b.id === stored.id)) return;
       // If stored branch no longer exists, clear it and use first available branch
       try {
         localStorage.removeItem(BRANCH_STORAGE_KEY)
       } catch {}
     }
-
     const defaultBranch =
       branches.find(b => b.id === user?.default_branch_id) || branches[0]
     setActiveBranchState(defaultBranch)

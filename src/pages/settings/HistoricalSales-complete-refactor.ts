@@ -118,7 +118,7 @@ export default function HistoricalSales() {
       }
 
       setError(`Committed ${result.successful} of ${result.total} sales${result.failed > 0 ? ` (${result.failed} failed)` : ''}`)
-    } catch (err) {
+    } catch (err: any) {
       setError(err?.message || "Failed to commit sales")
     } finally {
       setLoading(false)
@@ -215,8 +215,7 @@ export default function HistoricalSales() {
                     </div>
                   ))}
                 </div>
-              </div>
-            )}
+              )}
           </div>
         </div>
 
@@ -233,7 +232,6 @@ export default function HistoricalSales() {
                 </div>
               ))}
             </div>
-          </div>
         )}
 
         {error && (

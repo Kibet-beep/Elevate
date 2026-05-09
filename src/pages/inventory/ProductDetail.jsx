@@ -15,7 +15,7 @@ export default function ProductDetail() {
   const isOwnerOrManager = useIsOwnerOrManager()
   const { canViewAll, availableBranches, effectiveBranchId } = useBranchContext()
   const { products: allProducts } = useProducts(
-    canViewAll ? null : effectiveBranchId,
+    effectiveBranchId,
     isOwnerOrManager,
   )
   const [product, setProduct] = useState(null)
@@ -76,7 +76,11 @@ export default function ProductDetail() {
         updateData.branch_id = effectiveBranchId
       }
 
-      await db.products.upsert(id, updateData)
+      await db.products.upsert({
+        ...(product || {}),
+        ...updateData,
+        id,
+      })
       setEditing(false)
       // Update local state immediately
       setProduct(prev => ({ ...prev, ...updateData }))
@@ -91,9 +95,11 @@ export default function ProductDetail() {
     
     try {
       const db = await getDb()
-      await db.products.upsert(id, {
+      await db.products.upsert({
+        ...(product || {}),
         is_active: false,
         _modified: Date.now(),
+        id,
       })
       setEditing(false)
       // Update local state immediately
@@ -134,10 +140,12 @@ export default function ProductDetail() {
 
     try {
       const db = await getDb()
-      await db.products.upsert(id, {
+      await db.products.upsert({
+        _id: id,
         branch_id: selectedBranch,
         updated_at: new Date().toISOString(),
         _modified: Date.now(),
+        ...product,
       })
       
       // Update local state for immediate feedback

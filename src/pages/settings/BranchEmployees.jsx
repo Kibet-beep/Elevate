@@ -274,6 +274,18 @@ export default function BranchEmployees() {
         throw new Error(data.error)
       }
 
+      // Write assignment to local RxDB
+      const db = await getDb()
+      await db.branch_assignments.upsert({
+        id: `${data.user.id}:${data.user.branchId}`,
+        user_id: data.user.id,
+        branch_id: data.user.branchId,
+        role: data.user.role,
+        is_active: true,
+        _modified: Date.now(),
+        _deleted: false,
+      })
+
       setSuccessMessage(data?.message || `${fullName} has been added to the team`)
       setSuccess(true)
       if (data?.user) {

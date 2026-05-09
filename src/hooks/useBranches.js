@@ -1,31 +1,24 @@
 import { useEffect, useState } from 'react'
-import { getDb, startBranchesReplication } from '../lib/db'
+import { getDb } from '../lib/db'
 import { useInstantAuth } from './useInstantAuth'
 
 export function useBranches(businessId = null) {
   const { business } = useInstantAuth()
   const [branches, setBranches] = useState([])
   const [loading, setLoading] = useState(true)
+  const resolvedBusinessId = businessId || business?.id
 
   useEffect(() => {
-    if (!business?.id) return
+    if (!resolvedBusinessId) return
 
     let active = true
     let subscription
-    let replication
 
     getDb().then(async (db) => {
       if (!active) return
 
-      try {
-        replication = startBranchesReplication(db.branches, business.id)
-      } catch (error) {
-        console.error('Failed to start branches replication:', error)
-        console.warn('Running in offline mode - using cached data only')
-      }
-
       const selector = {
-        business_id: business.id,
+        business_id: resolvedBusinessId,
         status: { $ne: 'archived' },
         _deleted: { $ne: true },
       }
@@ -61,9 +54,8 @@ export function useBranches(businessId = null) {
     return () => {
       active = false
       subscription?.unsubscribe()
-      replication?.cancel()
     }
-  }, [business?.id, businessId])
+  }, [resolvedBusinessId])
 
   return { branches, loading }
 }

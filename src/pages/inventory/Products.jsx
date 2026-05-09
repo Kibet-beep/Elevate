@@ -3,22 +3,36 @@ import { useState, useEffect } from "react"
 import { useNavigate } from "react-router-dom"
 import { AppShell, UiButton } from "../../components/ui"
 import { useBranchContext } from "../../context/BranchContext"
-import { useInstantAuth } from "../../hooks/useInstantAuth"
 import { useProducts } from "../../hooks/useProducts"
 
 export default function Products() {
   const navigate = useNavigate()
-  const { business: instantBusiness } = useInstantAuth()
-  const { canViewAll, availableBranches, effectiveBranchId, readyToFetch } = useBranchContext()
+  const { canViewAll, availableBranches, effectiveBranchId } = useBranchContext()
+  const [branchFilter, setBranchFilter] = useState("all")
+  
+  const scopedBranchId =
+  canViewAll
+    ? (branchFilter === "all" ? null : branchFilter)
+    : effectiveBranchId
+
   const { products: liveProducts } = useProducts(
-    canViewAll ? null : effectiveBranchId,
+    scopedBranchId,
     canViewAll,
   )
+  
+  console.log("Products page", {
+    canViewAll,
+    effectiveBranchId,
+    branchFilter,
+    scopedBranchId,
+    liveProductsCount: liveProducts.length,
+    liveProducts,
+  })
+  
   const [products, setProducts] = useState([])
   const [filtered, setFiltered] = useState([])
   const [search, setSearch] = useState("")
   const [categoryFilter, setCategoryFilter] = useState("all")
-  const [branchFilter, setBranchFilter] = useState("all")
   const [statusFilter, setStatusFilter] = useState("all")
   const [categories, setCategories] = useState([])
 
@@ -37,10 +51,7 @@ export default function Products() {
     if (categoryFilter !== "all") {
       result = result.filter((p) => p.category === categoryFilter)
     }
-    if (canViewAll && branchFilter !== "all") {
-      result = result.filter((p) => p.branch_id === branchFilter)
-    }
-    if (statusFilter !== "all") {
+        if (statusFilter !== "all") {
       if (statusFilter === "active") {
         result = result.filter((p) => Number(p.current_quantity || 0) > 0)
       } else if (statusFilter === "low") {

@@ -9,9 +9,7 @@ export function useProducts(branchId = null, isOwnerOrManager = false) {
 
   useEffect(() => {
     console.log('useProducts hook:', { business, branchId, isOwnerOrManager })
-    if (!business?.id) return
-
-    if (!isOwnerOrManager && !branchId) {
+    if (!business?.id) {
       setProducts([])
       setLoading(false)
       return
@@ -78,7 +76,7 @@ export function useProducts(branchId = null, isOwnerOrManager = false) {
     return () => {
       active = false
       subscription?.unsubscribe()
-      replication?.cancel()
+      replication?.cancel?.()
     }
   }, [business?.id, branchId, isOwnerOrManager])
 

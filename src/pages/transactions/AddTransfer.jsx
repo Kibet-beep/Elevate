@@ -82,71 +82,93 @@ export default function AddTransfer() {
       return
     }
 
-    setLoading(true)
-
-    const transferId = crypto.randomUUID()
-
-    const transfer = {
-      id: transferId,
-      business_id: businessId,
-      branch_id: resolvedBranchId,
-      from_account: fromAccount,
-      to_account: toAccount,
-      amount: amt,
-      transaction_cost: cost,
-      date: new Date(date).toISOString(),
-      note: note || null,
-      created_by: userId,
+    if (cost < 0) {
+      setError("Transaction cost cannot be negative")
+      return
     }
 
-    // If there's a transaction cost, build the expense too
-    let costExpense = null
-    if (cost > 0) {
-      const txnId = crypto.randomUUID()
-      costExpense = {
-        transaction: {
-          id: txnId,
-          business_id: businessId,
-          branch_id: resolvedBranchId,
-          type: "expense",
-          transaction_type_tag: "operating_expense",
-          payment_account: fromAccount,
-          account_code: "6600",
-          date: new Date(date).toISOString(),
-          created_by: userId,
-          lifecycle_state: "finalized",
-          amount: cost,
-          display_name: "Transfer cost",
-        },
-        expense: {
-          transaction_id: txnId,
-          category: "Transfer cost",
-          amount: cost,
-          description: `Transfer cost: ${accountLabel(fromAccount)} → ${accountLabel(toAccount)}`
+    if (cost > amt) {
+      setError("Transaction cost cannot exceed transfer amount")
+      return
+    }
+
+    setLoading(true)
+    setError("")
+
+    try {
+      const transferId = crypto.randomUUID()
+
+      const transfer = {
+        id: transferId,
+        business_id: businessId,
+        branch_id: resolvedBranchId,
+        from_account: fromAccount,
+        to_account: toAccount,
+        amount: amt,
+        transaction_cost: cost,
+        date: new Date(date).toISOString(),
+        note: note || null,
+        created_by: userId,
+      }
+
+      let costExpense = null
+
+      if (hasCost && cost > 0) {
+        const txnId = crypto.randomUUID()
+
+        costExpense = {
+          transaction: {
+            id: txnId,
+            business_id: businessId,
+            branch_id: resolvedBranchId,
+            type: "expense",
+            transaction_type_tag: "operating_expense",
+            payment_account: fromAccount,
+            account_code: "6600",
+            date: new Date(date).toISOString(),
+            created_by: userId,
+            lifecycle_state: "finalized",
+            amount: cost,
+            display_name: "Transfer cost",
+            _modified: Date.now(),
+            _deleted: false,
+          },
+          expense: {
+            transaction_id: txnId,
+            category: "Transfer cost",
+            amount: cost,
+            description: `Transfer cost: ${accountLabel(fromAccount)} → ${accountLabel(toAccount)}`,
+          },
         }
       }
+
+      const db = await getDb()
+
+      await db.transactions.insert({
+        id: transferId,
+        business_id: businessId,
+        branch_id: resolvedBranchId,
+        type: "transfer",
+        transaction_type_tag: "internal_transfer",
+        payment_account: fromAccount,
+        account_code: "0000",
+        date: new Date(date).toISOString(),
+        created_by: userId,
+        lifecycle_state: "finalized",
+        amount: amt,
+        display_name: `Transfer ${accountLabel(fromAccount)} → ${accountLabel(toAccount)}`,
+        _modified: Date.now(),
+        _deleted: false,
+        transfer,
+        costExpense,
+      })
+
+      setSuccess(true)
+    } catch (err) {
+      setError(err?.message || "Failed to record transfer")
+    } finally {
+      setLoading(false)
     }
-
-    const db = await getDb()
-    await db.transactions.insert({
-      id: transferId,
-      business_id: businessId,
-      branch_id: resolvedBranchId,
-      type: "transfer",
-      transaction_type_tag: "internal_transfer",
-      payment_account: fromAccount,
-      account_code: "0000",
-      date: new Date(date).toISOString(),
-      created_by: userId,
-      lifecycle_state: "finalized",
-      amount: amt,
-      display_name: `Transfer ${accountLabel(fromAccount)} → ${accountLabel(toAccount)}`,
-      transfer,
-      costExpense,
-    })
-
-    setSuccess(true)
-    setLoading(false)
   }
 
   const reset = () => {

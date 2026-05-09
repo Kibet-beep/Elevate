@@ -6,6 +6,7 @@ import { useBranchContext } from "../../context/BranchContext"
 import { BranchSelector } from "../../components/BranchSelector"
 import { AppShell, UiButton, UiCard, UiSectionTitle } from "../../components/ui"
 import { getDb } from "../../lib/db"
+import { toTransactionDateEAT } from "../../features/dashboard/utils/dashboard.time"
 
 const EXPENSE_CATEGORIES = [
   "Rent", "Utilities", "Salaries & Wages", "Transport",
@@ -46,52 +47,65 @@ export default function AddExpense() {
   }, [businessId, authUser])
 
   const handleSubmit = async () => {
-    const amountNum = parseFloat(amount) || 0
-    if (!category || !amount) {
-      setError("Category and amount are required")
-      return
-    }
-    if (amountNum <= 0) {
-      setError("Amount must be greater than zero")
-      return
-    }
+  if (loading) return
 
-    if (!readyToFetch) {
-      setError("Loading branch context, please wait")
-      return
-    }
-    if (canViewAll && !resolvedBranchId) {
-      setError("Select a branch before recording an expense")
-      return
-    }
-    if (!resolvedBranchId) {
-      setError("Your branch is not assigned yet. Contact the owner.")
-      return
-    }
+  const amountNum = parseFloat(amount) || 0
 
+  if (!category || !amount) {
+    setError("Category and amount are required")
+    return
+  }
+
+  if (amountNum <= 0) {
+    setError("Amount must be greater than zero")
+    return
+  }
+
+  if (!readyToFetch) {
+    setError("Loading branch context, please wait")
+    return
+  }
+
+  if (canViewAll && !resolvedBranchId) {
+    setError("Select a branch before recording an expense")
+    return
+  }
+
+  if (!resolvedBranchId) {
+    setError("Your branch is not assigned yet. Contact owner.")
+    return
+  }
+
+  try {
     setLoading(true)
     setError("")
 
     const accountCode = ACCOUNT_MAP[category] || "6600"
-    const tag = category === "Stock Purchase" ? "cost_of_goods_sold"
-      : category === "Equipment" ? "asset_purchase"
-      : "operating_expense"
+
+    const tag =
+      category === "Stock Purchase"
+        ? "cost_of_goods_sold"
+        : category === "Equipment"
+          ? "asset_purchase"
+          : "operating_expense"
 
     const transactionId = crypto.randomUUID()
 
     const transaction = {
-      id:                   transactionId,
-      business_id:          businessId,
-      branch_id:            resolvedBranchId,
-      type:                 "expense",
+      id: transactionId,
+      business_id: businessId,
+      branch_id: resolvedBranchId,
+      type: "expense",
       transaction_type_tag: tag,
-      payment_account:      paymentAccount,
-      account_code:         accountCode,
-      date:                 new Date(date).toISOString(),
-      created_by:           userId,
-      lifecycle_state:      "finalized",
-      amount:               amountNum,
-      display_name:         category,
+      payment_account: paymentAccount,
+      account_code: accountCode,
+      date: toTransactionDateEAT(date),
+      created_by: userId,
+      lifecycle_state: "finalized",
+      amount: amountNum,
+      display_name: category,
+      _modified: Date.now(),
+      _deleted: false,
       expense: {
         transaction_id: transactionId,
         category,
@@ -104,8 +118,12 @@ export default function AddExpense() {
     await db.transactions.insert(transaction)
 
     setSuccess(true)
+  } catch (err) {
+    setError(err?.message || "Failed to record expense")
+  } finally {
     setLoading(false)
   }
+}
 
   const fmt = (n) => `KES ${Number(n).toLocaleString("en-KE", { minimumFractionDigits: 2 })}`
 

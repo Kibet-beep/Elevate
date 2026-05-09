@@ -1,8 +1,9 @@
 import { useState, useEffect, useMemo, useRef } from "react"
-import { supabase } from "../../lib/supabase"
 import { useNavigate } from "react-router-dom"
 import { useUser, useCurrentBusiness } from "../../hooks/useRole"
 import { useBranchContext } from "../../context/BranchContext"
+import { useProducts } from "../../hooks/useProducts"
+import { createOpeningBaseline } from "../../services/inventoryService"
 import { AppShell, UiButton, UiCard, UiSectionTitle, CategorySelect } from "../../components/ui"
 import { BranchSelector } from "../../components/BranchSelector"
 
@@ -18,14 +19,17 @@ export default function OpeningStock() {
     isManager,
     readyToFetch,
   } = useBranchContext()
-  const [userId, setUserId] = useState(null)
+  const [userId, setUserId] = useState(authUser?.id ?? null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
   const [success, setSuccess] = useState(false)
   const resolvedBranchId = effectiveBranchId
 
-  // Product states
-  const [existingProducts, setExistingProducts] = useState([])
+  // Use shared products hook instead of local state
+  const { products: existingProducts, loading: productsLoading } = useProducts(
+    effectiveBranchId,
+    canViewAll,
+  )
   const [addedStock, setAddedStock] = useState([])
   const [selectedProduct, setSelectedProduct] = useState(null)
   const [productSearch, setProductSearch] = useState("")
@@ -72,39 +76,7 @@ export default function OpeningStock() {
     previousBranchIdRef.current = resolvedBranchId
   }, [resolvedBranchId])
 
-  const fetchInitialData = async () => {
-    if (canViewAll && !resolvedBranchId) {
-      setExistingProducts([])
-      setError("Select a branch before setting opening stock")
-      return
-    }
-    if (!resolvedBranchId) {
-      setExistingProducts([])
-      setError("Your branch is not assigned yet. Contact the owner.")
-      return
-    }
-
-    setError("")
-    setUserId(authUser.id)
-
-    let query = supabase
-      .from("products")
-      .select("id, name, sku_id, selling_price, unit_of_measure, category, branch_id, branches!left(name, code)")
-      .eq("business_id", businessId)
-      .not("is_active", "eq", false)
-      .order("name")
-
-    query = query.eq("branch_id", resolvedBranchId)
-
-    const { data: productsData } = await query
-    setExistingProducts(productsData || [])
-  }
-
-  useEffect(() => {
-    if (businessId && authUser && readyToFetch) {
-      void fetchInitialData()
-    }
-  }, [businessId, authUser, resolvedBranchId, readyToFetch, canViewAll])
+  // Product fetching is now handled by useBranchScopedProducts hook
 
   const generateSKU = (productName) => {
     const words = productName.trim().toUpperCase().split(" ")
@@ -203,147 +175,36 @@ export default function OpeningStock() {
     setError("")
 
     try {
-      const reservedSkus = new Set(existingProducts.map((product) => product.sku_id).filter(Boolean))
-      const branchId = resolvedBranchId
-      const stagedItems = addedStock.map((item, index) => ({ ...item, index }))
-      const newItems = stagedItems.filter((item) => item.mode === "new")
-      const existingItems = stagedItems.filter((item) => item.mode === "existing")
+      // Convert staged items to service format
+      const baselineItems = addedStock.map(item => ({
+        productId: item.mode === "existing" ? item.productId : undefined,
+        productName: item.productName,
+        quantity: item.quantity,
+        unitCost: item.unitCost,
+        category: item.category || undefined,
+        unit: item.unit || "pcs",
+        buyingPrice: item.landedCostPerUnit,
+        sellingPrice: item.sellingPrice,
+      }))
 
-      const newProductPayload = newItems
-        .map((item) => ({
-          index: item.index,
-          sku: generateUniqueSKU(item.productName, reservedSkus),
-          business_id: businessId,
-          branch_id: branchId,
-          is_active: true,
-          sku_id: null,
-          name: item.productName,
-          category: item.category,
-          unit_of_measure: item.unit || defaultUnit,
-          buying_price: item.landedCostPerUnit,
-          selling_price: item.sellingPrice,
-          current_quantity: item.quantity,
-        }))
-        .map((row) => ({
-          ...row,
-          sku_id: row.sku,
-        }))
+      // Use the new service to create opening baseline
+      const result = await createOpeningBaseline({
+        businessId,
+        branchId: resolvedBranchId,
+        openingDate,
+        userId: userId,
+        items: baselineItems,
+      })
 
-      let insertedProducts = []
-      if (newProductPayload.length > 0) {
-        const { data, error: insertError } = await supabase
-          .from("products")
-          .insert(newProductPayload.map((row) => {
-            const insertRow = { ...row }
-            delete insertRow.index
-            delete insertRow.sku
-            return insertRow
-          }))
-          .select("id, name, sku_id")
-
-        if (insertError) throw insertError
-        insertedProducts = data || []
+      if (result.success) {
+        setSuccess(true)
+        setAddedStock([])
+        setStep(1)
+        
       }
-
-      if (existingItems.length > 0) {
-        const updateResults = await Promise.all(
-          existingItems.map(async (item) => {
-            const { data: scopedProduct, error: scopeError } = await supabase
-              .from("products")
-              .select("id")
-              .eq("id", item.productId)
-              .eq("business_id", businessId)
-              .eq("branch_id", branchId)
-              .maybeSingle()
-
-            if (scopeError) throw scopeError
-            if (!scopedProduct) {
-              throw new Error(`Product "${item.productName}" does not belong to the selected branch`)
-            }
-
-            return supabase
-              .from("products")
-              .update({
-                current_quantity: item.quantity,
-                buying_price: item.landedCostPerUnit,
-                selling_price: item.sellingPrice,
-              })
-              .eq("id", item.productId)
-              .eq("business_id", businessId)
-              .eq("branch_id", branchId)
-          })
-        )
-
-        const failedUpdate = updateResults.find((result) => result.error)
-        if (failedUpdate?.error) throw failedUpdate.error
-      }
-
-      const insertedByIndex = new Map(
-        newItems.map((item, idx) => [
-          item.index,
-          {
-            productId: insertedProducts[idx]?.id || null,
-            productName: insertedProducts[idx]?.name || item.productName,
-            sku: insertedProducts[idx]?.sku_id || newProductPayload[idx]?.sku || null,
-          },
-        ])
-      )
-
-      const persistedItems = stagedItems
-        .map((item) => {
-          if (item.mode === "existing") return item
-
-          const inserted = insertedByIndex.get(item.index)
-          return {
-            ...item,
-            productId: inserted?.productId,
-            productName: inserted?.productName || item.productName,
-            sku: inserted?.sku || item.sku,
-          }
-        })
-        .sort((a, b) => a.index - b.index)
-
-      const snapshot = {
-        branchId,
-        branchName: activeBranchInfo?.name || null,
-        stockTakeDate: openingDate,
-        products: persistedItems.map((item) => ({
-          productId: item.productId,
-          productName: item.productName,
-          quantity: item.quantity,
-          unitCost: item.unitCost,
-        })),
-        createdBy: userId,
-        createdAt: new Date().toISOString(),
-      }
-
-      const { data: baseline } = await supabase
-        .from("float_baseline")
-        .select("opening_stock")
-        .eq("business_id", businessId)
-        .maybeSingle()
-
-      const existingSnapshots = Array.isArray(baseline?.opening_stock) ? baseline.opening_stock : []
-      const updatedSnapshots = [
-        ...existingSnapshots.filter((s) => s.branchId !== snapshot.branchId),
-        snapshot,
-      ]
-
-      const { error: upsertError } = await supabase
-        .from("float_baseline")
-        .upsert({
-          business_id: businessId,
-          opening_stock: updatedSnapshots,
-          opening_stock_date: openingDate,
-          updated_at: new Date().toISOString(),
-        }, { onConflict: "business_id" })
-
-      if (upsertError) throw upsertError
-
-      setSuccess(true)
-      setAddedStock(persistedItems)
     } catch (err) {
-      setError(err.message || "Failed to save baseline")
+      setError(err?.message || "Failed to save opening baseline")
+      console.error("Opening baseline error:", err)
     } finally {
       setLoading(false)
     }

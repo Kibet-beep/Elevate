@@ -3,7 +3,6 @@ import { useState, useMemo } from "react"
 import { useNavigate } from "react-router-dom"
 import FloatingBottomNav from "../../components/layout/FloatingBottomNav"
 import { AppShell, UiButton, UiCard } from "../../components/ui"
-import { useIsOwnerOrManager } from "../../hooks/useRole"
 import { useInstantAuth } from "../../hooks/useInstantAuth"
 import { useBranchContext } from "../../context/BranchContext"
 import { BranchSelector } from "../../components/BranchSelector"
@@ -12,16 +11,18 @@ import { useProducts } from "../../hooks/useProducts"
 export default function Inventory() {
   const navigate = useNavigate()
   const { business: instantBusiness, signOut } = useInstantAuth()
-  const isOwnerOrManager = useIsOwnerOrManager()
-  const { canViewAll, availableBranches, effectiveBranchId } = useBranchContext()
-  const { products, loading } = useProducts(effectiveBranchId, isOwnerOrManager)
+  const { canViewAll, effectiveBranchId, activeBranch, availableBranches } = useBranchContext()
+
+  const { products, loading } = useProducts(
+    effectiveBranchId,
+    canViewAll,
+  )
 console.log('products:', products, 'loading:', loading, 'effectiveBranchId:', effectiveBranchId, 'business:', instantBusiness?.id)
   const [search, setSearch] = useState("")
   const [categoryFilter, setCategoryFilter] = useState("all")
   const [riskFilter, setRiskFilter] = useState("all")
   const [mobileFilterOpen, setMobileFilterOpen] = useState(false)
-  const [selectedProduct, setSelectedProduct] = useState(null)
-  const categories = useMemo(() => [...new Set(products.map((product) => product.category).filter(Boolean))], [products])
+    const categories = useMemo(() => [...new Set(products.map((product) => product.category).filter(Boolean))], [products])
 
   const filtered = useMemo(() => {
     let result = products
@@ -75,6 +76,8 @@ console.log('products:', products, 'loading:', loading, 'effectiveBranchId:', ef
       totalValue
     }
   }, [products])
+
+  const isOwnerOrManager = canViewAll
 
   return (
     <AppShell showHeader={false} className="pb-24" contentClassName="max-w-6xl space-y-4">
@@ -353,57 +356,7 @@ console.log('products:', products, 'loading:', loading, 'effectiveBranchId:', ef
         </div>
       )}
 
-      {selectedProduct && (
-        <div className="md:hidden fixed inset-0 z-[60] bg-black/60" onClick={() => setSelectedProduct(null)}>
-          <div
-            className="absolute bottom-0 left-0 right-0 bg-zinc-900 border-t border-zinc-800 rounded-t-3xl p-5"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="w-12 h-1 bg-zinc-700 rounded-full mx-auto mb-4" />
-            <p className="text-white text-base font-semibold">{selectedProduct.name}</p>
-            <p className="text-zinc-500 text-xs mt-1">SKU {selectedProduct.sku_id}</p>
-
-            <div className="mt-4 space-y-3 text-sm">
-              <div className="flex items-center justify-between">
-                <p className="text-zinc-500">Category</p>
-                <p className="text-zinc-300">{selectedProduct.category || "-"}</p>
-              </div>
-              <div className="flex items-center justify-between">
-                <p className="text-zinc-500">Units</p>
-                <p className="text-zinc-200 font-mono">{Number(selectedProduct.current_quantity || 0)}</p>
-              </div>
-              <div className="flex items-center justify-between">
-                <p className="text-zinc-500">Reorder point</p>
-                <p className="text-zinc-300 font-mono">{Number(selectedProduct.reorder_point || 0)}</p>
-              </div>
-              <div className="flex items-center justify-between">
-                <p className="text-zinc-500">Buying</p>
-                <p className="text-zinc-300 font-mono">{fmt(selectedProduct.buying_price || 0)}</p>
-              </div>
-              <div className="flex items-center justify-between border-t border-zinc-800 pt-3">
-                <p className="text-zinc-500">Selling</p>
-                <p className="text-emerald-400 font-mono">{fmt(selectedProduct.selling_price || 0)}</p>
-              </div>
-            </div>
-
-            <div className="mt-5 grid grid-cols-2 gap-2">
-              <button
-                onClick={() => setSelectedProduct(null)}
-                className="bg-zinc-800 hover:bg-zinc-700 text-zinc-200 rounded-xl py-3 text-sm font-medium transition-colors"
-              >
-                Close
-              </button>
-              <button
-                onClick={() => navigate(`/inventory/product/${selectedProduct.id}`)}
-                className="bg-emerald-500 hover:bg-emerald-400 text-black rounded-xl py-3 text-sm font-semibold transition-colors"
-              >
-                View product
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-    </AppShell>
+          </AppShell>
   )
 }
 

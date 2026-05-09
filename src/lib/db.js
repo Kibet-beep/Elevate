@@ -440,10 +440,11 @@ export function startBranchAssignmentsReplication(collection, businessId) {
     collection,
     supabaseClient: supabase,
     pull: {
-      queryBuilder: (checkpoint) => {
+      queryBuilder: async (checkpoint) => {
         let query = supabase
           .from('user_branch_assignments')
-          .select('*')
+          .select('*, branches!inner(business_id)')
+          .eq('branches.business_id', businessId)
           .order('_modified', { ascending: true })
           .order('user_id', { ascending: true })
           .order('branch_id', { ascending: true })
@@ -453,20 +454,21 @@ export function startBranchAssignmentsReplication(collection, businessId) {
           query = query.gt('_modified', checkpoint.modified)
         }
 
-        return query
+        const { data } = await query
+        return data.map(row => ({
+          id: `${row.user_id}:${row.branch_id}`,
+          user_id: row.user_id,
+          branch_id: row.branch_id,
+          role: row.role,
+          is_active: row.is_active,
+          syncStatus: 'synced',
+          syncError: null,
+          syncedAt: row._modified,
+          _modified: row._modified,
+          _deleted: false,
+        }))
       },
-      mapDocument: (row) => ({
-        id: `${row.user_id}:${row.branch_id}`,
-        user_id: row.user_id,
-        branch_id: row.branch_id,
-        role: row.role,
-        is_active: row.is_active,
-        syncStatus: 'synced',
-        syncError: null,
-        syncedAt: row._modified ?? Date.now(),
-        _modified: row._modified ?? Date.now(),
-        _deleted: false,
-      }),
+      mapDocument: (row) => row,
     },
     push: {
       customInsertHandler: async (doc) => {
@@ -501,9 +503,5 @@ export function startBranchAssignmentsReplication(collection, businessId) {
   })
 
   attachAutoResync(replication)
-
-  if (typeof window !== 'undefined') {
-    window.addEventListener('online', () => replication.reSync())
-  }
   return replication
 }

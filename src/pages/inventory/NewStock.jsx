@@ -212,6 +212,12 @@ export default function NewStock() {
         _deleted: false,
       })
 
+      const allProducts = await db.products.find().exec()
+      console.log("LOCAL PRODUCTS AFTER SAVE", allProducts.map(p => p.toJSON()))
+
+      const allEntries = await db.stock_entries.find().exec()
+      console.log("LOCAL STOCK ENTRIES AFTER SAVE", allEntries.map(e => e.toJSON()))
+
       productsReplication.reSync()
       stockEntriesReplication.reSync()
 
