@@ -104,7 +104,7 @@ export default function Branches() {
         if (refreshBranches) refreshBranches()
         return
       } else {
-        const id = crypto.randomUUID()
+        const id = crypto.randomUUID?.() || `branch_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
         await db.branches.insert({ id, ...branchData, is_active: true, status: 'active', _modified: Date.now(), _deleted: false })
 
         closeForm()

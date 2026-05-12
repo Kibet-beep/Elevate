@@ -86,11 +86,15 @@ function TodayReport({ todayTransactions, todaySummary, fmt }) {
                 ))}
               </tbody>
             </table>
-          ) : t.type === "expense" && t.expense ? (
+          ) : t.type === "expense" && (t.expense || t.expenses) ? (
             <div className="space-y-1">
               <div className="flex items-center justify-between">
-                <p className="text-zinc-400 text-xs">{t.expense.category}</p>
-                <p className="text-zinc-300 text-xs font-mono">{fmt(t.expense.amount)}</p>
+                <p className="text-zinc-400 text-xs">
+                  {t.expense?.category || t.expenses?.[0]?.category || "Expense"}
+                </p>
+                <p className="text-zinc-300 text-xs font-mono">
+                  {fmt(t.expense?.amount || t.expenses?.[0]?.amount || 0)}
+                </p>
               </div>
             </div>
           ) : null}
@@ -214,18 +218,18 @@ function DashboardAccessIssue({ issue }) {
 
 export default function Dashboard() {
   const { navigateInstant } = useInstantNavigation()
-  const { canViewAll, activeBranch, viewMode } = useBranchContext()
+  const { canViewAll, activeBranch, viewMode, effectiveBranchId } = useBranchContext()
   
   // Single source of truth for auth/business/branch state
-  const { business, branchId, loading, accessIssue } = useDashboardContext()
+  const { business, loading, accessIssue } = useDashboardContext()
 
   const { products, loading: productsLoading } = useProducts(
-    canViewAll ? null : branchId,
+    canViewAll ? null : effectiveBranchId,
     canViewAll
   )
   
   // Domain-specific hooks - pass dashboard context to prevent duplicate subscriptions
-  const { todayTransactions, todaySummary, error: todayError } = useTodayActivity({ business })
+  const { todayTransactions, todaySummary, error: todayError } = useTodayActivity({ business, branchId: effectiveBranchId })
 
   const lowStockProducts = useMemo(() => {
     const threshold = Number(business?.low_stock_threshold ?? 10)
@@ -361,9 +365,6 @@ export default function Dashboard() {
 
             <div className="flex flex-wrap items-center gap-2 xl:justify-end">
               {canViewAll ? <BranchSelector /> : null}
-              <UiButton variant="tertiary" size="sm" onClick={() => navigateInstant("/")} className="text-zinc-400 hover:text-red-400">
-                Sign out
-              </UiButton>
             </div>
           </div>
 

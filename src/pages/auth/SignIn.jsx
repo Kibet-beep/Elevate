@@ -32,11 +32,31 @@ export default function SignIn() {
     }
 
     setLoading(true)
-    const { error } = await supabase.auth.signInWithPassword({ email, password })
-    if (error) {
-      setError(error.message)
+    try {
+      console.log("[SIGN-IN] Attempting login with email:", email)
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email: email.trim(),
+        password,
+      })
+
+      if (error) {
+        console.error("[SIGN-IN] Supabase error:", error)
+        setError(error.message)
+        return
+      }
+
+      console.log("[SIGN-IN] Success, session:", data.session)
+      // Force navigation immediately if we have a session
+      if (data?.session?.user) {
+        navigate("/dashboard", { replace: true })
+      }
+
+    } catch (err) {
+      console.error("[SIGN-IN] Unexpected error:", err)
+      setError(err?.message || "An unexpected error occurred")
+    } finally {
+      setLoading(false)
     }
-    setLoading(false)
   }
 
   return (

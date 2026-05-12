@@ -222,7 +222,7 @@ export default function AddSale() {
 
     const db = await getDb()
 
-    const transactionId = crypto.randomUUID()
+    const transactionId = crypto.randomUUID?.() || `txn_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
 
     const transaction = {
       id: transactionId,
@@ -251,8 +251,17 @@ export default function AddSale() {
       })),
     }
 
-    await db.transactions.insert(transaction)
+    // Optimistic update for immediate UI feedback
+    const optimisticTransaction = {
+      ...transaction,
+      _modified: Date.now(),
+      _deleted: false,
+    }
 
+    // Insert locally first for instant UI update
+    await db.transactions.insert(optimisticTransaction)
+    
+    // Set success state immediately
     setSuccess(true)
   } catch (err) {
     setError(err?.message || "Failed to record sale")

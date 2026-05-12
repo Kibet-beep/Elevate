@@ -97,6 +97,9 @@ export function BranchProvider({ children }) {
           console.error('Failed to start branches replication:', err)
         }
 
+        // Branch assignments replication is initialized at app level (AppInitializer)
+        // to avoid duplicate realtime subscriptions and ordering issues.
+
         const selector = {
           business_id: resolvedBusinessId,
           status: { $ne: 'archived' },

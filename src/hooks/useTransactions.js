@@ -31,11 +31,13 @@ export function useTransactions(branchId = null) {
         const db = await getDb()
         if (!active) return
 
-        try {
-          replication = startTransactionsReplication(db.transactions, business.id)
-        } catch (replicationError) {
-          console.error("Failed to start transactions replication:", replicationError)
-        }
+        // Note: Transaction replication is handled by AppInitializer to prevent duplicates
+        // try {
+        //   replication = startTransactionsReplication(db.transactions, business.id)
+        // } catch (replicationError) {
+        //   console.error("Failed to start transactions replication:", replicationError)
+        // }
+        console.log("[USE-TRANSACTIONS] Skipping replication - handled by AppInitializer")
 
         const selector = {
           business_id: business.id,

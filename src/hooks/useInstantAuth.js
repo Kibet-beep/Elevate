@@ -11,8 +11,43 @@ export function useInstantAuth() {
   const clearAuthSnapshot = useAppStore((state) => state.clearAuthSnapshot)
 
   const signOut = useCallback(async () => {
-    await supabase.auth.signOut()
-    clearAuthSnapshot()
+    let timeoutId
+
+    try {
+      console.log("[SIGNOUT] START")
+
+      const timeoutPromise = new Promise((_, reject) => {
+        timeoutId = window.setTimeout(() => {
+          reject(new Error("Sign out timed out"))
+        }, 10000)
+      })
+
+      const signOutPromise = supabase.auth.signOut()
+
+      const { error } = await Promise.race([
+        signOutPromise,
+        timeoutPromise,
+      ])
+
+      console.log("[SIGNOUT] RESPONSE:", error)
+
+      if (error) {
+        throw error
+      }
+    } catch (err) {
+      console.error("[SIGNOUT] ERROR:", err)
+    } finally {
+      if (timeoutId) {
+        window.clearTimeout(timeoutId)
+      }
+
+      clearAuthSnapshot()
+      console.log("[SIGNOUT] CLEARED STORE")
+
+      if (typeof window !== "undefined") {
+        window.location.replace("/")
+      }
+    }
   }, [clearAuthSnapshot])
 
   return {

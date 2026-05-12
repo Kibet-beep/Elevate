@@ -33,7 +33,9 @@ serve(async (req: Request) => {
       { global: { headers: { Authorization: authHeader } } }
     )
 
+    console.log("[1] Fetching caller user...")
     const { data: { user: caller }, error: callerError } = await callerClient.auth.getUser()
+    console.log("[1] Caller fetched:", caller?.id)
     if (callerError || !caller) {
       return new Response(JSON.stringify({ error: "Unauthorized" }), {
         status: 401,
@@ -42,11 +44,13 @@ serve(async (req: Request) => {
     }
 
     // ── 2. Verify caller is owner or manager ──
+    console.log("[2] Fetching caller data from users table...")
     const { data: callerData, error: callerDataError } = await callerClient
       .from("users")
       .select("role, business_id")
       .eq("id", caller.id)
       .single()
+    console.log("[2] Caller data fetched:", callerData?.role)
 
     if (callerDataError || !callerData) {
       return new Response(JSON.stringify({ error: "Could not verify caller identity" }), {
@@ -107,19 +111,23 @@ serve(async (req: Request) => {
     }
 
     // ── 4. Admin client for privileged operations ──
+    console.log("[3] Creating admin client...")
     const adminClient = createClient(
       supabaseUrl,
       supabaseServiceRoleKey,
       { auth: { autoRefreshToken: false, persistSession: false } }
     )
+    console.log("[3] Admin client created")
 
     // ── 5. Verify the branch exists and belongs to this business ──
+    console.log("[4] Verifying branch...", { branchId, businessId })
     const { data: branchData, error: branchError } = await adminClient
       .from("branches")
       .select("id, name, is_active")
       .eq("id", branchId)
       .eq("business_id", businessId)
       .single()
+    console.log("[4] Branch verified:", branchData?.name)
 
     if (branchError || !branchData) {
       return new Response(JSON.stringify({ 
@@ -140,12 +148,14 @@ serve(async (req: Request) => {
     }
 
     // ── 6. Check for duplicate email within this business ──
+    console.log("[5] Checking for duplicate email...", email)
     const { data: existingUser, error: existingError } = await adminClient
       .from("users")
       .select("id")
       .eq("email", email)
       .eq("business_id", businessId)
       .maybeSingle()
+    console.log("[5] Email check complete")
 
     if (existingError && existingError.code !== "PGRST116") {
       console.error("Error checking for existing user:", existingError)
@@ -165,6 +175,7 @@ serve(async (req: Request) => {
     }
 
     // ── 7. Create the auth user ──
+    console.log("[6] Creating auth user...", email)
     const { data: authData, error: authError } = await adminClient.auth.admin.createUser({
       email,
       password,
@@ -175,6 +186,7 @@ serve(async (req: Request) => {
         business_id: businessId,
       },
     })
+    console.log("[6] Auth user created:", authData.user?.id)
 
     if (authError || !authData.user) {
       console.error("Auth user creation failed:", authError)
@@ -189,6 +201,7 @@ serve(async (req: Request) => {
     const newUserId = authData.user.id
 
     // ── 8. Insert into users table ──
+    console.log("[7] Inserting into users table...")
     const { error: insertError } = await adminClient.from("users").insert({
       id: newUserId,
       full_name: fullName,
@@ -198,6 +211,7 @@ serve(async (req: Request) => {
       default_branch_id: branchId,  // always set — never null
       is_active: true,
     })
+    console.log("[7] Users table insert complete")
 
     if (insertError) {
       console.error("Users table insert failed:", insertError)
@@ -212,12 +226,14 @@ serve(async (req: Request) => {
     }
 
     // ── 9. Create branch assignment — must succeed or everything rolls back ──
+    console.log("[8] Creating branch assignment...")
     const { error: assignmentError } = await adminClient.from("user_branch_assignments").insert({
       user_id: newUserId,
       branch_id: branchId,
       role,
       is_active: true,
     })
+    console.log("[8] Branch assignment created")
 
     if (assignmentError) {
       console.error("Branch assignment failed:", assignmentError)
@@ -232,9 +248,10 @@ serve(async (req: Request) => {
       })
     }
 
-    console.log(`Employee created successfully: ${email} → ${branchData.name} (${role})`)
+    console.log(`[9] Employee created successfully: ${email} → ${branchData.name} (${role})`)
 
     // ── 10. Return success ──
+    console.log("[10] Returning success response")
     return new Response(
       JSON.stringify({ 
         success: true, 

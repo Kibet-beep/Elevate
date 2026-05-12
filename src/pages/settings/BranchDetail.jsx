@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import { useNavigate, useParams } from "react-router-dom"
 import { getDb } from "../../lib/db"
+import { supabase } from "../../lib/supabase"
 import { useCurrentBusiness } from "../../hooks/useRole"
 import { useInstantAuth } from "../../hooks/useInstantAuth"
 import { useBranchContext } from "../../context/BranchContext"
@@ -15,7 +16,8 @@ export default function BranchDetail() {
   const { refreshBranches } = useBranchContext()
 
   const [branch, setBranch] = useState(null)
-  const [employees, setEmployees] = useState([])
+  const [employeeList, setEmployeeList] = useState([])
+  const [assignmentCount, setAssignmentCount] = useState(0)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState("")
@@ -29,6 +31,58 @@ export default function BranchDetail() {
 
   const { branches: liveBranches } = useBranches(businessId)
 
+  const loadBranch = useCallback(async () => {
+    if (!id || !businessId) return
+
+    setLoading(true)
+    setError("")
+
+    try {
+      const db = await getDb()
+
+      const localBranch = await db.branches.findOne(id).exec()
+      let branchRecord = localBranch?.toJSON?.() || localBranch || liveBranches.find((item) => item.id === id) || null
+
+      if (!branchRecord) {
+        const { data: remoteBranch, error: remoteBranchError } = await supabase
+          .from("branches")
+          .select("*")
+          .eq("id", id)
+          .eq("business_id", businessId)
+          .single()
+
+        if (remoteBranchError) {
+          throw remoteBranchError
+        }
+
+        if (remoteBranch) {
+          await db.branches.upsert({ ...remoteBranch, _deleted: false, _modified: Date.now() })
+          branchRecord = remoteBranch
+        }
+      }
+
+      if (!branchRecord) {
+        setBranch(null)
+        setEmployeeList([])
+        return
+      }
+
+      setBranch(branchRecord)
+      setName(branchRecord.name || "")
+      setCode(branchRecord.code || "")
+      setAddress(branchRecord.address || "")
+      setPhone(branchRecord.phone || "")
+      setEmail(branchRecord.email || "")
+    } catch (err) {
+      console.error("Failed to load branch detail:", err)
+      setError(err.message || "Failed to load branch")
+      setBranch(null)
+      setEmployeeList([])
+    } finally {
+      setLoading(false)
+    }
+  }, [businessId, id, liveBranches])
+
   const goBack = () => {
     if (window.history.length > 1) {
       navigate(-1)
@@ -37,25 +91,46 @@ export default function BranchDetail() {
     navigate("/settings/branches", { replace: true })
   }
 
-  // Load branch data from live branches
   useEffect(() => {
-    if (!id || !businessId) return
+    void loadBranch()
+  }, [loadBranch])
 
-    const foundBranch = liveBranches.find(b => b.id === id)
-    if (foundBranch) {
-      setBranch(foundBranch)
-      setName(foundBranch.name || "")
-      setCode(foundBranch.code || "")
-      setAddress(foundBranch.address || "")
-      setPhone(foundBranch.phone || "")
-      setEmail(foundBranch.email || "")
-      setLoading(false)
-    } else {
-      setLoading(false)
+  useEffect(() => {
+    if (!businessId || !id) return
+
+    let sub
+
+    const run = async () => {
+      const db = await getDb()
+
+      const query = db.branch_assignments.find({
+        selector: {
+          branch_id: id,
+          _deleted: { $ne: true },
+        },
+      })
+
+      sub = query.$.subscribe((assignments) => {
+        setAssignmentCount(assignments.length)
+
+        setEmployeeList(
+          assignments.map((a) => ({
+            id: a.user_id,
+            role: a.role,
+            branch_id: a.branch_id,
+            is_active: a.is_active ?? true,
+          }))
+        )
+      })
     }
-  }, [liveBranches, id, businessId])
 
-  const assignedCount = useMemo(() => employees.length, [employees])
+    run()
+
+    return () => sub?.unsubscribe()
+  }, [businessId, id])
+
+  // assignedCount is derived directly from assignment count - no memo needed
+  const assignedCount = assignmentCount
 
   const handleSave = async () => {
     if (!branch || !name) {
@@ -122,9 +197,9 @@ export default function BranchDetail() {
       const db = await getDb()
       const doc = await db.branches.findOne(id).exec()
       if (doc) {
-        await doc.incrementalPatch({ status: 'archived', _modified: Date.now() })
+        await doc.incrementalPatch({ status: 'archived', _deleted: true, _modified: Date.now() })
       } else {
-        await db.branches.upsert({ id, status: 'archived', business_id: businessId, _modified: Date.now() })
+        await db.branches.upsert({ id, status: 'archived', business_id: businessId, _deleted: true, _modified: Date.now() })
       }
 
       await refreshBranches?.()
@@ -320,11 +395,11 @@ export default function BranchDetail() {
             <h3 className="text-white font-medium text-sm">Assigned Employees</h3>
             <UiButton variant="secondary" size="sm" onClick={addEmployees}>Add employees</UiButton>
           </div>
-          {employees.length === 0 ? (
+          {employeeList.length === 0 ? (
             <p className="text-zinc-500 text-sm">No employees assigned to this branch yet.</p>
           ) : (
             <div className="space-y-2">
-              {employees.map((employee) => (
+              {employeeList.map((employee) => (
                 <button
                   key={employee.id}
                   onClick={() => navigate(`/settings/employees/${employee.id}`)}

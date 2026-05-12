@@ -3,8 +3,9 @@ import { useInstantAuth } from '../../../hooks/useInstantAuth'
 import { useBranchContext } from '../../../context/BranchContext'
 
 export function useDashboardContext() {
+  // Always call hooks in the same order
   const { business } = useInstantAuth()
-  const { effectiveBranchId } = useBranchContext()
+  const { isOwner, effectiveBranchId } = useBranchContext()
   
   const hasBusiness = Boolean(business?.id)
   
@@ -14,7 +15,7 @@ export function useDashboardContext() {
   if (!hasBusiness) {
     accessIssue = 'Business not found'
     loading = true
-  } else if (!effectiveBranchId && business?.role !== 'owner') {
+  } else if (!effectiveBranchId && !isOwner) {
     accessIssue = 'No branch assigned'
     loading = false
   }

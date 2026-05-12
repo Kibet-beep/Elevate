@@ -270,7 +270,7 @@ export default function StockTake() {
     setLoading(true)
     setError("")
 
-    const newStockTakeId = crypto.randomUUID()
+    const newStockTakeId = crypto.randomUUID?.() || `stock_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
 
     const stockTake = {
       id: newStockTakeId,
@@ -284,7 +284,7 @@ export default function StockTake() {
 
     const db = await getDb()
     await db.transactions.insert({
-      id: crypto.randomUUID(),
+      id: crypto.randomUUID?.() || `txn_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
       business_id: businessId,
       branch_id: resolvedBranchId,
       type: "stock_take_create",
@@ -318,7 +318,7 @@ export default function StockTake() {
 
     const db = await getDb()
     await db.transactions.insert({
-      id: crypto.randomUUID(),
+      id: crypto.randomUUID?.() || `txn_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
       business_id: businessId,
       branch_id: resolvedBranchId,
       type: "stock_take_submit_counts",
@@ -351,7 +351,7 @@ export default function StockTake() {
 
     const db = await getDb()
     await db.transactions.insert({
-      id: crypto.randomUUID(),
+      id: crypto.randomUUID?.() || `txn_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
       business_id: businessId,
       branch_id: resolvedBranchId,
       type: "stock_take_approve",

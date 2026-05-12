@@ -398,110 +398,134 @@ export function startStockEntriesReplication(collection, businessId) {
   return replication
 }
 
-export function startBranchesReplication(collection, businessId) {
-  const replication = new SupabaseReplication({
-    replicationIdentifier: `branches-${businessId}`,
-    collection,
-    supabaseClient: supabase,
-    pull: {
-      queryBuilder: (checkpoint) => {
-        let query = supabase
-          .from('branches')
-          .select('*')
-          .eq('business_id', businessId)
-          .order('_modified', { ascending: true })
-          .order('id', { ascending: true })
-          .limit(200)
+const replicationRegistry = new Map()
 
-        if (checkpoint?.modified) {
-          query = query.gt('_modified', checkpoint.modified)
-        }
+function getReplicationRegistryKey(prefix, businessId) {
+  return `${prefix}-${businessId}`
+}
 
-        return query
-      }
-    },
-    push: {
-      queryBuilder: (rows) => {
-        return supabase
-          .from('branches')
-          .upsert(rows.map(r => stripSyncMetadata(r.newDocumentState)))
-      }
-    },
-    live: true,
-  })
+function startSingletonReplication(prefix, businessId, createReplication) {
+  const key = getReplicationRegistryKey(prefix, businessId)
+  const existing = replicationRegistry.get(key)
 
-  attachAutoResync(replication)
+  if (existing) {
+    return existing
+  }
+
+  const replication = createReplication()
+  replicationRegistry.set(key, replication)
+
   return replication
 }
 
-export function startBranchAssignmentsReplication(collection, businessId) {
-  const replication = new SupabaseReplication({
-    replicationIdentifier: `branch-assignments-${businessId}`,
-    collection,
-    supabaseClient: supabase,
-    pull: {
-      queryBuilder: async (checkpoint) => {
-        let query = supabase
-          .from('user_branch_assignments')
-          .select('*, branches!inner(business_id)')
-          .eq('branches.business_id', businessId)
-          .order('_modified', { ascending: true })
-          .order('user_id', { ascending: true })
-          .order('branch_id', { ascending: true })
-          .limit(300)
+export function startBranchesReplication(collection, businessId) {
+  return startSingletonReplication('branches', businessId, () => {
+    const replication = new SupabaseReplication({
+      replicationIdentifier: `branches-${businessId}`,
+      collection,
+      supabaseClient: supabase,
+      pull: {
+        queryBuilder: (checkpoint) => {
+          let query = supabase
+            .from('branches')
+            .select('*')
+            .eq('business_id', businessId)
+            .order('_modified', { ascending: true })
+            .order('id', { ascending: true })
+            .limit(200)
 
-        if (checkpoint?.modified) {
-          query = query.gt('_modified', checkpoint.modified)
+          if (checkpoint?.modified) {
+            query = query.gt('_modified', checkpoint.modified)
+          }
+
+          return query
         }
-
-        const { data } = await query
-        return data.map(row => ({
-          id: `${row.user_id}:${row.branch_id}`,
-          user_id: row.user_id,
-          branch_id: row.branch_id,
-          role: row.role,
-          is_active: row.is_active,
-          syncStatus: 'synced',
-          syncError: null,
-          syncedAt: row._modified,
-          _modified: row._modified,
-          _deleted: false,
-        }))
       },
-      mapDocument: (row) => row,
-    },
-    push: {
-      customInsertHandler: async (doc) => {
-        const { error } = await supabase
-          .from('user_branch_assignments')
-          .upsert(stripSyncMetadata({
-            user_id: doc.user_id,
-            branch_id: doc.branch_id,
-            role: doc.role,
-            is_active: doc.is_active,
-          }))
-
-        if (error) throw error
-        return []
+      push: {
+        queryBuilder: (rows) => {
+          return supabase
+            .from('branches')
+            .upsert(rows.map(r => stripSyncMetadata(r.newDocumentState)))
+        }
       },
-      customUpdateHandler: async (row) => {
-        const nextDoc = row.newDocumentState
-        const { error } = await supabase
-          .from('user_branch_assignments')
-          .upsert(stripSyncMetadata({
-            user_id: nextDoc.user_id,
-            branch_id: nextDoc.branch_id,
-            role: nextDoc.role,
-            is_active: nextDoc.is_active,
-          }))
+      live: true,
+    })
 
-        if (error) throw error
-        return true
-      },
-    },
-    live: true,
+    attachAutoResync(replication)
+    return replication
   })
+}
 
-  attachAutoResync(replication)
-  return replication
+export function startBranchAssignmentsReplication(collection, businessId) {
+  return startSingletonReplication('branch-assignments', businessId, () => {
+    const replication = new SupabaseReplication({
+      replicationIdentifier: `branch-assignments-${businessId}`,
+      collection,
+      supabaseClient: supabase,
+      pull: {
+        queryBuilder: async (checkpoint) => {
+          let query = supabase
+            .from('user_branch_assignments')
+            .select('*, branches!inner(business_id)')
+            .eq('branches.business_id', businessId)
+            .order('_modified', { ascending: true })
+            .order('user_id', { ascending: true })
+            .order('branch_id', { ascending: true })
+            .limit(300)
+
+          if (checkpoint?.modified) {
+            query = query.gt('_modified', checkpoint.modified)
+          }
+
+          const { data } = await query
+          return data.map(row => ({
+            id: `${row.user_id}:${row.branch_id}`,
+            user_id: row.user_id,
+            branch_id: row.branch_id,
+            role: row.role,
+            is_active: row.is_active,
+            syncStatus: 'synced',
+            syncError: null,
+            syncedAt: row._modified,
+            _modified: row._modified,
+            _deleted: false,
+          }))
+        },
+        mapDocument: (row) => row,
+      },
+      push: {
+        customInsertHandler: async (doc) => {
+          const { error } = await supabase
+            .from('user_branch_assignments')
+            .upsert(stripSyncMetadata({
+              user_id: doc.user_id,
+              branch_id: doc.branch_id,
+              role: doc.role,
+              is_active: doc.is_active,
+            }))
+
+          if (error) throw error
+          return []
+        },
+        customUpdateHandler: async (row) => {
+          const nextDoc = row.newDocumentState
+          const { error } = await supabase
+            .from('user_branch_assignments')
+            .upsert(stripSyncMetadata({
+              user_id: nextDoc.user_id,
+              branch_id: nextDoc.branch_id,
+              role: nextDoc.role,
+              is_active: nextDoc.is_active,
+            }))
+
+          if (error) throw error
+          return true
+        },
+      },
+      live: true,
+    })
+
+    attachAutoResync(replication)
+    return replication
+  })
 }

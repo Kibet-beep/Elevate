@@ -17,6 +17,12 @@ function stripTransactionFields(doc) {
     date: doc.date,
     created_by: doc.created_by,
     lifecycle_state: doc.lifecycle_state || "finalized",
+    amount: doc.amount,
+    display_name: doc.display_name,
+    sale_items: doc.sale_items,
+    expenses: doc.expenses,
+    _deleted: doc._deleted,
+    _modified: doc._modified,
   };
 }
 

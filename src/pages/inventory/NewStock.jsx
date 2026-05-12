@@ -157,7 +157,7 @@ export default function NewStock() {
       const productsReplication = startProductsReplication(db.products, businessId)
       const stockEntriesReplication = startStockEntriesReplication(db.stock_entries, businessId)
 
-      const productId = isNewProduct ? crypto.randomUUID() : selectedProduct.id
+      const productId = isNewProduct ? crypto.randomUUID?.() || `prod_${Date.now()}_${Math.random().toString(36).substr(2, 9)}` : selectedProduct.id
       const branchId = effectiveBranchId || null
 
       if (isNewProduct) {
@@ -194,7 +194,7 @@ export default function NewStock() {
       }
 
       await db.stock_entries.insert({
-        id: crypto.randomUUID(),
+        id: crypto.randomUUID?.() || `stock_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
         business_id: businessId,
         branch_id: branchId,
         product_id: productId,

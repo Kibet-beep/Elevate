@@ -169,6 +169,83 @@ export default function EmployeeDetail() {
     )
   }
 
+  const handleDelete = async () => {
+    if (!window.confirm(`Delete ${employee.full_name}? This cannot be undone. All branch assignments will be removed.`)) {
+      return
+    }
+
+    setSaving(true)
+    setError("")
+
+    try {
+      console.log("[DELETE] BEFORE INVOKE")
+
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error("Delete request timed out after 30 seconds")), 30000)
+      )
+
+      const invokePromise = supabase.functions.invoke('delete-employee', {
+        body: {
+          userId: id,
+          businessId
+        }
+      })
+
+      const result = await Promise.race([invokePromise, timeoutPromise])
+
+      console.log("[DELETE] AFTER INVOKE")
+      console.log("[DELETE] RESULT:", result)
+
+      const { data, error: authError } = result
+
+      if (authError) {
+        console.error("[DELETE] FUNCTION ERROR:", authError)
+
+        let errorMessage = authError.message || "Delete failed"
+
+        if (authError.context && typeof authError.context.json === "function") {
+          try {
+            const body = await authError.context.json()
+            console.log("[DELETE] ERROR BODY:", body)
+
+            if (body.error) {
+              errorMessage = body.error
+            }
+          } catch (e) {
+            console.error("[DELETE] FAILED TO PARSE ERROR:", e)
+          }
+        }
+
+        throw new Error(errorMessage)
+      }
+
+      console.log("[DELETE] SUCCESS DATA:", data)
+
+      const db = await getDb()
+
+      const assignmentDocs = await db.branch_assignments.find({
+        selector: { user_id: id }
+      }).exec()
+
+      await Promise.all(
+        assignmentDocs.map(doc =>
+          doc.incrementalPatch({
+            _deleted: true,
+            _modified: Date.now()
+          })
+        )
+      )
+
+      navigate("/settings/branch-employees", { replace: true })
+
+    } catch (deleteError) {
+      console.error("[DELETE] FINAL ERROR:", deleteError)
+      setError(deleteError?.message || "Failed to delete employee")
+    } finally {
+      setSaving(false)
+    }
+  }
+
   const goBack = () => {
     navigate(-1)
   }
@@ -201,6 +278,17 @@ export default function EmployeeDetail() {
       right={(
         <div className="flex items-center gap-1.5 sm:gap-3">
           <UiButton variant="secondary" size="sm" onClick={goBack} className="text-xs px-2 sm:px-3">←</UiButton>
+          {!editing && (
+            <UiButton 
+              variant="ghost" 
+              size="sm" 
+              onClick={handleDelete}
+              disabled={saving}
+              className="text-xs px-2 sm:px-3 text-red-400 hover:text-red-300"
+            >
+              Delete
+            </UiButton>
+          )}
           <UiButton 
             variant="primary" 
             size="sm" 

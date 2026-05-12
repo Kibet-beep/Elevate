@@ -4,7 +4,7 @@ import { useUser, useCurrentBusiness, useIsOwner, useIsManager } from "../../hoo
 import { useInstantAuth } from "../../hooks/useInstantAuth"
 import { useBranchContext } from "../../context/BranchContext"
 import { supabase } from "../../lib/supabase"
-import { getDb, startBranchAssignmentsReplication } from "../../lib/db"
+import { getDb } from "../../lib/db"
 import { AppShell, UiButton, UiCard } from "../../components/ui"
 import { BranchSelector } from "../../components/BranchSelector"
 
@@ -30,8 +30,6 @@ export default function BranchEmployees() {
   const [error, setError] = useState("")
   const [success, setSuccess] = useState(false)
   const [successMessage, setSuccessMessage] = useState("")
-  const branchAssignmentsReplicationStartedRef = useRef(false)
-
   const branchIdFromNavigation = location.state?.branchId || null
   const branchNameFromNavigation = location.state?.branchName || null
   const currentBranchName = branchNameFromNavigation || activeBranch?.name || "All branches"
@@ -65,14 +63,6 @@ export default function BranchEmployees() {
 
       try {
         const db = await getDb()
-        if (!branchAssignmentsReplicationStartedRef.current) {
-          try {
-            startBranchAssignmentsReplication(db.branch_assignments, businessId)
-            branchAssignmentsReplicationStartedRef.current = true
-          } catch (replicationError) {
-            console.error("Failed to start branch assignments replication:", replicationError)
-          }
-        }
 
         const branchIds = viewMode === 'branch'
           ? [activeBranch?.id || effectiveBranchId].filter(Boolean)
@@ -92,34 +82,19 @@ export default function BranchEmployees() {
           },
         }).exec()
 
-        const userIds = [...new Set(assignmentDocs.map((doc) => doc.user_id).filter(Boolean))]
-        if (userIds.length === 0) {
-          if (active) setEmployees([])
-          return
-        }
-
-        const { data, error: usersError } = await supabase
-          .from('users')
-          .select('id, full_name, email, role, business_id, default_branch_id, is_active')
-          .eq('business_id', businessId)
-          .in('id', userIds)
-          .order('full_name', { ascending: true })
-
-        if (usersError) throw usersError
-
-        const assignmentByUser = new Map()
-        assignmentDocs.forEach((doc) => {
-          if (!assignmentByUser.has(doc.user_id)) {
-            assignmentByUser.set(doc.user_id, [])
-          }
-          assignmentByUser.get(doc.user_id).push(doc.branch_id)
-        })
-
+        // Use assignments directly - no Supabase join needed
         if (active) {
-          setEmployees((data || []).map((user) => ({
-            ...user,
-            branch_ids: assignmentByUser.get(user.id) || [],
-          })))
+          setEmployees(
+            assignmentDocs.map((a) => ({
+              id: a.user_id,
+              full_name: a.full_name || "Unknown",
+              email: a.email || "",
+              role: a.role || "cashier",
+              is_active: a.is_active ?? true,
+              branch_ids: [a.branch_id],
+              business_id: businessId,
+            }))
+          )
         }
       } catch (fetchError) {
         console.error('Failed to fetch employees:', fetchError)
@@ -218,7 +193,13 @@ export default function BranchEmployees() {
         })
       }
 
-      const { data, error: invokeError } = await supabase.functions.invoke('create-employee', {
+      console.log('[CLIENT] BEFORE INVOKE')
+
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('Edge function request timed out after 30 seconds')), 30000)
+      )
+
+      const invokePromise = supabase.functions.invoke('create-employee', {
         body: {
           email: email.trim().toLowerCase(),
           password,
@@ -229,7 +210,11 @@ export default function BranchEmployees() {
         },
       })
 
-      console.log('Edge function response:', { data, invokeError })
+      const result = await Promise.race([invokePromise, timeoutPromise])
+      console.log('[CLIENT] AFTER INVOKE')
+      console.log('[CLIENT] Edge function response:', result)
+
+      const { data, error: invokeError } = result
 
       if (invokeError) {
         console.error('Edge function invoke error (full object):', invokeError)

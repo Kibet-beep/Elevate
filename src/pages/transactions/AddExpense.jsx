@@ -96,7 +96,7 @@ export default function AddExpense() {
           ? "asset_purchase"
           : "operating_expense"
 
-    const transactionId = crypto.randomUUID()
+    const transactionId = crypto.randomUUID?.() || `txn_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
 
     const transaction = {
       id: transactionId,
@@ -113,17 +113,26 @@ export default function AddExpense() {
       display_name: category,
       _modified: Date.now(),
       _deleted: false,
-      expense: {
+      expenses: [{
         transaction_id: transactionId,
         category,
         amount: amountNum,
         description: description || null,
-      },
+      }],
+    }
+
+    // Optimistic update for immediate UI feedback
+    const optimisticTransaction = {
+      ...transaction,
+      _modified: Date.now(),
+      _deleted: false,
     }
 
     const db = await getDb()
-    await db.transactions.insert(transaction)
-
+    // Insert locally first for instant UI update
+    await db.transactions.insert(optimisticTransaction)
+    
+    // Set success state immediately
     setSuccess(true)
   } catch (err) {
     setError(err?.message || "Failed to record expense")

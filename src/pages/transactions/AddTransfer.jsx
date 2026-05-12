@@ -96,7 +96,7 @@ export default function AddTransfer() {
     setError("")
 
     try {
-      const transferId = crypto.randomUUID()
+      const transferId = crypto.randomUUID?.() || `txn_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
 
       const transfer = {
         id: transferId,
@@ -114,7 +114,7 @@ export default function AddTransfer() {
       let costExpense = null
 
       if (hasCost && cost > 0) {
-        const txnId = crypto.randomUUID()
+        const txnId = crypto.randomUUID?.() || `txn_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
 
         costExpense = {
           transaction: {

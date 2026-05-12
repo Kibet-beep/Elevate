@@ -1,7 +1,6 @@
 // src/features/dashboard/hooks/usePeriodActivity.js
 import { useState, useEffect } from 'react'
-import { useDashboardContext } from './useDashboardContext'
-import { fetchPeriodActivity } from '../services/dashboard.service'
+import { getDb } from '../../../lib/db'
 import { enrichTransactions, computeSummary } from '../utils/dashboard.transforms'
 import { getPeriodRange, getSelectedDayRange } from '../utils/dashboard.time'
 
@@ -16,40 +15,68 @@ export function usePeriodActivity(dashboard) {
 
   useEffect(() => {
     let active = true
+    let subscription = null
 
-    const fetchPeriodData = async () => {
-      if (!active) return
-      setLoading(true)
-      setError(null)
+    const init = async () => {
+      if (!active || !business?.id) return
       
       try {
-        const { start, end } = getPeriodRange(period)
-        const result = await fetchPeriodActivity({
-          businessId: business.id,
-          branchId,
-          start,
-          end,
-        })
+        setLoading(true)
+        const db = await getDb()
 
-        if (!active) return
-        const enriched = enrichTransactions(result.transactions)
-        setPeriodTransactions(enriched)
-        setPeriodSummary(computeSummary(enriched))
+        // Transaction replication is started at app level (AppInitializer)
+        // to avoid duplicate realtime subscriptions
+
+        // Get period date range
+        const { start, end } = getPeriodRange(period)
+
+        // Build selector for period transactions
+        const selector = {
+          business_id: business.id,
+          _deleted: { $ne: true },
+          date: {
+            $gte: start,
+            $lte: end,
+          },
+          ...(branchId ? { branch_id: branchId } : {}),
+        }
+
+        // Subscribe to real-time transaction updates
+        subscription = db.transactions
+          .find({
+            selector,
+            sort: [{ date: 'desc' }, { id: 'desc' }],
+          })
+          .$
+          .subscribe({
+            next: (docs) => {
+              if (!active) return
+              const rawTransactions = docs.map(doc => doc.toJSON())
+              const enriched = enrichTransactions(rawTransactions)
+              setPeriodTransactions(enriched)
+              setPeriodSummary(computeSummary(enriched))
+              setLoading(false)
+            },
+            error: (err) => {
+              if (!active) return
+              console.error('Period transaction subscription error:', err)
+              setError(err)
+              setLoading(false)
+            },
+          })
       } catch (err) {
         if (!active) return
+        console.error('Failed to initialize period activity:', err)
         setError(err)
-      } finally {
-        if (!active) return
         setLoading(false)
       }
     }
 
-    if (business?.id) {
-      fetchPeriodData()
-    }
+    init()
 
     return () => {
       active = false
+      subscription?.unsubscribe()
     }
   }, [business?.id, branchId, period])
 
