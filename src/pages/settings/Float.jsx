@@ -1,10 +1,11 @@
 // src/pages/settings/Float.jsx
 import { useState, useEffect } from "react"
 import { supabase } from "../../lib/supabase"
+import { getFloat, saveFloat } from "../../services/floatService"
 import { useNavigate } from "react-router-dom"
 import { useCurrentBusiness } from "../../hooks/useRole"
 import { useInstantAuth } from "../../hooks/useInstantAuth"
-import { AppShell, UiButton, UiCard } from "../../components/ui"
+import { AppShell, UiButton, UiCard, SyncTicks } from "../../components/ui"
 
 export default function Float() {
   const navigate = useNavigate()
@@ -32,11 +33,7 @@ export default function Float() {
     let active = true
 
     const fetchFloat = async () => {
-      const { data } = await supabase
-        .from("float_baseline")
-        .select("*")
-        .eq("business_id", businessId)
-        .maybeSingle()
+      const data = await getFloat(businessId)
 
       if (!active) return
 
@@ -60,29 +57,14 @@ export default function Float() {
   const handleSave = async () => {
     setSaving(true)
     setError("")
-    const { data: { user } } = await supabase.auth.getUser()
-
-    const payload = {
-      business_id: businessId,
-      cash_opening: parseFloat(cash) || 0,
-      mpesa_opening: parseFloat(mpesa) || 0,
-      bank_opening: parseFloat(bank) || 0,
-      set_date: new Date().toISOString(),
-      created_by: user?.id,
-      updated_at: new Date().toISOString(),
-    }
-
-    // Upsert — insert if not exists, update if exists
-    const { error } = await supabase
-      .from("float_baseline")
-      .upsert(payload, { onConflict: "business_id" })
-
-    if (error) {
-      setError(error.message)
-    } else {
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      await saveFloat(businessId, { cash, mpesa, bank }, user?.id)
       setSaved(true)
       setLastSet(new Date().toISOString())
       setTimeout(() => setSaved(false), 2000)
+    } catch (err) {
+      setError(err.message)
     }
 
     setSaving(false)
@@ -182,7 +164,10 @@ export default function Float() {
           </UiCard>
 
           <UiButton variant="primary" className="w-full" onClick={handleSave} disabled={saving}>
-            {saving ? "Saving..." : "Save float"}
+            <span className="inline-flex items-center justify-center gap-2">
+              {saving ? <SyncTicks status="pending" /> : saved ? <SyncTicks status="synced" /> : null}
+              {saving ? "Saving..." : "Save float"}
+            </span>
           </UiButton>
         </div>
       </div>

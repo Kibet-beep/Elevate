@@ -1,6 +1,7 @@
 // src/pages/inventory/NewStock.jsx
 import { useState, useEffect, useMemo } from "react"
 import { supabase } from "../../lib/supabase"
+import { getSupplierOptions } from "../../services/supplierService"
 import { useNavigate } from "react-router-dom"
 import { useUser, useIsOwnerOrManager, useCurrentBusiness } from "../../hooks/useRole"
 import { useInstantAuth } from "../../hooks/useInstantAuth"
@@ -69,13 +70,8 @@ export default function NewStock() {
     setError("")
     setUserId(authUser.id)
 
-    const { data: suppliersData } = await supabase
-      .from("suppliers")
-      .select("id, name")
-      .eq("business_id", businessId)
-      .eq("is_active", true)
-
-    setSuppliers(suppliersData || [])
+    const suppliersData = await getSupplierOptions(businessId)
+    setSuppliers(suppliersData)
 
     const { data: productsData } = await supabase
       .from("products")

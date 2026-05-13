@@ -1,11 +1,10 @@
 // src/pages/settings/Suppliers.jsx
 import { useState, useEffect } from "react"
-import { supabase } from "../../lib/supabase"
-import { getDb } from "../../lib/db"
+import { getSuppliers, createSupplier, toggleSupplierActive } from "../../services/supplierService"
 import { useNavigate } from "react-router-dom"
 import { useCurrentBusiness } from "../../hooks/useRole"
 import { useInstantAuth } from "../../hooks/useInstantAuth"
-import { AppShell, UiButton, UiCard } from "../../components/ui"
+import { AppShell, UiButton, UiCard, SyncTicks } from "../../components/ui"
 
 export default function Suppliers() {
   const navigate = useNavigate()
@@ -25,6 +24,7 @@ export default function Suppliers() {
   const [email, setEmail] = useState("")
   const [address, setAddress] = useState("")
   const [loading, setLoading] = useState(false)
+  const [togglingId, setTogglingId] = useState(null)
   const [error, setError] = useState("")
 
   useEffect(() => {
@@ -33,13 +33,10 @@ export default function Suppliers() {
     let active = true
 
     const fetchSuppliers = async () => {
-      const { data } = await supabase
-        .from("suppliers").select("*")
-        .eq("business_id", businessId)
-        .order("name")
+      const data = await getSuppliers(businessId)
 
       if (!active) return
-      setSuppliers(data || [])
+      setSuppliers(data)
     }
 
     void fetchSuppliers()
@@ -61,46 +58,29 @@ export default function Suppliers() {
     if (!name) { setError("Supplier name required"); return }
     setLoading(true)
     setError("")
-
-    const { data: { user } } = await supabase.auth.getUser()
-    const db = await getDb()
-    const { error } = await db.transactions.insert({
-      id: `supplier-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-      business_id: businessId,
-      branch_id: businessId,
-      type: 'supplier_creation',
-      transaction_type_tag: 'system',
-      payment_account: 'system',
-      account_code: 'system',
-      date: new Date().toISOString(),
-      created_by: user?.id || 'system',
-      lifecycle_state: 'completed',
-      amount: 0,
-      display_name: 'Supplier Creation',
-      supplier_data: {
-        business_id: businessId,
-        name,
-        phone: phone || null,
-        email: email || null,
-        address: address || null,
-        is_active: true,
-      },
-      _modified: Date.now(),
-      _deleted: false,
-    })
-
-    if (error) setError(error.message)
-    else {
+    try {
+      await createSupplier(businessId, { name, phone, email, address })
       setName(""); setPhone(""); setEmail(""); setAddress("")
       setAdding(false)
-      fetchSuppliers()
+      const fresh = await getSuppliers(businessId)
+      setSuppliers(fresh)
+    } catch (err) {
+      setError(err.message)
     }
     setLoading(false)
   }
 
   const toggleActive = async (sup) => {
-    await supabase.from("suppliers").update({ is_active: !sup.is_active }).eq("id", sup.id)
-    fetchSuppliers()
+    setTogglingId(sup.id)
+    try {
+      await toggleSupplierActive(sup.id, sup.is_active)
+      const fresh = await getSuppliers(businessId)
+      setSuppliers(fresh)
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setTogglingId(null)
+    }
   }
 
   return (
@@ -165,7 +145,10 @@ export default function Suppliers() {
               </div>
             ))}
             <UiButton variant="primary" className="w-full" onClick={handleAdd} disabled={loading}>
-              {loading ? "Adding..." : "Add supplier"}
+              <span className="inline-flex items-center justify-center gap-2">
+                {loading ? <SyncTicks status="pending" /> : null}
+                {loading ? "Adding..." : "Add supplier"}
+              </span>
             </UiButton>
           </UiCard>
         )}
@@ -180,10 +163,14 @@ export default function Suppliers() {
                 <p className="text-zinc-500 text-xs">{sup.phone || sup.email || "No contact info"}</p>
               </div>
               <button onClick={() => toggleActive(sup)}
+                disabled={togglingId === sup.id}
                 className={`text-xs px-3 py-1.5 rounded-xl transition-colors ${
                   sup.is_active ? "bg-zinc-800 text-zinc-400 hover:text-red-400" : "bg-emerald-500/10 text-emerald-400"
                 }`}>
-                {sup.is_active ? "Deactivate" : "Activate"}
+                <span className="inline-flex items-center gap-1.5">
+                  {togglingId === sup.id ? <SyncTicks status="pending" /> : null}
+                  {sup.is_active ? "Deactivate" : "Activate"}
+                </span>
               </button>
             </div>
           ))}
