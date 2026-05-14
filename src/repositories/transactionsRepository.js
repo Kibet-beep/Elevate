@@ -18,12 +18,29 @@ export async function getAllTransactions({ businessId, branchId, start, end, typ
     // fallthrough
   }
 
-  let q = supabase.from('transactions').select('*')
+  // Prefer relational select for sales to include sale_items
+  let q
+  if (type === 'sale') {
+    q = supabase.from('transactions').select(`
+      id,
+      date,
+      payment_account,
+      amount,
+      display_name,
+      branch_id,
+      business_id,
+      sale_items (product_id, product_name, quantity, unit_price, total_amount)
+    `)
+  } else {
+    q = supabase.from('transactions').select('*')
+  }
+
   if (businessId) q.eq('business_id', businessId)
   if (branchId) q.eq('branch_id', branchId)
-  if (type) q.eq('type', type)
+  if (type && type !== 'sale') q.eq('type', type)
   if (start) q.gte('date', start)
   if (end) q.lte('date', end)
+
   const { data, error } = await q.order('date', { ascending: false })
   if (error) throw error
   return data

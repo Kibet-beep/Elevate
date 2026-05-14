@@ -1,6 +1,7 @@
 // src/services/salesService.ts
-import { supabase } from '../lib/supabase'
 import { createInventoryMovementsForSale } from './inventoryService'
+import { upsertTransaction } from '../repositories/transactionsRepository'
+import { insertSaleItems } from '../repositories/saleItemsRepository'
 
 export interface SaleItem {
   product_id: string
@@ -82,26 +83,20 @@ export async function commitHistoricalSales(params: CommitHistoricalSalesParams)
       0
     )
 
-    // 1. parent transaction
-    const { data: txn, error: txnError } = await supabase
-      .from('transactions')
-      .insert({
-        business_id: businessId,
-        branch_id: stagedSale.branchId,
-        type: 'sale',
-        transaction_type_tag: 'income',
-        payment_account: stagedSale.payment_account,
-        account_code: '4100',
-        amount: total,
-        date: transactionDate,
-        created_by: userId,
-      })
-      .select()
-      .single()
+    // 1. parent transaction (repository)
+    const txn = await upsertTransaction({
+      business_id: businessId,
+      branch_id: stagedSale.branchId,
+      type: 'sale',
+      transaction_type_tag: 'income',
+      payment_account: stagedSale.payment_account,
+      account_code: '4100',
+      amount: total,
+      date: transactionDate,
+      created_by: userId,
+    })
 
-    if (txnError) throw txnError
-
-    // 2. sale items
+    // 2. sale items (repository)
     const saleItems = stagedSale.items.map(item => ({
       transaction_id: txn.id,
       product_id: item.product_id,
@@ -111,13 +106,9 @@ export async function commitHistoricalSales(params: CommitHistoricalSalesParams)
       vat_applied: 0,
     }))
 
-    const { error: itemsError } = await supabase
-      .from('sale_items')
-      .insert(saleItems)
+    await insertSaleItems(saleItems)
 
-    if (itemsError) throw itemsError
-
-    // 3. inventory movements
+    // 3. inventory movements (use inventory service helper)
     const movements = stagedSale.items.map(item => ({
       business_id: businessId,
       branch_id: stagedSale.branchId,
@@ -131,11 +122,7 @@ export async function commitHistoricalSales(params: CommitHistoricalSalesParams)
       created_by: userId,
     }))
 
-    const { error: movementError } = await supabase
-      .from('inventory_movements')
-      .insert(movements)
-
-    if (movementError) throw movementError
+    await createInventoryMovementsForSale({ businessId, branchId: stagedSale.branchId, movements })
 
     touchedBranches.add(stagedSale.branchId)
   }
@@ -158,6 +145,8 @@ export async function commitHistoricalSales(params: CommitHistoricalSalesParams)
   }
 }
 
+import { getAllTransactions } from '../repositories/transactionsRepository'
+
 export async function fetchHistoricalSales(params: {
   businessId: string
   branchId?: string
@@ -166,41 +155,13 @@ export async function fetchHistoricalSales(params: {
 }) {
   const { businessId, branchId, startDate, endDate } = params
 
-  let query = supabase
-    .from('transactions')
-    .select(`
-      id,
-      date,
-      payment_account,
-      amount,
-      display_name,
-      sale_items (
-        product_id,
-        product_name,
-        quantity,
-        unit_price,
-        total_amount
-      )
-    `)
-    .eq('business_id', businessId)
-    .eq('type', 'sale')
-    .order('date', { ascending: false })
-
-  if (branchId) {
-    query = query.eq('branch_id', branchId)
-  }
-
-  if (startDate) {
-    query = query.gte('date', startDate)
-  }
-
-  if (endDate) {
-    query = query.lte('date', endDate)
-  }
-
-  const { data, error } = await query
-
-  if (error) throw error
+  const data = await getAllTransactions({
+    businessId,
+    branchId,
+    start: startDate,
+    end: endDate,
+    type: 'sale',
+  })
 
   // Group by date for easier UI consumption
   const salesByDate = new Map<string, any[]>()

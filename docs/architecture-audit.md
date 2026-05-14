@@ -6,7 +6,7 @@
 |---|---|---|
 | Total pages audited | 33 | — |
 | Pages with direct Supabase calls | Still present on several pages; see remaining lists below | ⚠️ |
-| Pages following recommended pattern | 17 | ✅ |
+| Pages following recommended pattern | 18 | ✅ |
 | Service layer | Present | ✅ |
 | Repository layer | Present | ✅ |
 | RxDB integration | Present | ✅ |
@@ -35,6 +35,7 @@
 | Float.jsx | ✅ | Uses `src/services/floatService.js` backed by `src/repositories/floatRepository.js` |
 | Suppliers.jsx | ✅ | Uses `src/services/supplierService.js` backed by `src/repositories/suppliersRepository.js` |
 | BranchDetail.jsx | ✅ | Uses `src/services/branchDetailService.js` over `src/repositories/branchesRepository.js` and local branch assignment reads |
+| HistoricalSales.jsx | ✅ | Uses `src/services/salesService.ts` and `src/repositories/transactionsRepository.js` for sales reads and commits |
 
 ---
 
@@ -71,7 +72,7 @@
 | Page | Direct Calls | Issue |
 |---|---|---|
 | ChangePassword.jsx | supabase.auth.updateUser() | Auth called directly |
-| HistoricalSales.jsx | float_baseline, products.select(), transactions.select() | 3 table queries |
+
 
 ### Reports Pages (2 pages)
 
