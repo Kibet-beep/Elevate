@@ -5,18 +5,9 @@ import { useUser, useCurrentBusiness } from "../../hooks/useRole"
 import { useBranchContext } from "../../context/BranchContext"
 import { BranchSelector } from "../../components/BranchSelector"
 import { AppShell, UiButton, UiCard, UiSectionTitle } from "../../components/ui"
-import { getDb } from "../../lib/db"
+import { recordTransfer, getTransferCostFlag } from "../../services/transferService"
 
 const ACCOUNTS = ["cash", "mpesa", "bank"]
-
-const TRANSFER_COSTS = {
-  "cash-mpesa": false,
-  "cash-bank": false,
-  "mpesa-cash": true,
-  "mpesa-bank": true,
-  "bank-cash": true,
-  "bank-mpesa": false,
-}
 
 export default function AddTransfer() {
   const navigate = useNavigate()
@@ -42,7 +33,7 @@ export default function AddTransfer() {
   }, [businessId, authUser])
 
   const transferKey = `${fromAccount}-${toAccount}`
-  const hasCost = TRANSFER_COSTS[transferKey]
+  const hasCost = getTransferCostFlag(fromAccount, toAccount)
   const amt = parseFloat(amount) || 0
   const cost = parseFloat(transactionCost) || 0
   const amountReceived = amt - cost
@@ -96,71 +87,16 @@ export default function AddTransfer() {
     setError("")
 
     try {
-      const transferId = crypto.randomUUID?.() || `txn_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
-
-      const transfer = {
-        id: transferId,
-        business_id: businessId,
-        branch_id: resolvedBranchId,
-        from_account: fromAccount,
-        to_account: toAccount,
+      await recordTransfer({
+        businessId,
+        branchId: resolvedBranchId,
+        userId,
+        fromAccount,
+        toAccount,
         amount: amt,
-        transaction_cost: cost,
+        transactionCost: cost,
         date: new Date(date).toISOString(),
-        note: note || null,
-        created_by: userId,
-      }
-
-      let costExpense = null
-
-      if (hasCost && cost > 0) {
-        const txnId = crypto.randomUUID?.() || `txn_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
-
-        costExpense = {
-          transaction: {
-            id: txnId,
-            business_id: businessId,
-            branch_id: resolvedBranchId,
-            type: "expense",
-            transaction_type_tag: "operating_expense",
-            payment_account: fromAccount,
-            account_code: "6600",
-            date: new Date(date).toISOString(),
-            created_by: userId,
-            lifecycle_state: "finalized",
-            amount: cost,
-            display_name: "Transfer cost",
-            _modified: Date.now(),
-            _deleted: false,
-          },
-          expense: {
-            transaction_id: txnId,
-            category: "Transfer cost",
-            amount: cost,
-            description: `Transfer cost: ${accountLabel(fromAccount)} → ${accountLabel(toAccount)}`,
-          },
-        }
-      }
-
-      const db = await getDb()
-
-      await db.transactions.insert({
-        id: transferId,
-        business_id: businessId,
-        branch_id: resolvedBranchId,
-        type: "transfer",
-        transaction_type_tag: "internal_transfer",
-        payment_account: fromAccount,
-        account_code: "0000",
-        date: new Date(date).toISOString(),
-        created_by: userId,
-        lifecycle_state: "finalized",
-        amount: amt,
-        display_name: `Transfer ${accountLabel(fromAccount)} → ${accountLabel(toAccount)}`,
-        _modified: Date.now(),
-        _deleted: false,
-        transfer,
-        costExpense,
+        note: note || undefined,
       })
 
       setSuccess(true)

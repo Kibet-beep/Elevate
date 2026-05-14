@@ -17,7 +17,6 @@ export default function Inventory() {
     effectiveBranchId,
     canViewAll,
   )
-console.log('products:', products, 'loading:', loading, 'effectiveBranchId:', effectiveBranchId, 'business:', instantBusiness?.id)
   const [search, setSearch] = useState("")
   const [categoryFilter, setCategoryFilter] = useState("all")
   const [riskFilter, setRiskFilter] = useState("all")
@@ -181,7 +180,6 @@ console.log('products:', products, 'loading:', loading, 'effectiveBranchId:', ef
             <>
               {/* Mobile View */}
               <div className="md:hidden p-2 space-y-2">
-                {console.log('Rendering mobile view, filtered products count:', filtered.length)}
                 {filtered.map((p) => {
                   const low = isLowStock(p)
                   const quantity = Number(p.current_quantity || 0)
@@ -223,7 +221,6 @@ console.log('products:', products, 'loading:', loading, 'effectiveBranchId:', ef
 
               {/* Desktop View */}
               <div className="hidden md:block overflow-x-auto">
-                {console.log('Rendering desktop view, filtered products count:', filtered.length)}
                 <table className="w-full min-w-[920px]">
                   <thead className="sticky top-0 bg-zinc-900 z-10">
                     <tr className="text-left text-[10px] uppercase tracking-wider text-zinc-500 border-b border-zinc-800">
@@ -240,7 +237,6 @@ console.log('products:', products, 'loading:', loading, 'effectiveBranchId:', ef
                     </tr>
                   </thead>
                   <tbody>
-                    {console.log('About to render desktop table rows, count:', filtered.length)}
                     {filtered.map((p) => {
                       const low = isLowStock(p)
                       const quantity = Number(p.current_quantity || 0)

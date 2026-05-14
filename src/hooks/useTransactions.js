@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react"
-import { getDb, startTransactionsReplication } from "../lib/db"
+import { getDb } from "../lib/db"
 import { useInstantAuth } from "./useInstantAuth"
+import { listTransactions } from "../services/transactionsService"
 
 export function useTransactions(branchId = null) {
   const { business } = useInstantAuth()
@@ -44,6 +45,16 @@ export function useTransactions(branchId = null) {
           _deleted: { $ne: true },
           ...(branchId ? { branch_id: branchId } : {}),
         }
+
+        const initialTransactions = await listTransactions({
+          businessId: business.id,
+          branchId,
+        })
+
+        if (!active) return
+
+        setTransactions(initialTransactions)
+        setLoading(false)
 
         subscription = db.transactions
           .find({

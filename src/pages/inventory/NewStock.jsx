@@ -1,14 +1,14 @@
 // src/pages/inventory/NewStock.jsx
 import { useState, useEffect, useMemo } from "react"
-import { supabase } from "../../lib/supabase"
-import { getSupplierOptions } from "../../services/supplierService"
 import { useNavigate } from "react-router-dom"
 import { useUser, useIsOwnerOrManager, useCurrentBusiness } from "../../hooks/useRole"
 import { useInstantAuth } from "../../hooks/useInstantAuth"
 import { useBranchContext } from "../../context/BranchContext"
 import { AppShell, UiButton, UiCard, UiSectionTitle, CategorySelect } from "../../components/ui"
-import { getDb, startProductsReplication, startStockEntriesReplication } from "../../lib/db"
 import { BranchSelector } from "../../components/BranchSelector"
+import { getSupplierOptions } from "../../services/supplierService"
+import { getAllProducts } from "../../repositories/productsRepository"
+import { recordStockReceipt } from "../../services/stockEntriesService"
 
 export default function NewStock() {
   const navigate = useNavigate()
@@ -43,7 +43,6 @@ export default function NewStock() {
   // Pricing
   const [sellingPrice, setSellingPrice] = useState("")
   const [composerStep, setComposerStep] = useState(1)
-  const defaultUnit = "pcs"
 
   const categoryOptions = useMemo(() => {
     return Array.from(new Set(existingProducts.map((product) => product.category).filter(Boolean))).sort((a, b) => String(a).localeCompare(String(b)))
@@ -73,23 +72,14 @@ export default function NewStock() {
     const suppliersData = await getSupplierOptions(businessId)
     setSuppliers(suppliersData)
 
-    const { data: productsData } = await supabase
-      .from("products")
-      .select("id, name, sku_id, selling_price, unit_of_measure, branch_id, branches!left(name, code), category")
-      .eq("business_id", businessId)
-      .eq("branch_id", effectiveBranchId)
-      .eq("is_active", true)
-      .order("name")
-
-    setExistingProducts(productsData || [])
+    const productsData = await getAllProducts({ businessId, branchId: effectiveBranchId })
+    const activeProducts = productsData.filter((p) => p.is_active)
+    setExistingProducts(activeProducts)
   }
 
-  const generateSKU = (productName) => {
-    const words = productName.trim().toUpperCase().split(" ")
-    const base = words.map(w => w.slice(0, 3)).join("-")
-    const suffix = Math.floor(Math.random() * 900 + 100)
-    return `${base}-${suffix}`
-  }
+  const categoryOptions = useMemo(() => {
+    return Array.from(new Set(existingProducts.map((product) => product.category).filter(Boolean))).sort((a, b) => String(a).localeCompare(String(b)))
+  }, [existingProducts])
 
   // ── CALCULATIONS ──
   const qty = parseFloat(quantity) || 0
@@ -148,76 +138,23 @@ export default function NewStock() {
     setLoading(true)
 
     try {
-      const db = await getDb()
-
-      const productsReplication = startProductsReplication(db.products, businessId)
-      const stockEntriesReplication = startStockEntriesReplication(db.stock_entries, businessId)
-
-      const productId = isNewProduct ? crypto.randomUUID?.() || `prod_${Date.now()}_${Math.random().toString(36).substr(2, 9)}` : selectedProduct.id
-      const branchId = effectiveBranchId || null
-
-      if (isNewProduct) {
-        await db.products.insert({
-          id: productId,
-          business_id: businessId,
-          branch_id: branchId,
-          sku_id: generateSKU(name),
-          name,
-          category: category || null,
-          unit_of_measure: defaultUnit,
-          buying_price: landedCostPerUnit,
-          selling_price: parseFloat(sellingPrice),
-          vat_type: vatType,
-          current_quantity: qty,
-          is_active: true,
-          _modified: Date.now(),
-          _deleted: false,
-        })
-      } else {
-        const productDoc = await db.products.findOne(selectedProduct.id).exec()
-        if (!productDoc) {
-          throw new Error("Selected product not found")
-        }
-
-        const nextQty = Number(productDoc.current_quantity || 0) + qty
-        await productDoc.incrementalPatch({
-          buying_price: landedCostPerUnit,
-          selling_price: parseFloat(sellingPrice),
-          vat_type: vatType,
-          current_quantity: nextQty,
-          _modified: Date.now(),
-        })
-      }
-
-      await db.stock_entries.insert({
-        id: crypto.randomUUID?.() || `stock_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-        business_id: businessId,
-        branch_id: branchId,
-        product_id: productId,
-        supplier_id: supplierId || null,
+      await recordStockReceipt({
+        businessId,
+        branchId: effectiveBranchId,
+        userId,
+        isNewProduct,
+        productId: !isNewProduct ? selectedProduct?.id : undefined,
+        productName: isNewProduct ? name : undefined,
+        category,
+        supplierId: supplierId || undefined,
         quantity: qty,
-        buying_price: unitCost,
-        freight_cost: shippingClearing,
-        import_duty: importDuty,
-        idf,
-        rdl,
-        vat_on_import: vatOnImport,
-        insurance: 0,
-        additional_costs: additionalCosts,
-        total_cost: totalLandedCost,
-        created_by: userId,
-        _modified: Date.now(),
-        _deleted: false,
+        totalPurchaseCost: totalPurchase,
+        shippingClearingCost: shippingClearing,
+        vatType,
+        sourcingType,
+        additionalCosts,
+        sellingPrice: sp,
       })
-
-      const allProducts = await db.products.find().exec()
-      console.log("LOCAL PRODUCTS AFTER SAVE", allProducts.map(p => p.toJSON()))
-
-      const allEntries = await db.stock_entries.find().exec()
-      console.log("LOCAL STOCK ENTRIES AFTER SAVE", allEntries.map(e => e.toJSON()))
-
-      productsReplication.reSync()
-      stockEntriesReplication.reSync()
 
       setSuccess(true)
     } catch (submitError) {

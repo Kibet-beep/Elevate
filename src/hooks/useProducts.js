@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { getDb, startProductsReplication } from '../lib/db'
 import { useInstantAuth } from './useInstantAuth'
+import { listProducts } from '../services/productsService'
 
 export function useProducts(branchId = null, isOwnerOrManager = false) {
   const { business } = useInstantAuth()
@@ -43,11 +44,19 @@ export function useProducts(branchId = null, isOwnerOrManager = false) {
         ...(isOwnerOrManager ? {} : {}),
       }
 
-      // Try to get existing data first
+      // Try to get existing data first via the service/repository layer
       try {
-        const existingDocs = await db.products.find({ selector }).exec()
-        if (existingDocs.length > 0) {
-          setProducts(existingDocs.map((doc) => doc.toJSON()))
+        const existingProducts = await listProducts({
+          businessId: business.id,
+          branchId,
+        })
+
+        if (existingProducts.length > 0) {
+          setProducts(
+            existingProducts.map((item) =>
+              typeof item?.toJSON === 'function' ? item.toJSON() : item,
+            ),
+          )
           setLoading(false)
         }
       } catch (error) {

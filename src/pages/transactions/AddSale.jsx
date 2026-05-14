@@ -6,12 +6,12 @@ import { useBranchContext } from "../../context/BranchContext"
 import { useInstantAuth } from "../../hooks/useInstantAuth"
 import { AppShell, UiButton, UiCard, UiSectionTitle } from "../../components/ui"
 import { BranchSelector } from "../../components/BranchSelector"
-import { getDb } from "../../lib/db"
 import { useProducts } from "../../hooks/useProducts"
 import {
   getTodayStartEAT,
   toTransactionDateEAT,
 } from "../../features/dashboard/utils/dashboard.time"
+import { recordSale } from "../../services/saleEntryService"
 
 export default function AddSale() {
   const navigate = useNavigate()
@@ -220,46 +220,16 @@ export default function AddSale() {
     setLoading(true)
     setError("")
 
-    const db = await getDb()
-
-    const transactionId = crypto.randomUUID?.() || `txn_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
-
-    const transaction = {
-      id: transactionId,
-      business_id: businessId,
-      branch_id: resolvedBranchId,
-      type: "sale",
-      transaction_type_tag: "income",
-      payment_account: paymentAccount,
-      account_code: "4100",
-      date: toTransactionDateEAT(saleDate),
-      created_by: userId,
-      lifecycle_state: "finalized",
-      amount: total,
-      display_name:
-        cartItems.length > 1
-          ? `${cartItems[0].name} + ${cartItems.length - 1} more` 
-          : cartItems[0].name || "Sale",
-      sale_items: cartItems.map((item) => ({
-        product_id: item.product_id,
-        product_name: item.name,
-        quantity: item.quantity,
-        unit_price: item.unit_price,
-        total_amount: item.unit_price * item.quantity,
-        vat_applied: item.vat_type !== "exempt" ? 1 : 0,
-        etims_receipt_no: etimsNo || null,
-      })),
-    }
-
-    // Optimistic update for immediate UI feedback
-    const optimisticTransaction = {
-      ...transaction,
-      _modified: Date.now(),
-      _deleted: false,
-    }
-
-    // Insert locally first for instant UI update
-    await db.transactions.insert(optimisticTransaction)
+    await recordSale({
+      businessId,
+      branchId: resolvedBranchId,
+      userId,
+      saleDate: toTransactionDateEAT(saleDate),
+      paymentAccount,
+      total,
+      cartItems,
+      etimsNo,
+    })
     
     // Set success state immediately
     setSuccess(true)

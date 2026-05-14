@@ -1,12 +1,13 @@
 // src/pages/inventory/StockTake.jsx
 import { useState, useEffect, useRef } from "react"
-import { supabase } from "../../lib/supabase"
 import { useNavigate } from "react-router-dom"
 import { useCurrentBusiness } from "../../hooks/useRole"
 import { useInstantAuth } from "../../hooks/useInstantAuth"
 import { useBranchContext } from "../../context/BranchContext"
 import { getDb, startTransactionsReplication } from "../../lib/db"
 import { BranchSelector } from "../../components/BranchSelector"
+import { getAllProducts } from "../../repositories/productsRepository"
+import { startStockTake, submitStockTakeCounts, approveStockTake as approveStockTakeService } from "../../services/stockTakeService"
 
 function classifyABC(products) {
   if (!products.length) return {}
@@ -210,27 +211,15 @@ export default function StockTake() {
     setUserId(resolvedUserId)
     setError("")
 
-    const [productsResult, pastResult] = await Promise.all([
-      supabase
-        .from("products")
-        .select("id, name, sku_id, current_quantity, unit_of_measure, category, buying_price")
-        .eq("business_id", resolvedBusinessId)
-        .eq("branch_id", resolvedBranchId)
-        .eq("is_active", true)
-        .order("name"),
-      supabase
-        .from("stock_takes")
-        .select("*")
-        .eq("business_id", resolvedBusinessId)
-        .eq("branch_id", resolvedBranchId)
-        .order("created_at", { ascending: false })
-        .limit(5),
+    const [productsData, pastResult] = await Promise.all([
+      getAllProducts({ businessId: resolvedBusinessId, branchId: resolvedBranchId }),
+      Promise.resolve([]), // TODO: fetch past stock takes from repository when available
     ])
 
-    const prods = productsResult?.data || []
+    const prods = productsData.filter((p) => p.is_active) || []
     setAllProducts(prods)
     setAbcMap(classifyABC(prods))
-    setPastStockTakes(pastResult?.data || [])
+    setPastStockTakes(pastResult || [])
   }
 
   const getProductsForType = (t, spotId = null) => {
@@ -270,105 +259,69 @@ export default function StockTake() {
     setLoading(true)
     setError("")
 
-    const newStockTakeId = crypto.randomUUID?.() || `stock_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+    try {
+      const newStockTakeId = await startStockTake({
+        businessId,
+        branchId: resolvedBranchId,
+        userId,
+        type,
+      })
 
-    const stockTake = {
-      id: newStockTakeId,
-      business_id: businessId,
-      branch_id: resolvedBranchId,
-      type,
-      start_date: new Date().toISOString(),
-      status: "counting",
-      counted_by: userId,
+      setStockTakeId(newStockTakeId)
+      setStep("counting")
+    } catch (err) {
+      setError(err.message || "Failed to start stock take")
+    } finally {
+      setLoading(false)
     }
-
-    const db = await getDb()
-    await db.transactions.insert({
-      id: crypto.randomUUID?.() || `txn_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-      business_id: businessId,
-      branch_id: resolvedBranchId,
-      type: "stock_take_create",
-      transaction_type_tag: "inventory_control",
-      payment_account: "system",
-      account_code: "0000",
-      date: new Date().toISOString(),
-      created_by: userId,
-      lifecycle_state: "finalized",
-      amount: 0,
-      display_name: "Stock take create",
-      stock_take: stockTake,
-    })
-    replicationRef.current?.reSync?.()
-
-    setStockTakeId(newStockTakeId)
-    setStep("counting")
-    setLoading(false)
   }
 
   const submitCounts = async () => {
     setLoading(true)
     setError("")
 
-    const items = products.map((p) => ({
-      stock_take_id: stockTakeId,
-      product_id: p.id,
-      expected_quantity: p.current_quantity,
-      actual_quantity: parseFloat(counts[p.id] ?? p.current_quantity),
-    }))
+    try {
+      const items = products.map((p) => ({
+        stock_take_id: stockTakeId,
+        product_id: p.id,
+        expected_quantity: p.current_quantity,
+        actual_quantity: parseFloat(counts[p.id] ?? p.current_quantity),
+      }))
 
-    const db = await getDb()
-    await db.transactions.insert({
-      id: crypto.randomUUID?.() || `txn_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-      business_id: businessId,
-      branch_id: resolvedBranchId,
-      type: "stock_take_submit_counts",
-      transaction_type_tag: "inventory_control",
-      payment_account: "system",
-      account_code: "0000",
-      date: new Date().toISOString(),
-      created_by: userId,
-      lifecycle_state: "finalized",
-      amount: 0,
-      display_name: "Stock take submit counts",
-      stock_take_id: stockTakeId,
-      stock_take_items: items,
-    })
-    replicationRef.current?.reSync?.()
+      await submitStockTakeCounts({
+        businessId,
+        branchId: resolvedBranchId,
+        userId,
+        stockTakeId,
+        items,
+      })
 
-    setStep("review")
-    setLoading(false)
+      setStep("review")
+    } catch (err) {
+      setError(err.message || "Failed to submit counts")
+    } finally {
+      setLoading(false)
+    }
   }
 
   const approveStockTake = async () => {
     setLoading(true)
     setError("")
 
-    const approvalPayload = {
-      stockTakeId,
-      approvedBy: userId,
-      endDate: new Date().toISOString(),
+    try {
+      await approveStockTakeService({
+        businessId,
+        branchId: resolvedBranchId,
+        userId,
+        stockTakeId,
+      })
+
+      setStep("done")
+    } catch (err) {
+      setError(err.message || "Failed to approve stock take")
+    } finally {
+      setLoading(false)
     }
-
-    const db = await getDb()
-    await db.transactions.insert({
-      id: crypto.randomUUID?.() || `txn_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
-      business_id: businessId,
-      branch_id: resolvedBranchId,
-      type: "stock_take_approve",
-      transaction_type_tag: "inventory_control",
-      payment_account: "system",
-      account_code: "0000",
-      date: new Date().toISOString(),
-      created_by: userId,
-      lifecycle_state: "finalized",
-      amount: 0,
-      display_name: "Stock take approve",
-      stock_take_approval: approvalPayload,
-    })
-    replicationRef.current?.reSync?.()
-
-    setStep("done")
-    setLoading(false)
   }
 
   // ── STEP 1: SETUP ──

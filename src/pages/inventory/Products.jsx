@@ -22,15 +22,6 @@ export default function Products() {
     canViewAll,
   )
   
-  console.log("Products page", {
-    canViewAll,
-    effectiveBranchId,
-    branchFilter,
-    scopedBranchId,
-    liveProductsCount: liveProducts.length,
-    liveProducts,
-  })
-  
   const [products, setProducts] = useState([])
   const [filtered, setFiltered] = useState([])
   const [search, setSearch] = useState("")

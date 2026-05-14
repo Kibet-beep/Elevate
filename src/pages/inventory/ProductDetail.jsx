@@ -6,7 +6,7 @@ import { useIsOwnerOrManager } from "../../hooks/useRole"
 import { useBranchContext } from "../../context/BranchContext"
 import { useInstantAuth } from "../../hooks/useInstantAuth"
 import { useProducts } from "../../hooks/useProducts"
-import { getDb } from "../../lib/db"
+import { updateProduct, deactivateProduct, assignProductBranch } from "../../services/productDetailService"
 
 export default function ProductDetail() {
   const navigate = useNavigate()
@@ -61,26 +61,21 @@ export default function ProductDetail() {
     setError("")
 
     try {
-      const db = await getDb()
       const updateData = {
+        id,
         name,
-        category: category || null,
-        unit_of_measure: unit || null,
+        category: category || undefined,
+        unit_of_measure: unit || undefined,
         selling_price: parseFloat(sellingPrice),
         buying_price: parseFloat(buyingPrice),
         reorder_point: parseInt(reorderPoint),
-        _modified: Date.now(),
       }
 
       if (!canViewAll && effectiveBranchId) {
         updateData.branch_id = effectiveBranchId
       }
 
-      await db.products.upsert({
-        ...(product || {}),
-        ...updateData,
-        id,
-      })
+      await updateProduct(updateData)
       setEditing(false)
       // Update local state immediately
       setProduct(prev => ({ ...prev, ...updateData }))
@@ -94,13 +89,7 @@ export default function ProductDetail() {
     if (!confirm("Remove this product from inventory?")) return
     
     try {
-      const db = await getDb()
-      await db.products.upsert({
-        ...(product || {}),
-        is_active: false,
-        _modified: Date.now(),
-        id,
-      })
+      await deactivateProduct(id)
       setEditing(false)
       // Update local state immediately
       setProduct(prev => ({ ...prev, is_active: false }))
@@ -139,14 +128,7 @@ export default function ProductDetail() {
     setError("")
 
     try {
-      const db = await getDb()
-      await db.products.upsert({
-        _id: id,
-        branch_id: selectedBranch,
-        updated_at: new Date().toISOString(),
-        _modified: Date.now(),
-        ...product,
-      })
+      await assignProductBranch(id, selectedBranch)
       
       // Update local state for immediate feedback
       setProduct(prev => ({

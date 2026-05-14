@@ -6,8 +6,8 @@ import { useBranchContext } from "../../context/BranchContext"
 import { useInstantAuth } from "../../hooks/useInstantAuth"
 import { BranchSelector } from "../../components/BranchSelector"
 import { AppShell, UiButton, UiCard, UiSectionTitle } from "../../components/ui"
-import { getDb } from "../../lib/db"
 import { toTransactionDateEAT } from "../../features/dashboard/utils/dashboard.time"
+import { recordExpense } from "../../services/expenseService"
 
 const EXPENSE_CATEGORIES = [
   "Rent", "Utilities", "Salaries & Wages", "Transport",
@@ -86,51 +86,16 @@ export default function AddExpense() {
   try {
     setLoading(true)
     setError("")
-
-    const accountCode = ACCOUNT_MAP[category] || "6600"
-
-    const tag =
-      category === "Stock Purchase"
-        ? "cost_of_goods_sold"
-        : category === "Equipment"
-          ? "asset_purchase"
-          : "operating_expense"
-
-    const transactionId = crypto.randomUUID?.() || `txn_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
-
-    const transaction = {
-      id: transactionId,
-      business_id: businessId,
-      branch_id: resolvedBranchId,
-      type: "expense",
-      transaction_type_tag: tag,
-      payment_account: paymentAccount,
-      account_code: accountCode,
-      date: toTransactionDateEAT(date),
-      created_by: userId,
-      lifecycle_state: "finalized",
+    await recordExpense({
+      businessId,
+      branchId: resolvedBranchId,
+      userId,
+      category,
       amount: amountNum,
-      display_name: category,
-      _modified: Date.now(),
-      _deleted: false,
-      expenses: [{
-        transaction_id: transactionId,
-        category,
-        amount: amountNum,
-        description: description || null,
-      }],
-    }
-
-    // Optimistic update for immediate UI feedback
-    const optimisticTransaction = {
-      ...transaction,
-      _modified: Date.now(),
-      _deleted: false,
-    }
-
-    const db = await getDb()
-    // Insert locally first for instant UI update
-    await db.transactions.insert(optimisticTransaction)
+      description,
+      paymentAccount,
+      date: toTransactionDateEAT(date),
+    })
     
     // Set success state immediately
     setSuccess(true)
