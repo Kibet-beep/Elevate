@@ -1,160 +1,250 @@
 // src/pages/transactions/Transactions.jsx
-import { useState, useEffect } from "react"
-import { supabase } from "../../lib/supabase"
+import { useState, useEffect, useMemo } from "react"
 import { useNavigate } from "react-router-dom"
 import FloatingBottomNav from "../../components/layout/FloatingBottomNav"
 import { AppShell, UiButton } from "../../components/ui"
 import PaymentIcon from "../../components/ui/PaymentIcon"
-import { useIsOwnerOrManager, useUser } from "../../hooks/useRole"
-import { useCache } from "../../hooks/useCache"
 import { useInstantAuth } from "../../hooks/useInstantAuth"
-import { useBranchContext } from "../../hooks/useBranchContext"
+import { useBranchContext } from "../../context/BranchContext"
 import { BranchSelector } from "../../components/BranchSelector"
+import { useTransactions } from "../../hooks/useTransactions"
+import { getTodayStartEAT } from "../../features/dashboard/utils/dashboard.time"
 
-const today = () => new Date().toISOString().split("T")[0]
+const today = () => getTodayStartEAT()
+
+const startOfWeekEAT = () => {
+  const todayStr = getTodayStartEAT()
+  const d = new Date(`${todayStr}T12:00:00`)
+  const day = d.getDay()
+  const diff = day === 0 ? 6 : day - 1
+  d.setDate(d.getDate() - diff)
+  return d.toISOString().slice(0, 10)
+}
+
+const startOfMonthEAT = () => {
+  const todayStr = getTodayStartEAT()
+  const [year, month] = todayStr.split("-")
+  return `${year}-${month}-01`
+}
+
+const toEATDateKey = (dateLike) => {
+  if (!dateLike) return null
+  const d = new Date(dateLike)
+  return d.toISOString().slice(0, 10) // "YYYY-MM-DD"
+}
+
+const isWithinEATRange = (txDate, from, to) => {
+  const txKey = toEATDateKey(txDate)
+  if (!txKey) return false
+  
+  if (from && txKey < from) return false
+  if (to && txKey > to) return false
+  
+  return true
+}
 
 export default function Transactions() {
   const navigate = useNavigate()
-  const { business: instantBusiness, initialized, signOut } = useInstantAuth()
-  const { get, set } = useCache()
-  const { user } = useUser()
-  const { canViewAll, availableBranches, activeBranch, loading: branchLoading } = useBranchContext()
-  const isOwnerOrManager = useIsOwnerOrManager()
-  const [transactions, setTransactions] = useState([])
-  const [filtered, setFiltered] = useState([])
+
+  const { business: instantBusiness, signOut } = useInstantAuth()
+  const { canViewAll, availableBranches, effectiveBranchId, readyToFetch } =
+    useBranchContext()
+
+  const todayValue = today()
+
+  const {
+    transactions: liveTransactions = [],
+    loading,
+    error,
+  } = useTransactions(readyToFetch ? effectiveBranchId : null)
+
+  /* ── local state ── */
   const [search, setSearch] = useState("")
-  const [dateFrom, setDateFrom] = useState(today())   // ← default: today
-  const [dateTo, setDateTo] = useState(today())       // ← default: today
+  const [dateFrom, setDateFrom] = useState(todayValue)
+  const [dateTo, setDateTo] = useState(todayValue)
   const [typeFilter, setTypeFilter] = useState("all")
   const [paymentFilter, setPaymentFilter] = useState("all")
   const [mobileFilterOpen, setMobileFilterOpen] = useState(false)
-  const [selectedTx, setSelectedTx] = useState(null)
-  const [localBranchId, setLocalBranchId] = useState(null)
+  const [selectedTxId, setSelectedTxId] = useState(null)
 
-  // For cashiers, always use their assigned branch
-  const effectiveBranchId = isOwnerOrManager ? localBranchId : (user?.default_branch_id || activeBranch?.id)
+  /* ── derived filtered transactions ── */
+  const filtered = useMemo(() => {
+    let result = liveTransactions
 
-  useEffect(() => {
-    let active = true
-
-    const hydrate = async () => {
-      if (!instantBusiness?.id || branchLoading) return
-
-      const cacheKey = cacheKeyForTransactions(instantBusiness.id, effectiveBranchId)
-      const cachedTransactions = get(cacheKey)
-
-      // Show cached data immediately
-      if (cachedTransactions && active) {
-        setTransactions(cachedTransactions)
-      }
-
-      // Always fetch fresh in background
-      await fetchTransactions(instantBusiness.id, active)
+    if (typeFilter !== "all") {
+      result = result.filter((t) => t.type === typeFilter)
     }
 
-    hydrate()
-
-    return () => {
-      active = false
+    if (search.trim()) {
+      const q = search.trim().toLowerCase()
+      result = result.filter((t) =>
+        t.display_name?.toLowerCase().includes(q)
+      )
     }
-  }, [instantBusiness?.id, initialized, effectiveBranchId, branchLoading])
 
-  useEffect(() => {
-    let result = transactions
+    // EAT-safe date filtering
+    result = result.filter((t) => isWithinEATRange(t.date, dateFrom, dateTo))
 
-    // Type filter
-    if (typeFilter !== "all") result = result.filter(t => t.type === typeFilter)
-
-    // Search
-    if (search) result = result.filter(t =>
-      t.display_name?.toLowerCase().includes(search.toLowerCase())
-    )
-
-    // Date range — always applied (defaults to today)
-    if (dateFrom) result = result.filter(t => new Date(t.date) >= new Date(dateFrom))
-    if (dateTo)   result = result.filter(t => new Date(t.date) <= new Date(dateTo + "T23:59:59"))
-
-    // Payment account
-    if (paymentFilter !== "all") result = result.filter(t => t.payment_account === paymentFilter)
-
-    setFiltered(result)
-  }, [typeFilter, search, dateFrom, dateTo, paymentFilter, transactions])
-
-  const fetchTransactions = async (businessId, active = true) => {
-    if (!businessId) return
-
-    try {
-      let query = supabase
-        .from("transactions")
-        .select(`
-          id, type, transaction_type_tag, payment_account, date, account_code,
-          sale_items(total_amount, quantity, products(name)),
-          expenses(amount, category, description)
-        `)
-        .eq("business_id", businessId)
-        .order("date", { ascending: false })
-
-      // Apply branch filtering if a specific branch is selected
-      if (effectiveBranchId) {
-        query = query.eq("branch_id", effectiveBranchId)
-      }
-
-      if (!active) return
-
-      const { data } = await query
-      const enriched = (data || []).map(t => {
-        if (t.type === "sale") {
-          const amount = t.sale_items?.reduce((s, i) => s + i.total_amount, 0) || 0
-          const name = t.sale_items?.length > 1
-            ? `${t.sale_items[0].products?.name} + ${t.sale_items.length - 1} more`
-            : t.sale_items?.[0]?.products?.name || "Sale"
-          return { ...t, amount, display_name: name }
-        }
-
-        const amount = t.expenses?.reduce((s, e) => s + e.amount, 0) || 0
-        const name = t.expenses?.[0]?.category || "Expense"
-        return { ...t, amount, display_name: name }
-      })
-
-      set(cacheKeyForTransactions(businessId, effectiveBranchId), enriched)
-      setTransactions(enriched)
-    } catch (error) {
-      console.error("Failed to load transactions:", error)
+    if (paymentFilter !== "all") {
+      result = result.filter(
+        (t) => t.payment_account === paymentFilter
+      )
     }
-  }
 
-  const cacheKeyForTransactions = (businessId, branchId = null) => {
-  if (branchId) {
-    return `transactions_${businessId}_${branchId}`
-  }
-  return `transactions_${businessId}_all`
-}
+    return result
+  }, [
+    liveTransactions,
+    typeFilter,
+    search,
+    dateFrom,
+    dateTo,
+    paymentFilter,
+  ])
 
-  const totalSales    = filtered.filter(t => t.type === "sale").reduce((s, t) => s + t.amount, 0)
-  const totalExpenses = filtered.filter(t => t.type === "expense").reduce((s, t) => s + t.amount, 0)
-
-  const rowsWithBalance = (() => {
+  /* ── running balance rows ── */
+  const rowsWithBalance = useMemo(() => {
     const rows = [...filtered].reverse()
-    let running = 0
-    const withBalance = rows.map(t => {
-      running += t.type === "sale" ? t.amount : -t.amount
-      return { ...t, balance: running }
-    })
-    return withBalance.reverse()
-  })()
 
-  const fmt = (n) => `KES ${Number(n).toLocaleString("en-KE", { minimumFractionDigits: 2 })}`
+    let running = 0
+
+    const withBalance = rows.map((t) => {
+      running += t.type === "sale" ? t.amount : -t.amount
+
+      return {
+        ...t,
+        balance: running,
+      }
+    })
+
+    return withBalance.reverse()
+  }, [filtered])
+
+  /* ── selected transaction object derived from ID ── */
+  const selectedTx = useMemo(
+    () => rowsWithBalance.find((t) => t.id === selectedTxId) ?? null,
+    [rowsWithBalance, selectedTxId]
+  )
+
+  /* ── clear stale selected transaction only if it disappears ── */
+  useEffect(() => {
+    if (
+      selectedTxId &&
+      !rowsWithBalance.some((t) => t.id === selectedTxId)
+    ) {
+      setSelectedTxId(null)
+    }
+  }, [rowsWithBalance, selectedTxId])
+
+  /* ── shared quick period helpers ── */
+  const quickPeriods = useMemo(() => [
+    {
+      label: "Today",
+      from: todayValue,
+      to: todayValue,
+    },
+    {
+      label: "This week",
+      from: startOfWeekEAT(),
+      to: todayValue,
+    },
+    {
+      label: "This month",
+      from: startOfMonthEAT(),
+      to: todayValue,
+    },
+    {
+      label: "All time",
+      from: "",
+      to: "",
+    },
+  ], [todayValue])
+
+  /* ── actions ── */
+  const handleSignOut = async () => {
+    await signOut()
+  }
+
+  const totalSales = filtered
+    .filter((t) => t.type === "sale")
+    .reduce((sum, t) => sum + t.amount, 0)
+
+  const totalExpenses = filtered
+    .filter((t) => t.type === "expense")
+    .reduce((sum, t) => sum + t.amount, 0)
+
+  const fmt = (n) =>
+    `KES ${Number(n).toLocaleString("en-KE", {
+      minimumFractionDigits: 2,
+    })}`
 
   const periodLabel = () => {
-    if (dateFrom === today() && dateTo === today()) return "Today"
-    if (dateFrom === dateTo) return new Date(dateFrom).toLocaleDateString("en-KE")
-    if (dateFrom && dateTo) return `${new Date(dateFrom).toLocaleDateString("en-KE")} – ${new Date(dateTo).toLocaleDateString("en-KE")}`
-    if (dateFrom) return `From ${new Date(dateFrom).toLocaleDateString("en-KE")}`
-    if (dateTo)   return `Up to ${new Date(dateTo).toLocaleDateString("en-KE")}`
+    if (dateFrom === todayValue && dateTo === todayValue) return "Today"
+    if (dateFrom === dateTo)
+      return new Date(dateFrom).toLocaleDateString("en-KE")
+    if (dateFrom && dateTo) {
+      return `${new Date(dateFrom).toLocaleDateString(
+        "en-KE"
+      )} – ${new Date(dateTo).toLocaleDateString("en-KE")}`
+    }
+    if (dateFrom) {
+      return `From ${new Date(dateFrom).toLocaleDateString("en-KE")}` 
+    }
+    if (dateTo) {
+      return `Up to ${new Date(dateTo).toLocaleDateString("en-KE")}` 
+    }
     return "All time"
   }
 
-  const clearDates = () => { setDateFrom(""); setDateTo("") }
+  const clearDates = () => {
+    setDateFrom("")
+    setDateTo("")
+  }
+
+  /* ── conditional rendering AFTER all hooks ── */
+  if (!readyToFetch) {
+    return (
+      <AppShell>
+        <div className="flex items-center justify-center min-h-[400px]">
+          <div className="text-center">
+            <p className="text-zinc-400 mb-2">
+              Loading branch information...
+            </p>
+          </div>
+        </div>
+      </AppShell>
+    )
+  }
+
+  if (loading) {
+    return (
+      <AppShell>
+        <div className="flex items-center justify-center min-h-[400px]">
+          <div className="text-center">
+            <p className="text-zinc-400 mb-2">
+              Loading transactions...
+            </p>
+          </div>
+        </div>
+      </AppShell>
+    )
+  }
+
+  if (error) {
+    return (
+      <AppShell>
+        <div className="flex items-center justify-center min-h-[400px]">
+          <div className="text-center">
+            <p className="text-red-400 mb-2">
+              Failed to load transactions
+            </p>
+            <p className="text-zinc-500 text-sm">
+              {error.message || "Unknown error"}
+            </p>
+          </div>
+        </div>
+      </AppShell>
+    )
+  }
 
   return (
     <AppShell
@@ -167,17 +257,12 @@ export default function Transactions() {
             <p className="text-[10px] uppercase tracking-[0.24em] text-zinc-500">Store</p>
             <h1 className="text-white text-xl sm:text-2xl font-semibold tracking-tight">Transactions</h1>
             <p className="mt-1 text-zinc-400 text-xs sm:text-sm">
-              {instantBusiness?.name}{localBranchId ? ` • ${availableBranches.find(b => b.id === localBranchId)?.name}` : ''} · {filtered.length} transactions · {periodLabel()}
+              {instantBusiness?.name}{effectiveBranchId ? ` • ${availableBranches.find(b => b.id === effectiveBranchId)?.name}` : ''} · {filtered.length} transactions · {periodLabel()}
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            {canViewAll ? (
-              <BranchSelector 
-                onChange={(value) => setLocalBranchId(value === 'all' ? null : value)}
-                value={localBranchId || 'all'}
-              />
-            ) : null}
-            <UiButton variant="tertiary" size="sm" onClick={signOut} className="text-zinc-400 hover:text-red-400">
+            {canViewAll ? <BranchSelector value={effectiveBranchId || "all"} /> : null}
+            <UiButton variant="tertiary" size="sm" onClick={handleSignOut} className="text-zinc-400 hover:text-red-400">
               Sign out
             </UiButton>
           </div>
@@ -263,21 +348,13 @@ export default function Transactions() {
               />
             </div>
             {/* Quick period shortcuts */}
-            {[
-              { label: "Today", fn: () => { setDateFrom(today()); setDateTo(today()) } },
-              { label: "This week", fn: () => {
-                const d = new Date(); const mon = new Date(d); mon.setDate(d.getDate() - d.getDay() + 1)
-                setDateFrom(mon.toISOString().split("T")[0]); setDateTo(today())
-              }},
-              { label: "This month", fn: () => {
-                const d = new Date()
-                setDateFrom(`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-01`); setDateTo(today())
-              }},
-              { label: "All time", fn: () => { setDateFrom(""); setDateTo("") } },
-            ].map(s => (
-              <button key={s.label} onClick={s.fn}
+            {quickPeriods.map((period) => (
+              <button key={period.label} onClick={() => {
+                setDateFrom(period.from)
+                setDateTo(period.to)
+              }}
                 className="px-3 py-2.5 rounded-xl text-xs font-medium bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-white hover:border-zinc-600 transition-colors self-end">
-                {s.label}
+                {period.label}
               </button>
             ))}
             <div className="flex-1 self-end">
@@ -308,9 +385,9 @@ export default function Transactions() {
             >
               <span className="text-zinc-500 text-xs">Period · </span>{periodLabel()}
             </button>
-            {(dateFrom !== today() || dateTo !== today()) && (
+            {(dateFrom !== todayValue || dateTo !== todayValue) && (
               <button
-                onClick={() => { setDateFrom(today()); setDateTo(today()) }}
+                onClick={() => { setDateFrom(todayValue); setDateTo(todayValue) }}
                 className="px-3 bg-zinc-800 text-zinc-400 hover:text-white rounded-xl text-xs transition-colors"
               >
                 Today
@@ -374,9 +451,16 @@ export default function Transactions() {
                       </p>
                     </div>
                     <div className="mt-2 flex items-center justify-between">
-                      <span className={`text-[10px] px-2 py-1 rounded-full font-medium ${t.type === "sale" ? "bg-emerald-500/10 text-emerald-400" : "bg-red-400/10 text-red-400"}`}>
-                        {t.type === "sale" ? "Sale" : "Expense"}
-                      </span>
+                      <div className="flex items-center gap-2">
+                        <span className={`text-[10px] px-2 py-1 rounded-full font-medium ${t.type === "sale" ? "bg-emerald-500/10 text-emerald-400" : "bg-red-400/10 text-red-400"}`}>
+                          {t.type === "sale" ? "Sale" : "Expense"}
+                        </span>
+                        {t.syncStatus === 'pending' && (
+                          <span className="text-[10px] px-2 py-1 rounded-full bg-amber-400/10 text-amber-400 font-medium">
+                            ⏳ Pending sync
+                          </span>
+                        )}
+                      </div>
                       <p className={`text-[11px] font-mono ${t.balance >= 0 ? "text-zinc-300" : "text-red-400"}`}>
                         Balance: {fmt(t.balance)}
                       </p>
@@ -413,9 +497,16 @@ export default function Transactions() {
                           {new Date(t.date).toLocaleDateString("en-KE")}
                         </td>
                         <td className="py-3 px-4">
-                          <span className={`text-[10px] px-2 py-1 rounded-full font-medium ${t.type === "sale" ? "bg-emerald-500/10 text-emerald-400" : "bg-red-400/10 text-red-400"}`}>
-                            {t.type === "sale" ? "Sale" : "Expense"}
-                          </span>
+                          <div className="flex items-center gap-2">
+                            <span className={`text-[10px] px-2 py-1 rounded-full font-medium ${t.type === "sale" ? "bg-emerald-500/10 text-emerald-400" : "bg-red-400/10 text-red-400"}`}>
+                              {t.type === "sale" ? "Sale" : "Expense"}
+                            </span>
+                            {t.syncStatus === 'pending' && (
+                              <span className="text-[10px] px-2 py-1 rounded-full bg-amber-400/10 text-amber-400 font-medium">
+                                ⏳ Pending sync
+                              </span>
+                            )}
+                          </div>
                         </td>
                         <td className="py-3 px-4 text-sm text-white font-medium">{t.display_name}</td>
                         <td className="py-3 px-4 text-xs text-zinc-400">
@@ -476,11 +567,11 @@ export default function Transactions() {
                       {selectedTx.payment_account}
                     </span>
                   </DetailRow>
-                  {selectedTx.type === "expense" && selectedTx.expenses?.[0]?.category && (
-                    <DetailRow label="Category" value={selectedTx.expenses[0].category} />
+                  {selectedTx.type === "expense" && selectedTx.expense?.category && (
+                    <DetailRow label="Category" value={selectedTx.expense.category} />
                   )}
-                  {selectedTx.type === "expense" && selectedTx.expenses?.[0]?.description && (
-                    <DetailRow label="Description" value={selectedTx.expenses[0].description} />
+                  {selectedTx.type === "expense" && selectedTx.expense?.description && (
+                    <DetailRow label="Description" value={selectedTx.expense.description} />
                   )}
                   {selectedTx.type === "sale" && selectedTx.sale_items?.length > 0 && (
                     <div>
@@ -623,11 +714,11 @@ export default function Transactions() {
                   {selectedTx.payment_account}
                 </span>
               </MobileDetailRow>
-              {selectedTx.type === "expense" && selectedTx.expenses?.[0]?.category && (
-                <MobileDetailRow label="Category" value={selectedTx.expenses[0].category} />
+              {selectedTx.type === "expense" && selectedTx.expense?.category && (
+                <MobileDetailRow label="Category" value={selectedTx.expense.category} />
               )}
-              {selectedTx.type === "expense" && selectedTx.expenses?.[0]?.description && (
-                <MobileDetailRow label="Description" value={selectedTx.expenses[0].description} />
+              {selectedTx.type === "expense" && selectedTx.expense?.description && (
+                <MobileDetailRow label="Description" value={selectedTx.expense.description} />
               )}
               {selectedTx.type === "sale" && selectedTx.sale_items?.length > 0 && (
                 <div>

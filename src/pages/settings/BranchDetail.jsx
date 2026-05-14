@@ -1,19 +1,26 @@
-import { useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import { useNavigate, useParams } from "react-router-dom"
-import { supabase } from "../../lib/supabase"
-import { useCurrentBusiness, useIsOwner } from "../../hooks/useRole"
-import { useBranchContext } from "../../hooks/useBranchContext"
+import { useCurrentBusiness } from "../../hooks/useRole"
+import { useInstantAuth } from "../../hooks/useInstantAuth"
+import { useBranchContext } from "../../context/BranchContext"
 import { AppShell, UiButton, UiCard } from "../../components/ui"
+import {
+  archiveBranchDetail,
+  getBranchDetail,
+  saveBranchDetail,
+  toggleBranchDetailActive,
+} from "../../services/branchDetailService"
 
 export default function BranchDetail() {
   const { id } = useParams()
   const navigate = useNavigate()
   const { businessId } = useCurrentBusiness()
-  const { availableBranches, refreshBranches } = useBranchContext()
-  const isOwner = useIsOwner()
+  const { business: instantBusiness, signOut } = useInstantAuth()
+  const { refreshBranches } = useBranchContext()
 
   const [branch, setBranch] = useState(null)
-  const [employees, setEmployees] = useState([])
+  const [employeeList, setEmployeeList] = useState([])
+  const [assignmentCount, setAssignmentCount] = useState(0)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState("")
@@ -25,6 +32,39 @@ export default function BranchDetail() {
   const [phone, setPhone] = useState("")
   const [email, setEmail] = useState("")
 
+  const loadBranch = useCallback(async () => {
+    if (!id || !businessId) return
+
+    setLoading(true)
+    setError("")
+
+    try {
+      const { branch: branchRecord, assignments } = await getBranchDetail(id, businessId)
+
+      if (!branchRecord) {
+        setBranch(null)
+        setEmployeeList([])
+        return
+      }
+
+      setBranch(branchRecord)
+      setName(branchRecord.name || "")
+      setCode(branchRecord.code || "")
+      setAddress(branchRecord.address || "")
+      setPhone(branchRecord.phone || "")
+      setEmail(branchRecord.email || "")
+      setEmployeeList(assignments)
+      setAssignmentCount(assignments.length)
+    } catch (err) {
+      console.error("Failed to load branch detail:", err)
+      setError(err.message || "Failed to load branch")
+      setBranch(null)
+      setEmployeeList([])
+    } finally {
+      setLoading(false)
+    }
+  }, [businessId, id])
+
   const goBack = () => {
     if (window.history.length > 1) {
       navigate(-1)
@@ -33,47 +73,12 @@ export default function BranchDetail() {
     navigate("/settings/branches", { replace: true })
   }
 
-  const loadBranch = async () => {
-    try {
-      const { data: branchData, error: branchError } = await supabase
-        .from("branches")
-        .select("*")
-        .eq("id", id)
-        .eq("business_id", businessId)
-        .single()
-
-      if (branchError) throw branchError
-
-      setBranch(branchData)
-      setName(branchData.name || "")
-      setCode(branchData.code || "")
-      setAddress(branchData.address || "")
-      setPhone(branchData.phone || "")
-      setEmail(branchData.email || "")
-
-      const { data: assignments, error: employeeError } = await supabase
-        .from("user_branch_assignments")
-        .select("user_id, users(id, full_name, email, role, is_active)")
-        .eq("branch_id", id)
-        .eq("is_active", true)
-
-      if (employeeError) throw employeeError
-
-      setEmployees((assignments || []).map((item) => item.users).filter(Boolean))
-    } catch (err) {
-      setError(err.message || "Failed to load branch")
-    } finally {
-      setLoading(false)
-    }
-  }
-
   useEffect(() => {
-    if (id && businessId) {
-      loadBranch()
-    }
-  }, [id, businessId])
+    void loadBranch()
+  }, [loadBranch])
 
-  const assignedCount = useMemo(() => employees.length, [employees])
+  // assignedCount is derived directly from assignment count - no memo needed
+  const assignedCount = assignmentCount
 
   const handleSave = async () => {
     if (!branch || !name) {
@@ -85,18 +90,13 @@ export default function BranchDetail() {
     setError("")
 
     try {
-      const { error: updateError } = await supabase
-        .from("branches")
-        .update({
-          name,
-          code: code || null,
-          address: address || null,
-          phone: phone || null,
-          email: email || null,
-        })
-        .eq("id", id)
-
-      if (updateError) throw updateError
+      await saveBranchDetail(id, businessId, {
+        name,
+        code: code || null,
+        address: address || null,
+        phone: phone || null,
+        email: email || null,
+      })
 
       await refreshBranches?.()
       await loadBranch()
@@ -117,12 +117,7 @@ export default function BranchDetail() {
     setError("")
 
     try {
-      const { error: updateError } = await supabase
-        .from("branches")
-        .update({ is_active: !branch.is_active })
-        .eq("id", id)
-
-      if (updateError) throw updateError
+      await toggleBranchDetailActive(id, businessId, branch)
 
       await refreshBranches?.()
       await loadBranch()
@@ -140,12 +135,7 @@ export default function BranchDetail() {
     setError("")
 
     try {
-      const { error: deleteError } = await supabase
-        .from("branches")
-        .update({ status: "archived" })
-        .eq("id", id)
-
-      if (deleteError) throw deleteError
+      await archiveBranchDetail(id, businessId, branch)
 
       await refreshBranches?.()
       navigate("/settings/branches", { replace: true })
@@ -164,9 +154,19 @@ export default function BranchDetail() {
 
   if (loading) {
     return (
-      <AppShell title="Branch Details" showHeader={true} right={<UiButton variant="secondary" size="sm" onClick={goBack} aria-label="Back">←</UiButton>}>
+      <AppShell showHeader={false}>
+        <div className="space-y-4 px-4 sm:px-5">
+          <button
+            type="button"
+            onClick={goBack}
+            className="flex items-center gap-2 text-zinc-500 hover:text-zinc-300 text-xs"
+          >
+            <span aria-hidden="true">←</span>
+            <span>Back to branches</span>
+          </button>
         <div className="flex items-center justify-center py-12">
           <p className="text-zinc-500">Loading...</p>
+        </div>
         </div>
       </AppShell>
     )
@@ -174,9 +174,19 @@ export default function BranchDetail() {
 
   if (!branch) {
     return (
-      <AppShell title="Branch Details" showHeader={true} right={<UiButton variant="secondary" size="sm" onClick={goBack} aria-label="Back">←</UiButton>}>
+      <AppShell showHeader={false}>
+        <div className="space-y-4 px-4 sm:px-5">
+          <button
+            type="button"
+            onClick={goBack}
+            className="flex items-center gap-2 text-zinc-500 hover:text-zinc-300 text-xs"
+          >
+            <span aria-hidden="true">←</span>
+            <span>Back to branches</span>
+          </button>
         <div className="flex items-center justify-center py-12">
           <p className="text-zinc-500">Branch not found</p>
+        </div>
         </div>
       </AppShell>
     )
@@ -184,20 +194,48 @@ export default function BranchDetail() {
 
   return (
     <AppShell
-      title="Branch Details"
-      subtitle={`${branch.name} · Manage profile, status, and people in one place`}
-      showHeader={true}
-      right={(
-        <div className="flex w-full flex-wrap items-stretch gap-1.5 sm:w-auto sm:items-center sm:gap-3">
-          <UiButton variant="secondary" size="sm" onClick={goBack} className="flex-1 text-xs px-2 sm:flex-none sm:px-3">←</UiButton>
-          <UiButton variant="secondary" size="sm" onClick={addEmployees} className="flex-1 text-xs px-2 sm:flex-none sm:px-3">Employees</UiButton>
-          <UiButton variant="primary" size="sm" onClick={() => setEditing((current) => !current)} className="flex-1 text-xs px-2 sm:flex-none sm:px-3">
-            {editing ? "Cancel" : "Edit"}
-          </UiButton>
-        </div>
-      )}
+      showHeader={false}
     >
-      <div className="space-y-4">
+      <div className="space-y-4 px-4 sm:px-5">
+        <button
+          type="button"
+          onClick={goBack}
+          className="flex items-center gap-2 text-zinc-500 hover:text-zinc-300 text-xs"
+        >
+          <span aria-hidden="true">←</span>
+          <span>Back to branches</span>
+        </button>
+
+        <div className="rounded-2xl border border-zinc-800 bg-zinc-900/80 p-4 sm:p-5 shadow-lg shadow-black/10">
+          <div className="flex w-full flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+            <div>
+              <p className="text-[10px] font-medium uppercase tracking-[0.22em] text-zinc-500">Settings</p>
+              <h1 className="mt-2 text-xl sm:text-2xl font-semibold tracking-tight text-white">{branch.name || "Branch Details"}</h1>
+              <p className="mt-1 text-xs sm:text-sm text-zinc-400">
+                {instantBusiness?.name || "Your business"} • Manage profile, status, and people in one place.
+              </p>
+            </div>
+
+            <div className="flex w-full flex-wrap items-stretch gap-2 sm:w-auto sm:items-center">
+              <UiButton variant="secondary" size="sm" onClick={addEmployees}>Employees</UiButton>
+              <UiButton variant="primary" size="sm" onClick={() => setEditing((current) => !current)}>
+                {editing ? "Cancel" : "Edit"}
+              </UiButton>
+              <UiButton
+                variant="ghost"
+                size="sm"
+                type="button"
+                onClick={() => {
+                  signOut?.()
+                }}
+              >
+                Sign out
+              </UiButton>
+            </div>
+          </div>
+        </div>
+
+        <div className="space-y-4">
         {error && <p className="text-red-400 text-sm bg-red-400/10 px-3 py-2 rounded-lg">{error}</p>}
         {saved && <p className="text-emerald-400 text-sm bg-emerald-400/10 px-3 py-2 rounded-lg">Saved successfully</p>}
 
@@ -292,11 +330,11 @@ export default function BranchDetail() {
             <h3 className="text-white font-medium text-sm">Assigned Employees</h3>
             <UiButton variant="secondary" size="sm" onClick={addEmployees}>Add employees</UiButton>
           </div>
-          {employees.length === 0 ? (
+          {employeeList.length === 0 ? (
             <p className="text-zinc-500 text-sm">No employees assigned to this branch yet.</p>
           ) : (
             <div className="space-y-2">
-              {employees.map((employee) => (
+              {employeeList.map((employee) => (
                 <button
                   key={employee.id}
                   onClick={() => navigate(`/settings/employees/${employee.id}`)}
@@ -324,6 +362,7 @@ export default function BranchDetail() {
             Delete branch
           </UiButton>
         </UiCard>
+        </div>
       </div>
     </AppShell>
   )

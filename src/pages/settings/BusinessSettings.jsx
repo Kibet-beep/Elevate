@@ -1,6 +1,6 @@
 // src/pages/settings/BusinessSettings.jsx
 import { useState, useEffect } from "react"
-import { supabase } from "../../lib/supabase"
+import { getBusinessSettings, updateBusiness } from "../../services/settingsService"
 import { useNavigate } from "react-router-dom"
 import { useCurrentBusiness } from "../../hooks/useRole"
 import { AppShell, UiButton, UiCard, UiSectionTitle } from "../../components/ui"
@@ -39,16 +39,8 @@ export default function BusinessSettings() {
     navigate("/settings", { replace: true })
   }
 
-  useEffect(() => {
-    if (businessId) fetchBusinessSettings()
-  }, [businessId])
-
-  const fetchBusinessSettings = async () => {
-    const { data } = await supabase
-      .from("businesses")
-      .select("*")
-      .eq("id", businessId)
-      .single()
+  async function fetchBusinessSettings() {
+    const data = await getBusinessSettings(businessId)
 
     if (data) {
       // Business identity
@@ -66,6 +58,10 @@ export default function BusinessSettings() {
       setFinancialYearStart(data.financial_year_start || 1)
     }
   }
+
+  useEffect(() => {
+    if (businessId) void fetchBusinessSettings()
+  }, [businessId])
 
   const validateSettings = () => {
     if (!name.trim()) return "Business name is required"
@@ -85,9 +81,8 @@ export default function BusinessSettings() {
     setSaving(true)
     setError("")
 
-    const { error: updateError } = await supabase
-      .from("businesses")
-      .update({
+    try {
+      await updateBusiness(businessId, {
         name,
         type,
         phone,
@@ -99,13 +94,10 @@ export default function BusinessSettings() {
         low_stock_threshold: parseInt(lowStockThreshold),
         financial_year_start: parseInt(financialYearStart),
       })
-      .eq("id", businessId)
-
-    if (updateError) {
-      setError(updateError.message)
-    } else {
       setSaved(true)
       setTimeout(() => setSaved(false), 3000)
+    } catch (updateError) {
+      setError(updateError.message)
     }
 
     setSaving(false)

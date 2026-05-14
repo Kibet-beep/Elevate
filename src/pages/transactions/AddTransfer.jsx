@@ -1,25 +1,19 @@
 // src/pages/transactions/AddTransfer.jsx
 import { useState, useEffect } from "react"
-import { supabase } from "../../lib/supabase"
 import { useNavigate } from "react-router-dom"
 import { useUser, useCurrentBusiness } from "../../hooks/useRole"
+import { useBranchContext } from "../../context/BranchContext"
+import { BranchSelector } from "../../components/BranchSelector"
 import { AppShell, UiButton, UiCard, UiSectionTitle } from "../../components/ui"
+import { recordTransfer, getTransferCostFlag } from "../../services/transferService"
 
 const ACCOUNTS = ["cash", "mpesa", "bank"]
-
-const TRANSFER_COSTS = {
-  "cash-mpesa": false,
-  "cash-bank": false,
-  "mpesa-cash": true,
-  "mpesa-bank": true,
-  "bank-cash": true,
-  "bank-mpesa": false,
-}
 
 export default function AddTransfer() {
   const navigate = useNavigate()
   const { user: authUser } = useUser()
   const { businessId } = useCurrentBusiness()
+  const { effectiveBranchId, canViewAll, readyToFetch } = useBranchContext()
   const [userId, setUserId] = useState(null)
   const [fromAccount, setFromAccount] = useState("cash")
   const [toAccount, setToAccount] = useState("mpesa")
@@ -30,65 +24,16 @@ export default function AddTransfer() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
   const [success, setSuccess] = useState(false)
+  const resolvedBranchId = effectiveBranchId
 
   useEffect(() => {
     if (businessId && authUser) {
       setUserId(authUser.id)
-      fetchBalances()
     }
   }, [businessId, authUser])
 
-  const fetchBalances = async () => {
-    const { data: userData } = await supabase
-      .from("users")
-      .select("business_id")
-      .eq("id", (await supabase.auth.getUser()).data.user.id)
-      .single()
-
-    const bId = userData.business_id
-
-    const { data: floatData } = await supabase
-      .from("float_baseline")
-      .select("*")
-      .eq("business_id", bId)
-      .maybeSingle()
-
-    const { data: txns } = await supabase
-      .from("transactions")
-      .select("type, payment_account, sale_items(total_amount), expenses(amount)")
-      .eq("business_id", bId)
-
-    const { data: transfers } = await supabase
-      .from("transfers")
-      .select("*")
-      .eq("business_id", bId)
-
-    const calc = (account) => {
-      const opening = floatData?.[`${account}_opening`] || 0
-      const salesIn = (txns || [])
-        .filter((t) => t.type === "sale" && t.payment_account === account)
-        .reduce((s, t) => s + (t.sale_items?.reduce((a, i) => a + i.total_amount, 0) || 0), 0)
-      const expOut = (txns || [])
-        .filter((t) => t.type === "expense" && t.payment_account === account)
-        .reduce((s, t) => s + (t.expenses?.reduce((a, e) => a + e.amount, 0) || 0), 0)
-      const transferOut = (transfers || [])
-        .filter((t) => t.from_account === account)
-        .reduce((s, t) => s + t.amount + t.transaction_cost, 0)
-      const transferIn = (transfers || [])
-        .filter((t) => t.to_account === account)
-        .reduce((s, t) => s + t.amount, 0)
-      return opening + salesIn - expOut - transferOut + transferIn
-    }
-
-    setBalances({
-      cash: calc("cash"),
-      mpesa: calc("mpesa"),
-      bank: calc("bank"),
-    })
-  }
-
   const transferKey = `${fromAccount}-${toAccount}`
-  const hasCost = TRANSFER_COSTS[transferKey]
+  const hasCost = getTransferCostFlag(fromAccount, toAccount)
   const amt = parseFloat(amount) || 0
   const cost = parseFloat(transactionCost) || 0
   const amountReceived = amt - cost
@@ -102,6 +47,18 @@ export default function AddTransfer() {
 
   const handleSubmit = async () => {
     setError("")
+    if (!readyToFetch) {
+      setError("Loading branch context, please wait")
+      return
+    }
+    if (canViewAll && !resolvedBranchId) {
+      setError("Select a branch before recording a transfer")
+      return
+    }
+    if (!resolvedBranchId) {
+      setError("Your branch is not assigned yet. Contact the owner.")
+      return
+    }
 
     if (!amount) {
       setError("Amount is required")
@@ -116,54 +73,38 @@ export default function AddTransfer() {
       return
     }
 
-    setLoading(true)
-
-    // Record the transfer
-    const { error: transferError } = await supabase.from("transfers").insert({
-      business_id: businessId,
-      from_account: fromAccount,
-      to_account: toAccount,
-      amount: amt,
-      transaction_cost: cost,
-      date: new Date(date).toISOString(),
-      note: note || null,
-      created_by: userId,
-    })
-
-    if (transferError) {
-      setError(transferError.message)
-      setLoading(false)
+    if (cost < 0) {
+      setError("Transaction cost cannot be negative")
       return
     }
 
-    // If there's a transaction cost, record it as an expense
-    if (cost > 0) {
-      const { data: txn, error: txnError } = await supabase
-        .from("transactions")
-        .insert({
-          business_id: businessId,
-          type: "expense",
-          transaction_type_tag: "operating_expense",
-          payment_account: fromAccount,
-          account_code: "6600",
-          date: new Date(date).toISOString(),
-          created_by: userId,
-        })
-        .select()
-        .single()
-
-      if (!txnError) {
-        await supabase.from("expenses").insert({
-          transaction_id: txn.id,
-          category: "Transfer cost",
-          amount: cost,
-          description: `Transfer cost: ${accountLabel(fromAccount)} → ${accountLabel(toAccount)}`,
-        })
-      }
+    if (cost > amt) {
+      setError("Transaction cost cannot exceed transfer amount")
+      return
     }
 
-    setSuccess(true)
-    setLoading(false)
+    setLoading(true)
+    setError("")
+
+    try {
+      await recordTransfer({
+        businessId,
+        branchId: resolvedBranchId,
+        userId,
+        fromAccount,
+        toAccount,
+        amount: amt,
+        transactionCost: cost,
+        date: new Date(date).toISOString(),
+        note: note || undefined,
+      })
+
+      setSuccess(true)
+    } catch (err) {
+      setError(err?.message || "Failed to record transfer")
+    } finally {
+      setLoading(false)
+    }
   }
 
   const reset = () => {
@@ -199,7 +140,12 @@ export default function AddTransfer() {
       title="Transfer Funds"
       subtitle="Move money between accounts"
       contentClassName="max-w-6xl"
-      right={<UiButton variant="secondary" size="sm" onClick={() => navigate("/transactions")}>← Back</UiButton>}
+      right={
+        <div className="flex items-center gap-2">
+          <UiButton variant="secondary" size="sm" onClick={() => navigate("/transactions")}>← Back</UiButton>
+          {canViewAll ? <BranchSelector /> : null}
+        </div>
+      }
     >
       <div className="grid gap-4 lg:grid-cols-[1.35fr_0.65fr]">
         <div className="space-y-4">

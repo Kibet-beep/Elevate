@@ -1,26 +1,23 @@
 // src/pages/inventory/ProductDetail.jsx
 import { useState, useEffect, useMemo } from "react"
-import { supabase } from "../../lib/supabase"
 import { useNavigate, useParams } from "react-router-dom"
 import { AppShell, UiButton, UiCard, UiSectionTitle } from "../../components/ui"
 import { useIsOwnerOrManager } from "../../hooks/useRole"
-import { useBranchContext } from "../../hooks/useBranchContext"
-import { useCache } from "../../hooks/useCache"
-import { usePersistentStorage } from "../../hooks/usePersistentStorage"
+import { useBranchContext } from "../../context/BranchContext"
 import { useInstantAuth } from "../../hooks/useInstantAuth"
-import { createCacheManager } from "../../lib/cacheManager"
+import { useProducts } from "../../hooks/useProducts"
+import { updateProduct, deactivateProduct, assignProductBranch } from "../../services/productDetailService"
 
 export default function ProductDetail() {
   const navigate = useNavigate()
   const { id } = useParams()
   const { business: instantBusiness } = useInstantAuth()
   const isOwnerOrManager = useIsOwnerOrManager()
-  const { availableBranches } = useBranchContext()
-  const { get, set, invalidate } = useCache()
-  const { get: getPersistent, set: setPersistent } = usePersistentStorage()
-  
-  // Create unified cache manager
-  const cacheManager = useMemo(() => createCacheManager({ get, set, invalidate }, { get: getPersistent, set: setPersistent }), [get, set, invalidate, getPersistent, setPersistent])
+  const { canViewAll, availableBranches, effectiveBranchId } = useBranchContext()
+  const { products: allProducts } = useProducts(
+    effectiveBranchId,
+    isOwnerOrManager,
+  )
   const [product, setProduct] = useState(null)
   const [stockHistory, setStockHistory] = useState([])
   const [salesHistory, setSalesHistory] = useState([])
@@ -39,74 +36,67 @@ export default function ProductDetail() {
   const [buyingPrice, setBuyingPrice] = useState("")
   const [reorderPoint, setReorderPoint] = useState("")
 
+  // Get branch info once for reuse
+  const currentBranchInfo = useMemo(() => {
+    if (!product || !availableBranches.length) return null
+    return availableBranches.find(b => b.id === product.branch_id)
+  }, [product, availableBranches])
+
   useEffect(() => {
-    fetchProduct()
-  }, [id])
-
-  const fetchProduct = async () => {
-    const { data } = await supabase
-      .from("products")
-      .select("*, suppliers(name), branches!left(name, code)")
-      .eq("id", id)
-      .single()
-
-    setProduct(data)
-    setName(data?.name || "")
-    setCategory(data?.category || "")
-    setUnit(data?.unit_of_measure || "")
-    setSellingPrice(data?.selling_price ?? "")
-    setBuyingPrice(data?.buying_price ?? "")
-    setReorderPoint(data?.reorder_point ?? "")
-
-    const { data: history } = await supabase
-      .from("stock_entries")
-      .select("*")
-      .eq("product_id", id)
-      .order("created_at", { ascending: false })
-      .limit(10)
-
-    setStockHistory(history || [])
-
-    const { data: sales } = await supabase
-      .from("sale_items")
-      .select("quantity, total_amount, unit_price, transactions(date, payment_account)")
-      .eq("product_id", id)
-      .order("created_at", { ascending: false })
-      .limit(50)
-
-    setSalesHistory(sales || [])
-    setLoading(false)
-  }
+    if (allProducts.length > 0) {
+      const foundProduct = allProducts.find(p => p.id === id)
+      setProduct(foundProduct || null)
+      setName(foundProduct?.name || "")
+      setCategory(foundProduct?.category || "")
+      setUnit(foundProduct?.unit_of_measure || "")
+      setSellingPrice(foundProduct?.selling_price ?? "")
+      setBuyingPrice(foundProduct?.buying_price ?? "")
+      setReorderPoint(foundProduct?.reorder_point ?? "")
+      setLoading(false)
+    }
+  }, [allProducts, id])
 
   const handleSave = async () => {
     setSaving(true)
     setError("")
 
-    const { error } = await supabase
-      .from("products")
-      .update({
+    try {
+      const updateData = {
+        id,
         name,
-        category: category || null,
-        unit_of_measure: unit || null,
+        category: category || undefined,
+        unit_of_measure: unit || undefined,
         selling_price: parseFloat(sellingPrice),
         buying_price: parseFloat(buyingPrice),
         reorder_point: parseInt(reorderPoint),
-      })
-      .eq("id", id)
+      }
 
-    if (error) {
-      setError(error.message)
-    } else {
+      if (!canViewAll && effectiveBranchId) {
+        updateData.branch_id = effectiveBranchId
+      }
+
+      await updateProduct(updateData)
       setEditing(false)
-      fetchProduct()
+      // Update local state immediately
+      setProduct(prev => ({ ...prev, ...updateData }))
+    } catch (error) {
+      setError(error.message)
     }
     setSaving(false)
   }
 
   const handleDeactivate = async () => {
     if (!confirm("Remove this product from inventory?")) return
-    await supabase.from("products").update({ is_active: false }).eq("id", id)
-    navigate("/inventory")
+    
+    try {
+      await deactivateProduct(id)
+      setEditing(false)
+      // Update local state immediately
+      setProduct(prev => ({ ...prev, is_active: false }))
+      navigate("/inventory")
+    } catch (error) {
+      setError(error.message)
+    }
   }
 
   const fmt = (n) => `KES ${Number(n).toLocaleString("en-KE", { minimumFractionDigits: 2 })}`
@@ -138,33 +128,17 @@ export default function ProductDetail() {
     setError("")
 
     try {
-      const { error: updateError } = await supabase
-        .from("products")
-        .update({ 
-          branch_id: selectedBranch,
-          updated_at: new Date().toISOString()
-        })
-        .eq("id", id)
-
-      if (updateError) {
-        setError(updateError.message)
-      } else {
-        // Update local state for immediate feedback
-        setProduct(prev => ({
-          ...prev,
-          branch_id: selectedBranch,
-          branches: availableBranches.find(b => b.id === selectedBranch)
-        }))
-        
-        // Use unified cache invalidation
-        if (instantBusiness?.id) {
-          cacheManager.invalidateAfterBranchAssignment(instantBusiness.id, product?.branch_id, selectedBranch)
-        }
-        
-        // Close modal and reset on success
-        setIsModalOpen(false)
-        setSelectedBranch("")
-      }
+      await assignProductBranch(id, selectedBranch)
+      
+      // Update local state for immediate feedback
+      setProduct(prev => ({
+        ...prev,
+        branch_id: selectedBranch,
+      }))
+      
+      // Close modal and reset on success
+      setIsModalOpen(false)
+      setSelectedBranch("")
     } catch (err) {
       setError(err.message || "Failed to assign branch")
     } finally {
@@ -384,33 +358,36 @@ export default function ProductDetail() {
                 {[
                   { label: "Category", value: product?.category || "—" },
                   { label: "Unit of measure", value: product?.unit_of_measure || "—" },
-                  { 
-                  label: "Branch", 
-                  value: product?.branches ? `${product.branches.name}${product.branches.code ? ` (${product.branches.code})` : ""}` : (
-                    needsBranchAssignment ? (
-                      <div className="flex items-center gap-2">
-                        <span className="text-red-400">Unassigned</span>
-                        {isOwnerOrManager && (
-                          <button
-                            onClick={() => setIsModalOpen(true)}
-                            className="text-xs bg-amber-500/10 text-amber-400 px-2 py-1 rounded-lg hover:bg-amber-500/20 transition-colors"
-                          >
-                            Assign Branch
-                          </button>
-                        )}
-                      </div>
-                    ) : "—"
-                  )
-                },
-                  { label: "Reorder point", value: product?.reorder_point },
+                  {
+                    label: "Branch",
+                    value: currentBranchInfo
+                      ? `${currentBranchInfo.name}${currentBranchInfo.code ? ` (${currentBranchInfo.code})` : ""}`
+                      : product?.branch_id || "Unassigned",
+                  },
+                  { label: "Reorder point", value: product?.reorder_point ?? "—" },
                   { label: "Supplier", value: product?.suppliers?.name || "—" },
-                  { label: "Added on", value: new Date(product?.created_at).toLocaleDateString("en-KE") },
+                  {
+                    label: "Added on",
+                    value: product?.created_at
+                      ? new Date(product.created_at).toLocaleDateString("en-KE")
+                      : "—",
+                  },
                 ].map((r, i) => (
                   <div key={i} className="flex items-center justify-between gap-3 border-b border-zinc-800 last:border-0 pb-2 last:pb-0">
                     <p className="text-zinc-500 text-sm">{r.label}</p>
                     <p className="text-sm text-white text-right">{r.value}</p>
                   </div>
                 ))}
+                {needsBranchAssignment && (
+                  <UiButton
+                    variant="secondary"
+                    size="sm"
+                    className="w-full mt-2"
+                    onClick={() => setIsModalOpen(true)}
+                  >
+                    Assign Branch
+                  </UiButton>
+                )}
               </div>
             )}
           </UiCard>

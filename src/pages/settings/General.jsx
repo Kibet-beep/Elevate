@@ -1,9 +1,9 @@
 // src/pages/settings/General.jsx
 import { useState, useEffect } from "react"
-import { supabase } from "../../lib/supabase"
+import { getBusinessSettings, updateBusiness } from "../../services/settingsService"
 import { useNavigate } from "react-router-dom"
 import { useCurrentBusiness } from "../../hooks/useRole"
-import { AppShell, UiButton, UiCard } from "../../components/ui"
+import { AppShell, UiButton, UiCard, SyncTicks } from "../../components/ui"
 
 export default function General() {
   const navigate = useNavigate()
@@ -25,19 +25,29 @@ export default function General() {
   const months = ["January","February","March","April","May","June",
     "July","August","September","October","November","December"]
 
-  const fetchData = async () => {
-    const { data } = await supabase
-      .from("businesses").select("vat_rate, low_stock_threshold, financial_year_start")
-      .eq("id", businessId).single()
-
-    setVatRate(data.vat_rate || 16)
-    setLowStockThreshold(data.low_stock_threshold || 10)
-    setFinancialYearStart(data.financial_year_start || 1)
-  }
-
   useEffect(() => {
-    if (businessId) fetchData()
-  }, [businessId, fetchData])
+    if (!businessId) return
+
+    let active = true
+
+    const fetchData = async () => {
+      const data = await getBusinessSettings(businessId)
+
+      if (!active) return
+
+      if (data) {
+        setVatRate(data.vat_rate || 16)
+        setLowStockThreshold(data.low_stock_threshold || 10)
+        setFinancialYearStart(data.financial_year_start || 1)
+      }
+    }
+
+    void fetchData()
+
+    return () => {
+      active = false
+    }
+  }, [businessId])
 
   const validateSettings = () => {
     if (vatRate < 0 || vatRate > 100) return "VAT rate must be between 0 and 100"
@@ -54,13 +64,12 @@ export default function General() {
     }
     setSaving(true)
     setError("")
-    const { error } = await supabase
-      .from("businesses")
-      .update({ vat_rate: vatRate, low_stock_threshold: lowStockThreshold, financial_year_start: financialYearStart })
-      .eq("id", businessId)
-
-    if (error) setError(error.message)
-    else setSaved(true)
+    try {
+      await updateBusiness(businessId, { vat_rate: vatRate, low_stock_threshold: lowStockThreshold, financial_year_start: financialYearStart })
+      setSaved(true)
+    } catch (err) {
+      setError(err.message)
+    }
     setSaving(false)
     setTimeout(() => setSaved(false), 2000)
   }
@@ -108,7 +117,10 @@ export default function General() {
           onClick={handleSave} 
           disabled={saving || (vatRate < 0 || vatRate > 100) || lowStockThreshold <= 0}
         >
-          {saving ? "Saving..." : "Save changes"}
+          <span className="inline-flex items-center justify-center gap-2">
+            {saving ? <SyncTicks status="pending" /> : saved ? <SyncTicks status="synced" /> : null}
+            {saving ? "Saving..." : "Save changes"}
+          </span>
         </UiButton>
       </div>
     </AppShell>

@@ -1,9 +1,9 @@
 // src/pages/settings/Business.jsx
 import { useState, useEffect } from "react"
-import { supabase } from "../../lib/supabase"
+import { getBusiness, updateBusiness } from "../../services/businessService"
 import { useNavigate } from "react-router-dom"
 import { useCurrentBusiness } from "../../hooks/useRole"
-import { AppShell, UiButton, UiCard } from "../../components/ui"
+import { AppShell, UiButton, UiCard, SyncTicks } from "../../components/ui"
 
 export default function Business() {
   const navigate = useNavigate()
@@ -26,13 +26,8 @@ export default function Business() {
   const [error, setError] = useState("")
   const [saved, setSaved] = useState(false)
 
-  useEffect(() => {
-    if (businessId) fetchBusiness()
-  }, [businessId])
-
-  const fetchBusiness = async () => {
-    const { data } = await supabase
-      .from("businesses").select("*").eq("id", businessId).single()
+  async function fetchBusiness() {
+    const data = await getBusiness(businessId)
 
     if (data) {
       setName(data.name || "")
@@ -45,16 +40,19 @@ export default function Business() {
     }
   }
 
+  useEffect(() => {
+    if (businessId) void fetchBusiness()
+  }, [businessId])
+
   const handleSave = async () => {
     setSaving(true)
     setError("")
-    const { error } = await supabase
-      .from("businesses")
-      .update({ name, type, phone, email, location, kra_pin: kraPin, reg_number: regNumber })
-      .eq("id", businessId)
-
-    if (error) setError(error.message)
-    else setSaved(true)
+    try {
+      await updateBusiness(businessId, { name, type, phone, email, location, kra_pin: kraPin, reg_number: regNumber })
+      setSaved(true)
+    } catch (err) {
+      setError(err.message)
+    }
     setSaving(false)
     setTimeout(() => setSaved(false), 2000)
   }
@@ -102,7 +100,10 @@ export default function Business() {
         </UiCard>
 
         <UiButton variant="primary" className="w-full" onClick={handleSave} disabled={saving}>
-          {saving ? "Saving..." : "Save changes"}
+          <span className="inline-flex items-center justify-center gap-2">
+            {saving ? <SyncTicks status="pending" /> : saved ? <SyncTicks status="synced" /> : null}
+            {saving ? "Saving..." : "Save changes"}
+          </span>
         </UiButton>
       </div>
     </AppShell>

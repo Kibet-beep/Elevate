@@ -13,7 +13,6 @@ export default function AddEmployees() {
   const [role, setRole] = useState("cashier")
   const [inviting, setInviting] = useState(false)
   const [saving, setSaving] = useState(false)
-  const [error, setError] = useState("")
   const [fieldError, setFieldError] = useState("")
 
   const handleInvite = async () => {
@@ -32,11 +31,24 @@ export default function AddEmployees() {
 
     setInviting(true)
 
+    const inviteId = crypto.randomUUID?.() || `invite_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+    const pendingEmployee = {
+      id: inviteId,
+      fullName: fullName.trim(),
+      email: email.trim(),
+      role,
+      status: "pending",
+      tempPassword: null,
+    }
+
+    setEmployees((current) => [pendingEmployee, ...current])
+
     try {
       const { data: { session } } = await supabase.auth.getSession()
 
       if (!session) {
         setFieldError("You must be logged in to invite employees")
+        setEmployees((current) => current.filter((employee) => employee.id !== inviteId))
         setInviting(false)
         return
       }
@@ -72,20 +84,20 @@ export default function AddEmployees() {
 
       if (!res.ok) {
         setFieldError(result.error || "Failed to create user")
+        setEmployees((current) => current.filter((employee) => employee.id !== inviteId))
         setInviting(false)
         return
       }
 
-      // Handle the new response format with temporary password
-      const newUser = {
-        fullName: fullName.trim(),
-        email: email.trim(),
-        role,
-        status: "created",
-        tempPassword: result.user?.tempPassword,
-      }
-
-      setEmployees([...employees, newUser])
+      setEmployees((current) => current.map((employee) => (
+        employee.id === inviteId
+          ? {
+              ...employee,
+              status: "created",
+              tempPassword: result.user?.tempPassword,
+            }
+          : employee
+      )))
 
       setFullName("")
       setEmail("")
@@ -98,14 +110,15 @@ export default function AddEmployees() {
 
     } catch (err) {
       console.log("Catch error:", err)
+      setEmployees((current) => current.filter((employee) => employee.id !== inviteId))
       setFieldError("Network error — please try again")
     }
 
     setInviting(false)
   }
 
-  const removeEmployee = (index) => {
-    setEmployees(employees.filter((_, i) => i !== index))
+  const removeEmployee = (id) => {
+    setEmployees((current) => current.filter((employee) => employee.id !== id))
   }
 
   const handleContinue = async () => {
@@ -128,12 +141,6 @@ export default function AddEmployees() {
 
       <div className="px-5 max-w-lg mx-auto space-y-4">
 
-        {error && (
-          <div className="bg-red-400/10 border border-red-400/20 rounded-xl px-4 py-3">
-            <p className="text-red-400 text-sm">{error}</p>
-          </div>
-        )}
-
         {/* ── TEAM LIST ── */}
         <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-5">
           <p className="text-zinc-500 text-[10px] uppercase tracking-widest font-medium mb-4">
@@ -149,12 +156,15 @@ export default function AddEmployees() {
             <div className="space-y-2">
               {employees.map((e, i) => (
                 <div
-                  key={i}
+                  key={e.id}
                   className="flex items-center justify-between bg-zinc-950 border border-zinc-800 rounded-xl px-4 py-3"
                 >
                   <div className="min-w-0 flex-1">
                     <p className="text-white text-sm font-medium truncate">{e.fullName}</p>
                     <p className="text-zinc-500 text-xs font-mono mt-0.5 truncate">{e.email}</p>
+                    {e.status === "pending" && !e.tempPassword && (
+                      <p className="text-amber-400 text-xs font-mono mt-1">Sending invite...</p>
+                    )}
                     {e.tempPassword && (
                       <p className="text-emerald-400 text-xs font-mono mt-1">
                         Password: {e.tempPassword}
@@ -169,11 +179,15 @@ export default function AddEmployees() {
                     }`}>
                       {roleLabel(e.role)}
                     </span>
-                    <span className="text-[10px] font-mono px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-400">
-                      Created ✓
+                    <span className={`text-[10px] font-mono px-2.5 py-1 rounded-full ${
+                      e.status === "pending"
+                        ? "bg-amber-500/10 text-amber-400"
+                        : "bg-emerald-500/10 text-emerald-400"
+                    }`}>
+                      {e.status === "pending" ? "Pending" : "Created ✓"}
                     </span>
                     <button
-                      onClick={() => removeEmployee(i)}
+                      onClick={() => removeEmployee(e.id)}
                       className="text-zinc-600 hover:text-red-400 transition-colors text-sm"
                     >
                       ✕

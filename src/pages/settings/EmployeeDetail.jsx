@@ -1,16 +1,19 @@
-import { useState, useEffect } from "react"
-import { supabase } from "../../lib/supabase"
+import { useState, useEffect, useCallback } from "react"
 import { useNavigate, useParams } from "react-router-dom"
-import { useUser, useCurrentBusiness, useIsOwner } from "../../hooks/useRole"
-import { useBranchContext } from "../../hooks/useBranchContext"
+import { useCurrentBusiness, useIsOwner } from "../../hooks/useRole"
+import { useBranchContext } from "../../context/BranchContext"
 import { AppShell, UiButton, UiCard } from "../../components/ui"
+import {
+  deleteEmployeeDetail,
+  loadEmployeeDetail,
+  saveEmployeeDetail,
+} from "../../services/employeeDetailService"
 
 export default function EmployeeDetail() {
   const navigate = useNavigate()
   const { id } = useParams()
-  const { user: authUser } = useUser()
   const { businessId } = useCurrentBusiness()
-  const { availableBranches } = useBranchContext()
+  const { availableBranches, effectiveBranchId, canViewAll } = useBranchContext()
   const isOwner = useIsOwner()
   
   const [employee, setEmployee] = useState(null)
@@ -26,86 +29,60 @@ export default function EmployeeDetail() {
   const [selectedBranches, setSelectedBranches] = useState([])
   const [isActive, setIsActive] = useState(true)
 
-  useEffect(() => {
-    if (id) fetchEmployee()
-  }, [id])
-
-  const fetchEmployee = async () => {
+  const fetchEmployee = useCallback(async () => {
     try {
-      const { data: emp } = await supabase
-        .from("users")
-        .select("*")
-        .eq("id", id)
-        .single()
+      const result = await loadEmployeeDetail({
+        businessId,
+        employeeId: id,
+        canViewAll,
+        effectiveBranchId,
+      })
 
-      if (emp) {
-        setEmployee(emp)
-        setFullName(emp.full_name || "")
-        setEmail(emp.email || "")
-        setRole(emp.role || "cashier")
-        setIsActive(emp.is_active !== false)
-        
-        // Fetch branch assignments
-        const { data: assignments } = await supabase
-          .from("user_branch_assignments")
-          .select("branch_id, branches(name, code)")
-          .eq("user_id", id)
-          .eq("is_active", true)
-
-        setSelectedBranches(assignments?.map(a => a.branch_id) || [])
+      if (result.employee) {
+        setEmployee(result.employee)
+        setFullName(result.employee.full_name || "")
+        setEmail(result.employee.email || "")
+        setRole(result.employee.role || "cashier")
+        setIsActive(result.employee.is_active !== false)
+        setSelectedBranches(result.selectedBranches)
       }
     } catch (error) {
-      setError("Failed to load employee")
+      setError(error.message || "Failed to load employee")
+      setEmployee(null)
     } finally {
       setLoading(false)
     }
-  }
+  }, [businessId, canViewAll, effectiveBranchId, id])
+
+  useEffect(() => {
+    if (!id || !businessId) return
+
+    const timer = window.setTimeout(() => {
+      void fetchEmployee()
+    }, 0)
+
+    return () => window.clearTimeout(timer)
+  }, [id, businessId, fetchEmployee])
 
   const handleSave = async () => {
     setError("")
     setSaving(true)
 
     try {
-      // Update employee basic info
-      const { error: updateError } = await supabase
-        .from("users")
-        .update({
-          full_name: fullName,
-          email,
-          role,
-          is_active: isActive,
-        })
-        .eq("id", id)
-
-      if (updateError) throw updateError
-
-      // Update branch assignments
-      if (isOwner && availableBranches.length > 0) {
-        // Remove existing assignments
-        await supabase
-          .from("user_branch_assignments")
-          .delete()
-          .eq("user_id", id)
-
-        // Add new assignments
-        if (selectedBranches.length > 0) {
-          const assignments = selectedBranches.map(branchId => ({
-            user_id: id,
-            branch_id: branchId,
-            role,
-            is_active: true,
-          }))
-
-          const { error: assignmentError } = await supabase
-            .from("user_branch_assignments")
-            .insert(assignments)
-
-          if (assignmentError) throw assignmentError
-        }
-      }
+      await saveEmployeeDetail({
+        businessId,
+        employeeId: id,
+        fullName,
+        email,
+        role,
+        isActive,
+        selectedBranches,
+        isOwner,
+        availableBranches,
+      })
 
       setEditing(false)
-      fetchEmployee() // Refresh data
+      void fetchEmployee()
     } catch (error) {
       setError(error.message)
     } finally {
@@ -119,6 +96,30 @@ export default function EmployeeDetail() {
         ? prev.filter(id => id !== branchId)
         : [...prev, branchId]
     )
+  }
+
+  const handleDelete = async () => {
+    if (!window.confirm(`Delete ${employee.full_name}? This cannot be undone. All branch assignments will be removed.`)) {
+      return
+    }
+
+    setSaving(true)
+    setError("")
+
+    try {
+      await deleteEmployeeDetail({
+        businessId,
+        employeeId: id,
+      })
+
+      navigate("/settings/branch-employees", { replace: true })
+
+    } catch (deleteError) {
+      console.error("[DELETE] FINAL ERROR:", deleteError)
+      setError(deleteError?.message || "Failed to delete employee")
+    } finally {
+      setSaving(false)
+    }
   }
 
   const goBack = () => {
@@ -153,6 +154,17 @@ export default function EmployeeDetail() {
       right={(
         <div className="flex items-center gap-1.5 sm:gap-3">
           <UiButton variant="secondary" size="sm" onClick={goBack} className="text-xs px-2 sm:px-3">←</UiButton>
+          {!editing && (
+            <UiButton 
+              variant="ghost" 
+              size="sm" 
+              onClick={handleDelete}
+              disabled={saving}
+              className="text-xs px-2 sm:px-3 text-red-400 hover:text-red-300"
+            >
+              Delete
+            </UiButton>
+          )}
           <UiButton 
             variant="primary" 
             size="sm" 

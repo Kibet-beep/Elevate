@@ -1,18 +1,81 @@
 // src/pages/settings/reports/SalesReport.jsx
 import { useState, useEffect, useMemo } from "react"
-import { supabase } from "../../lib/supabase"
 import { useNavigate, useSearchParams } from "react-router-dom"
-import { useBranchContext } from "../../hooks/useBranchContext"
+import { useBranchContext } from "../../context/BranchContext"
+import { useIsOwnerOrManager } from "../../hooks/useRole"
 import { BranchSelector } from "../../components/BranchSelector"
+import { useTransactions } from "../../hooks/useTransactions"
+import { useProducts } from "../../hooks/useProducts"
+import { useInstantAuth } from "../../hooks/useInstantAuth"
 
 const PERIODS = ["Day", "Week", "Month", "Quarter"]
-const EAT_OFFSET_MS = 3 * 60 * 60 * 1000
+
+// ── Table component (moved outside to prevent recreation) ──
+const SalesTable = ({ rows, isDay, fmtShort, accountLabel }) => (
+  <div className="overflow-x-auto">
+    {/* Mobile View */}
+    <div className="md:hidden">
+      {rows.length === 0 ? (
+        <div className="text-center py-8 px-4">
+          <p className="text-zinc-600 text-sm">No sales</p>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {rows.map((row, i) => (
+            <div key={i} className="bg-zinc-950/60 border border-zinc-800 rounded-xl p-4">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0 flex-1">
+                  <p className="text-white text-xs font-medium leading-tight">{row.name}</p>
+                  <p className="text-zinc-600 text-[10px] font-mono mt-0.5">{row.sku}</p>
+                </div>
+                <div className="text-right">
+                  <p className="text-emerald-400 text-xs font-mono whitespace-nowrap">{fmtShort(row.total)}</p>
+                  {isDay && <p className="text-zinc-500 text-[10px] mt-1">{accountLabel(row.payment)}</p>}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+    
+    {/* Desktop View */}
+    <div className="hidden md:block">
+      <table className="w-full min-w-[620px]">
+        <thead>
+          <tr className="border-b border-zinc-800">
+            {isDay && <th className="text-left text-[10px] uppercase tracking-widest text-zinc-600 font-medium px-4 py-3">Time</th>}
+            <th className="text-left text-[10px] uppercase tracking-widest text-zinc-600 font-medium px-4 py-3">Product</th>
+            <th className="text-right text-[10px] uppercase tracking-widest text-zinc-600 font-medium px-4 py-3">Qty</th>
+            <th className="text-right text-[10px] uppercase tracking-widest text-zinc-600 font-medium px-4 py-3">Total</th>
+            {isDay && <th className="text-right text-[10px] uppercase tracking-widest text-zinc-600 font-medium px-4 py-3">Via</th>}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row, i) => (
+            <tr key={i} className="border-b border-zinc-900 hover:bg-zinc-800/30 transition-colors">
+              {isDay && <td className="px-4 py-3 text-xs text-zinc-500 font-mono whitespace-nowrap">{row.time}</td>}
+              <td className="px-4 py-3">
+                <p className="text-white text-xs font-medium leading-tight">{row.name}</p>
+                <p className="text-zinc-600 text-[10px] font-mono mt-0.5">{row.sku}</p>
+              </td>
+              <td className="px-4 py-3 text-xs text-right font-mono text-zinc-400">{row.qty}</td>
+              <td className="px-4 py-3 text-xs text-right font-mono text-emerald-400 font-medium whitespace-nowrap">{fmtShort(row.total)}</td>
+              {isDay && <td className="px-4 py-3 text-[10px] text-right text-zinc-500">{accountLabel(row.payment)}</td>}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  </div>
+)
 
 export default function SalesReport() {
   const navigate = useNavigate()
-  const { user } = useUser()
-  const { canViewAll, availableBranches, activeBranch, loading: branchLoading } = useBranchContext()
+  const { canViewAll, availableBranches, effectiveBranchId } = useBranchContext()
+  const { business: instantBusiness, signOut } = useInstantAuth()
   const isOwnerOrManager = useIsOwnerOrManager()
+  
   const goBack = () => {
     if (window.history.length > 1) {
       navigate(-1)
@@ -20,16 +83,11 @@ export default function SalesReport() {
     }
     navigate("/settings", { replace: true })
   }
+  
   const [searchParams] = useSearchParams()
-
-  // For cashiers, always use their assigned branch
-  const effectiveBranchId = isOwnerOrManager ? localBranchId : (user?.default_branch_id || activeBranch?.id)
   const todayIso = new Date().toISOString().split("T")[0]
 
   const [period, setPeriod] = useState("Day")
-  const [businessId, setBusinessId] = useState(null)
-  const [transactions, setTransactions] = useState([])
-  const [prevTransactions, setPrevTransactions] = useState([])
   const [loading, setLoading] = useState(true)
   const [compareMode, setCompareMode] = useState(false)
   const [compareType, setCompareType] = useState("relative")
@@ -38,31 +96,22 @@ export default function SalesReport() {
 
   // Date anchor — defaults to today, can be changed by picker
   const dateParam = searchParams.get("date")
-  const [anchorDate, setAnchorDate] = useState(
-    dateParam || todayIso
-  )
+  const [anchorDate, setAnchorDate] = useState(dateParam || todayIso)
   const [compareDateA, setCompareDateA] = useState(dateParam || todayIso)
   const [compareDateB, setCompareDateB] = useState(todayIso)
-  const [localBranchId, setLocalBranchId] = useState(null)
+
+  // Get transactions and products from RxDB hooks
+  const { transactions: liveTransactions, loading: transactionsLoading } = useTransactions(effectiveBranchId, isOwnerOrManager)
+  const { products: liveProducts, loading: productsLoading } = useProducts(effectiveBranchId, isOwnerOrManager)
 
   useEffect(() => {
     if (dateParam) { setPeriod("Day"); setAnchorDate(dateParam) }
-    fetchUser()
-  }, [])
+  }, [dateParam])
 
   useEffect(() => {
-    if (businessId && !branchLoading) fetchData()
-  }, [period, businessId, anchorDate, compareMode, compareType, compareDateA, compareDateB, effectiveBranchId, branchLoading])
+    setLoading(transactionsLoading || productsLoading)
+  }, [transactionsLoading, productsLoading])
 
-  const fetchUser = async () => {
-    const { data: { user } } = await supabase.auth.getUser()
-    const { data: userData } = await supabase
-      .from("users")
-      .select("business_id")
-      .eq("id", user.id)
-      .single()
-    setBusinessId(userData.business_id)
-  }
 
   // ── Range calculation ──
   const getRange = (anchor, forPrev = false) => {
@@ -103,69 +152,47 @@ export default function SalesReport() {
     return { start: start.toISOString(), end: end.toISOString() }
   }
 
-  const fetchTxnsByRange = async (start, end) => {
-    let query = supabase
-      .from("transactions")
-      .select(`id, branch_id, date, payment_account, sale_items(quantity, unit_price, total_amount, products(name, sku_id, category))`)
-      .eq("business_id", businessId)
-      .eq("type", "sale")
-      .gte("date", start)
-      .lte("date", end)
-      .order("date", { ascending: true })
-
-    if (effectiveBranchId) {
-      query = query.eq("branch_id", effectiveBranchId)
-    }
-
-    const { data } = await query
-
-    return data || []
-  }
-
-  const fetchData = async () => {
-    setLoading(true)
-
-    if (compareMode && compareType === "custom") {
-      const aRange = getRange(compareDateA)
-      const bRange = getRange(compareDateB)
-      const [aData, bData] = await Promise.all([
-        fetchTxnsByRange(aRange.start, aRange.end),
-        fetchTxnsByRange(bRange.start, bRange.end),
-      ])
-      setPrevTransactions(aData)
-      setTransactions(bData)
-      setLoading(false)
-      return
-    }
-
-    const { start, end } = getRange(anchorDate)
-    const currentData = await fetchTxnsByRange(start, end)
-    setTransactions(currentData)
-
-    if (compareMode) {
-      const { start: ps, end: pe } = getRange(anchorDate, true)
-      const prevData = await fetchTxnsByRange(ps, pe)
-      setPrevTransactions(prevData)
-    } else {
-      setPrevTransactions([])
-    }
-
-    setLoading(false)
-  }
-
   const fmt = (n) => `KES ${Number(n).toLocaleString("en-KE", { minimumFractionDigits: 2 })}`
   const fmtShort = (n) => `KES ${Math.round(n).toLocaleString("en-KE")}`
 
   // ── Build rows ──
+  // Create product lookup map
+  const productMap = useMemo(() => {
+    const map = {}
+    liveProducts.forEach(p => {
+      map[p.id] = p
+    })
+    return map
+  }, [liveProducts])
+
+  // Filter transactions by date range
+  const { start: rangeStart, end: rangeEnd } = getRange(anchorDate)
+  const { start: prevStart, end: prevEnd } = getRange(anchorDate, true)
+
+  const transactions = useMemo(() => {
+    return liveTransactions.filter(t => {
+      const tDate = new Date(t.date).toISOString()
+      return tDate >= rangeStart && tDate <= rangeEnd
+    })
+  }, [liveTransactions, rangeStart, rangeEnd])
+
+  const prevTransactions = useMemo(() => {
+    return liveTransactions.filter(t => {
+      const tDate = new Date(t.date).toISOString()
+      return tDate >= prevStart && tDate <= prevEnd
+    })
+  }, [liveTransactions, prevStart, prevEnd])
+
   const buildDayRows = (txns) => {
     const rows = []
     for (const txn of txns) {
       for (const item of txn.sale_items || []) {
+        const product = productMap[item.product_id] || {}
         rows.push({
           time: new Date(txn.date).toLocaleTimeString("en-KE", { hour: "2-digit", minute: "2-digit" }),
-          sku: item.products?.sku_id || "-",
-          name: item.products?.name || "-",
-          category: item.products?.category || "",
+          sku: product.sku_id || "-",
+          name: product.name || "-",
+          category: product.category || "",
           qty: item.quantity,
           unitPrice: item.unit_price,
           total: item.total_amount,
@@ -180,12 +207,13 @@ export default function SalesReport() {
     const map = {}
     for (const txn of txns) {
       for (const item of txn.sale_items || []) {
-        const key = item.products?.sku_id || item.products?.name || "unknown"
+        const product = productMap[item.product_id] || {}
+        const key = product.sku_id || product.name || item.product_id || "unknown"
         if (!map[key]) {
           map[key] = {
-            sku: item.products?.sku_id || "-",
-            name: item.products?.name || "-",
-            category: item.products?.category || "",
+            sku: product.sku_id || "-",
+            name: product.name || "-",
+            category: product.category || "",
             unitPrice: item.unit_price,
             qty: 0,
             total: 0,
@@ -212,8 +240,9 @@ export default function SalesReport() {
     const map = {}
     for (const txn of txns) {
       for (const item of txn.sale_items || []) {
-        const key = item.products?.sku_id || item.products?.name || "unknown"
-        if (!map[key]) map[key] = { name: item.products?.name || "-", qty: 0, total: 0 }
+        const product = productMap[item.product_id] || {}
+        const key = product.sku_id || product.name || item.product_id || "unknown"
+        if (!map[key]) map[key] = { name: product.name || "-", qty: 0, total: 0 }
         map[key].qty += item.quantity
         map[key].total += item.total_amount
       }
@@ -285,100 +314,45 @@ export default function SalesReport() {
     }
   }
 
-  // ── Table component ──
-  const SalesTable = ({ rows, isDay }) => (
-    <div className="overflow-x-auto">
-      {/* Mobile View */}
-      <div className="md:hidden">
-        {rows.length === 0 ? (
-          <div className="text-center py-8 px-4">
-            <p className="text-zinc-600 text-sm">No sales</p>
-          </div>
-        ) : (
-          <div className="space-y-2">
-            {rows.map((row, i) => (
-              <div key={i} className="bg-zinc-950/60 border border-zinc-800 rounded-xl p-4">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0 flex-1">
-                    <p className="text-white text-xs font-medium leading-tight">{row.name}</p>
-                    <p className="text-zinc-600 text-[10px] font-mono mt-0.5">{row.sku}</p>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-emerald-400 text-xs font-mono whitespace-nowrap">{fmtShort(row.total)}</p>
-                    {isDay && <p className="text-zinc-500 text-[10px] mt-1">{accountLabel(row.payment)}</p>}
-                  </div>
-                </div>
-              </div>
-          ))}
-        </div>
-      )}
-    </div>
-    
-    {/* Desktop View */}
-    <div className="hidden md:block">
-      <table className="w-full min-w-[620px]">
-        <thead>
-          <tr className="border-b border-zinc-800">
-            {isDay && <th className="text-left text-[10px] uppercase tracking-widest text-zinc-600 font-medium px-4 py-3">Time</th>}
-            <th className="text-left text-[10px] uppercase tracking-widest text-zinc-600 font-medium px-4 py-3">Product</th>
-            <th className="text-right text-[10px] uppercase tracking-widest text-zinc-600 font-medium px-4 py-3">Qty</th>
-            <th className="text-right text-[10px] uppercase tracking-widest text-zinc-600 font-medium px-4 py-3">Total</th>
-            {isDay && <th className="text-right text-[10px] uppercase tracking-widest text-zinc-600 font-medium px-4 py-3">Via</th>}
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((row, i) => (
-            <tr key={i} className="border-b border-zinc-900 hover:bg-zinc-800/30 transition-colors">
-              {isDay && <td className="px-4 py-3 text-xs text-zinc-500 font-mono whitespace-nowrap">{row.time}</td>}
-              <td className="px-4 py-3">
-                <p className="text-white text-xs font-medium leading-tight">{row.name}</p>
-                <p className="text-zinc-600 text-[10px] font-mono mt-0.5">{row.sku}</p>
-              </td>
-              <td className="px-4 py-3 text-xs text-right font-mono text-zinc-400">{row.qty}</td>
-              <td className="px-4 py-3 text-xs text-right font-mono text-emerald-400 font-medium whitespace-nowrap">{fmtShort(row.total)}</td>
-              {isDay && <td className="px-4 py-3 text-[10px] text-right text-zinc-500">{accountLabel(row.payment)}</td>}
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  </div>
-)
-
   return (
     <div className="min-h-screen bg-zinc-950 pb-16">
+      <div className="px-4 pt-6 pb-4 w-full max-w-screen-2xl mx-auto space-y-4">
+        <button
+          type="button"
+          onClick={goBack}
+          className="flex items-center gap-2 text-zinc-500 hover:text-zinc-300 text-xs"
+        >
+          <span aria-hidden="true">←</span>
+          <span>Back to settings</span>
+        </button>
 
-      {/* Header */}
-      <div className="px-4 pt-6 pb-4 w-full max-w-screen-2xl mx-auto">
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-          <div>
-            <button
-              onClick={goBack}
-              aria-label="Back"
-              className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-zinc-700 text-zinc-300 hover:text-white hover:border-zinc-500 transition-colors mb-5"
-            >
-              ←
-            </button>
+        <div className="rounded-2xl border border-zinc-800 bg-zinc-900/80 p-4 sm:p-5 shadow-lg shadow-black/10">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
             <div>
-              <h1 className="text-white font-bold text-xl tracking-tight">Sales Records</h1>
-              <p className="text-zinc-500 text-xs mt-0.5">
-                {localBranchId ? `${availableBranches.find(b => b.id === localBranchId)?.name} • ` : ''}{periodLabel(anchorDate)}
+              <p className="text-[10px] font-medium uppercase tracking-[0.22em] text-zinc-500">Settings</p>
+              <h1 className="mt-2 text-white font-semibold text-xl tracking-tight">Sales Report</h1>
+              <p className="mt-1 text-zinc-400 text-xs sm:text-sm">
+                {instantBusiness?.name || "Your business"} • {effectiveBranchId ? `${availableBranches.find(b => b.id === effectiveBranchId)?.name} • ` : ""}{periodLabel(anchorDate)}
               </p>
             </div>
-          </div>
-          <div className="flex flex-wrap items-center gap-2">
-              {canViewAll && (
-                <BranchSelector 
-                  onChange={(value) => setLocalBranchId(value === 'all' ? null : value)}
-                  value={localBranchId || 'all'}
-                />
-              )}
-            <button
-              onClick={() => setCompareMode(v => !v)}
-              className={`text-xs font-medium px-3 py-2 rounded-xl transition-colors ${compareMode ? "bg-emerald-500 text-black" : "bg-zinc-800 text-zinc-400"}`}
-            >
-              Compare
-            </button>
+            <div className="flex flex-wrap items-center gap-2">
+              {canViewAll && <BranchSelector value={effectiveBranchId || "all"} />}
+              <button
+                onClick={() => setCompareMode(v => !v)}
+                className={`text-xs font-medium px-3 py-2 rounded-xl transition-colors ${compareMode ? "bg-emerald-500 text-black" : "bg-zinc-800 text-zinc-400"}`}
+              >
+                Compare
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  signOut?.()
+                }}
+                className="text-xs font-medium px-3 py-2 rounded-xl border border-zinc-700 text-zinc-300 hover:text-white hover:border-zinc-500 transition-colors"
+              >
+                Sign out
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -386,12 +360,12 @@ export default function SalesReport() {
       <div className="px-4 w-full max-w-screen-2xl mx-auto space-y-3">
 
         {/* Period selector */}
-        <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-1 flex gap-1">
+        <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-1 grid grid-cols-2 sm:grid-cols-4 gap-1">
           {PERIODS.map(p => (
             <button
               key={p}
               onClick={() => { setPeriod(p); setSearch(""); setCategoryFilter("all") }}
-              className={`flex-1 py-2 rounded-xl text-xs font-medium transition-colors ${period === p ? "bg-emerald-500 text-black" : "text-zinc-400"}`}
+              className={`py-2 rounded-xl text-xs font-medium transition-colors ${period === p ? "bg-emerald-500 text-black" : "text-zinc-400 hover:text-white"}`}
             >
               {p}
             </button>
@@ -401,23 +375,25 @@ export default function SalesReport() {
         {/* Compare type + date pickers */}
         {compareMode ? (
           <div className="space-y-3">
-            <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-1 flex gap-1">
+            <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-1 grid grid-cols-2 gap-1">
               <button
+                type="button"
                 onClick={() => setCompareType("relative")}
-                className={`flex-1 py-2 rounded-xl text-xs font-medium transition-colors ${compareType === "relative" ? "bg-emerald-500 text-black" : "text-zinc-400"}`}
+                className={`py-2 rounded-xl text-xs font-medium transition-colors ${compareType === "relative" ? "bg-emerald-500 text-black" : "text-zinc-400 hover:text-white"}`}
               >
                 Relative
               </button>
               <button
+                type="button"
                 onClick={() => setCompareType("custom")}
-                className={`flex-1 py-2 rounded-xl text-xs font-medium transition-colors ${compareType === "custom" ? "bg-emerald-500 text-black" : "text-zinc-400"}`}
+                className={`py-2 rounded-xl text-xs font-medium transition-colors ${compareType === "custom" ? "bg-emerald-500 text-black" : "text-zinc-400 hover:text-white"}`}
               >
                 Custom
               </button>
             </div>
 
             {compareType === "relative" ? (
-              <div className="bg-zinc-900 border border-zinc-800 rounded-2xl px-4 py-3 flex items-center justify-between gap-3">
+              <div className="bg-zinc-900 border border-zinc-800 rounded-2xl px-4 py-3 flex flex-col items-start sm:flex-row sm:items-center sm:justify-between gap-3">
                 <p className="text-zinc-500 text-xs">
                   {period === "Day" ? "Pick a date" : period === "Week" ? "Pick any date in the week" : period === "Month" ? "Pick any date in the month" : "Pick any date in the quarter"}
                 </p>
@@ -454,7 +430,7 @@ export default function SalesReport() {
             )}
           </div>
         ) : (
-          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl px-4 py-3 flex items-center justify-between gap-3">
+          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl px-4 py-3 flex flex-col items-start sm:flex-row sm:items-center sm:justify-between gap-3">
             <p className="text-zinc-500 text-xs">
               {period === "Day" ? "Pick a date" : period === "Week" ? "Pick any date in the week" : period === "Month" ? "Pick any date in the month" : "Pick any date in the quarter"}
             </p>
@@ -503,7 +479,7 @@ export default function SalesReport() {
                   <p className="text-zinc-400 text-xs font-medium mt-0.5">{compareType === "custom" ? periodLabel(compareDateA) : periodLabel(anchorDate, true)}</p>
                   <p className="text-white font-bold font-mono text-sm mt-1">{fmtShort(prevTotalSales)}</p>
                 </div>
-                <SalesTable rows={filteredPrevRows} isDay={isDay} />
+                <SalesTable rows={filteredPrevRows} isDay={isDay} fmtShort={fmtShort} accountLabel={accountLabel} />
               </div>
 
               {/* Current period */}
@@ -513,7 +489,7 @@ export default function SalesReport() {
                   <p className="text-zinc-400 text-xs font-medium mt-0.5">{compareType === "custom" ? periodLabel(compareDateB) : periodLabel(anchorDate)}</p>
                   <p className="text-emerald-400 font-bold font-mono text-sm mt-1">{fmtShort(totalSales)}</p>
                 </div>
-                <SalesTable rows={filteredRows} isDay={isDay} />
+                <SalesTable rows={filteredRows} isDay={isDay} fmtShort={fmtShort} accountLabel={accountLabel} />
               </div>
             </div>
 
@@ -546,7 +522,7 @@ export default function SalesReport() {
                   <p className="text-zinc-600 text-sm">No sales for this period</p>
                 </div>
               ) : (
-                <SalesTable rows={filteredRows} isDay={isDay} />
+                <SalesTable rows={filteredRows} isDay={isDay} fmtShort={fmtShort} accountLabel={accountLabel} />
               )}
 
               {/* Totals */}

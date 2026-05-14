@@ -1,42 +1,37 @@
-import { useState, useEffect, useMemo } from "react"
-import { supabase } from "../../lib/supabase"
+import { useState, useEffect, useMemo, useRef } from "react"
 import { useNavigate } from "react-router-dom"
 import { useUser, useCurrentBusiness } from "../../hooks/useRole"
-import { useBranchContext } from "../../hooks/useBranchContext"
-import { useCache } from "../../hooks/useCache"
-import { usePersistentStorage } from "../../hooks/usePersistentStorage"
+import { useInstantAuth } from "../../hooks/useInstantAuth"
+import { useBranchContext } from "../../context/BranchContext"
+import { useProducts } from "../../hooks/useProducts"
+import { createOpeningBaseline } from "../../services/inventoryService"
 import { AppShell, UiButton, UiCard, UiSectionTitle, CategorySelect } from "../../components/ui"
-import { createCacheManager } from "../../lib/cacheManager"
+import { BranchSelector } from "../../components/BranchSelector"
 
 export default function OpeningStock() {
   const navigate = useNavigate()
+  const { business: instantBusiness, signOut } = useInstantAuth()
   const { user: authUser } = useUser()
   const { businessId } = useCurrentBusiness()
   const {
     canViewAll,
     availableBranches,
-    activeBranch,
-    setActiveBranch,
-    showAllBranches,
+    effectiveBranchId,
     isOwner,
     isManager,
-    loading: branchLoading,
+    readyToFetch,
   } = useBranchContext()
-  const { get, set, invalidate } = useCache()
-  const { get: getPersistent, set: setPersistent } = usePersistentStorage()
-  
-  // Create unified cache manager
-  const cacheManager = useMemo(() => createCacheManager({ get, set, invalidate }, { get: getPersistent, set: setPersistent }), [get, set, invalidate, getPersistent, setPersistent])
-  const [userId, setUserId] = useState(null)
+  const [userId, setUserId] = useState(authUser?.id ?? null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
   const [success, setSuccess] = useState(false)
-  const [localBranchId, setLocalBranchId] = useState(null)
-  const [viewMode, setViewMode] = useState(isOwner ? 'all' : 'branch')
-  const resolvedBranchId = localBranchId || activeBranch?.id || null;
+  const resolvedBranchId = effectiveBranchId
 
-  // Product states
-  const [existingProducts, setExistingProducts] = useState([])
+  // Use shared products hook instead of local state
+  const { products: existingProducts, loading: productsLoading } = useProducts(
+    effectiveBranchId,
+    canViewAll,
+  )
   const [addedStock, setAddedStock] = useState([])
   const [selectedProduct, setSelectedProduct] = useState(null)
   const [productSearch, setProductSearch] = useState("")
@@ -49,14 +44,11 @@ export default function OpeningStock() {
   const [openingDate, setOpeningDate] = useState("")
   const [step, setStep] = useState(1)
   const [isNewProduct, setIsNewProduct] = useState(true)
+  const previousBranchIdRef = useRef(null)
   const defaultUnit = "pcs"
-  const reservedSkus = new Set()
-
-  const getAllBranchesLabel = () => {
-    if (isOwner) return "All Branches"
-    if (isManager) return "All My Branches"
-    return "All Branches"
-  }
+  const activeBranchInfo = useMemo(() => {
+    return availableBranches.find((branch) => branch.id === resolvedBranchId) || null
+  }, [availableBranches, resolvedBranchId])
 
   const categoryOptions = useMemo(() => {
     return Array.from(
@@ -68,28 +60,25 @@ export default function OpeningStock() {
   }, [existingProducts, addedStock])
 
   useEffect(() => {
-    if (businessId && authUser && !branchLoading) {
-      fetchInitialData()
-    }
-  }, [businessId, authUser, localBranchId, branchLoading])
-
-  const fetchInitialData = async () => {
-    setUserId(authUser.id)
-
-    let query = supabase
-      .from("products")
-      .select("id, name, sku_id, selling_price, unit_of_measure, category, branch_id, branches!left(name, code)")
-      .eq("business_id", businessId)
-      .not("is_active", "eq", false)
-      .order("name")
-
-    if (localBranchId) {
-      query = query.or(`branch_id.eq.${localBranchId},branch_id.is.null`)
+    const previousBranchId = previousBranchIdRef.current
+    if (!previousBranchId) {
+      previousBranchIdRef.current = resolvedBranchId
+      return
     }
 
-    const { data: productsData } = await query
-    setExistingProducts(productsData || [])
-  }
+    if (resolvedBranchId && previousBranchId !== resolvedBranchId) {
+      // Prevent cross-branch contamination when owner switches branch scope.
+      setSelectedProduct(null)
+      setProductSearch("")
+      setAddedStock([])
+      setStep(1)
+      setError("")
+    }
+
+    previousBranchIdRef.current = resolvedBranchId
+  }, [resolvedBranchId])
+
+  // Product fetching is now handled by useBranchScopedProducts hook
 
   const generateSKU = (productName) => {
     const words = productName.trim().toUpperCase().split(" ")
@@ -152,6 +141,11 @@ export default function OpeningStock() {
     if (isNewProduct && !name) { setError("Product name is required"); return }
     if (!isNewProduct && !selectedProduct) { setError("Please select a product"); return }
     if (!sellingPrice) { setError("Selling price is required"); return }
+    if (!resolvedBranchId) { setError("Select a branch before adding stock"); return }
+    if (!isNewProduct && selectedProduct?.branch_id && selectedProduct.branch_id !== resolvedBranchId) {
+      setError("Selected product does not belong to the active branch")
+      return
+    }
 
     setAddedStock([
       ...addedStock,
@@ -176,138 +170,43 @@ export default function OpeningStock() {
     if (addedStock.length === 0) { setError("Add at least one product"); return }
     if (!openingDate) { setError("Select opening date"); return }
 
+    if (canViewAll && !resolvedBranchId) { setError("Select a branch before saving baseline"); return }
+    if (!resolvedBranchId) { setError("Your branch is not assigned yet. Contact the owner."); return }
+
     setLoading(true)
     setError("")
 
     try {
-      const reservedSkus = new Set(existingProducts.map((product) => product.sku_id).filter(Boolean))
-      const branchId = viewMode === "branch" ? resolvedBranchId : null
-      const stagedItems = addedStock.map((item, index) => ({ ...item, index }))
-      const newItems = stagedItems.filter((item) => item.mode === "new")
-      const existingItems = stagedItems.filter((item) => item.mode === "existing")
+      // Convert staged items to service format
+      const baselineItems = addedStock.map(item => ({
+        productId: item.mode === "existing" ? item.productId : undefined,
+        productName: item.productName,
+        quantity: item.quantity,
+        unitCost: item.unitCost,
+        category: item.category || undefined,
+        unit: item.unit || "pcs",
+        buyingPrice: item.landedCostPerUnit,
+        sellingPrice: item.sellingPrice,
+      }))
 
-      const newProductPayload = newItems
-        .map((item) => ({
-          index: item.index,
-          sku: generateUniqueSKU(item.productName, reservedSkus),
-          business_id: businessId,
-          branch_id: branchId,
-          is_active: true,
-          sku_id: null,
-          name: item.productName,
-          category: item.category,
-          unit_of_measure: item.unit || defaultUnit,
-          buying_price: item.landedCostPerUnit,
-          selling_price: item.sellingPrice,
-          current_quantity: item.quantity,
-        }))
-        .map((row) => ({
-          ...row,
-          sku_id: row.sku,
-        }))
+      // Use the new service to create opening baseline
+      const result = await createOpeningBaseline({
+        businessId,
+        branchId: resolvedBranchId,
+        openingDate,
+        userId: userId,
+        items: baselineItems,
+      })
 
-      let insertedProducts = []
-      if (newProductPayload.length > 0) {
-        const { data, error: insertError } = await supabase
-          .from("products")
-          .insert(newProductPayload.map(({ index, sku, ...row }) => row))
-          .select("id, name, sku_id")
-
-        if (insertError) throw insertError
-        insertedProducts = data || []
+      if (result.success) {
+        setSuccess(true)
+        setAddedStock([])
+        setStep(1)
+        
       }
-
-      if (existingItems.length > 0) {
-        const updateResults = await Promise.all(
-          existingItems.map((item) =>
-            supabase
-              .from("products")
-              .update({
-                current_quantity: item.quantity,
-                buying_price: item.landedCostPerUnit,
-                selling_price: item.sellingPrice,
-              })
-              .eq("id", item.productId)
-          )
-        )
-
-        const failedUpdate = updateResults.find((result) => result.error)
-        if (failedUpdate?.error) throw failedUpdate.error
-      }
-
-      const insertedByIndex = new Map(
-        newItems.map((item, idx) => [
-          item.index,
-          {
-            productId: insertedProducts[idx]?.id || null,
-            productName: insertedProducts[idx]?.name || item.productName,
-            sku: insertedProducts[idx]?.sku_id || newProductPayload[idx]?.sku || null,
-          },
-        ])
-      )
-
-      const persistedItems = stagedItems
-        .map((item) => {
-          if (item.mode === "existing") return item
-
-          const inserted = insertedByIndex.get(item.index)
-          return {
-            ...item,
-            productId: inserted?.productId,
-            productName: inserted?.productName || item.productName,
-            sku: inserted?.sku || item.sku,
-          }
-        })
-        .sort((a, b) => a.index - b.index)
-
-      const snapshot = {
-        branchId,
-        branchName: activeBranch?.name || null,
-        stockTakeDate: openingDate,
-        products: persistedItems.map((item) => ({
-          productId: item.productId,
-          productName: item.productName,
-          quantity: item.quantity,
-          unitCost: item.unitCost,
-        })),
-        createdBy: userId,
-        createdAt: new Date().toISOString(),
-      }
-
-      const { data: baseline } = await supabase
-        .from("float_baseline")
-        .select("opening_stock")
-        .eq("business_id", businessId)
-        .maybeSingle()
-
-      const existingSnapshots = Array.isArray(baseline?.opening_stock) ? baseline.opening_stock : []
-      const updatedSnapshots = [
-        ...existingSnapshots.filter((s) => s.branchId !== snapshot.branchId),
-        snapshot,
-      ]
-
-      const { error: upsertError } = await supabase
-        .from("float_baseline")
-        .upsert({
-          business_id: businessId,
-          opening_stock: updatedSnapshots,
-          opening_stock_date: openingDate,
-          updated_at: new Date().toISOString(),
-        }, { onConflict: "business_id" })
-
-      if (upsertError) throw upsertError
-
-      // Use unified cache invalidation
-      cacheManager.invalidateAfterStockEntry(businessId, resolvedBranchId)
-      cacheManager.invalidateBusiness(businessId)
-
-      // Save to persistent storage for offline access
-      cacheManager.setProducts(businessId, persistedItems, resolvedBranchId)
-
-      setSuccess(true)
-      setAddedStock(persistedItems)
     } catch (err) {
-      setError(err.message || "Failed to save baseline")
+      setError(err?.message || "Failed to save opening baseline")
+      console.error("Opening baseline error:", err)
     } finally {
       setLoading(false)
     }
@@ -345,12 +244,35 @@ export default function OpeningStock() {
   }
 
   return (
-    <AppShell
-      title="Reorientation stock"
-      subtitle={`Step ${step} of 4 · Product → Opening qty → Pricing → Review`}
-      contentClassName="max-w-6xl"
-      right={<UiButton variant="tertiary" size="sm" onClick={goBack}>← Back</UiButton>}
-    >
+    <AppShell showHeader={false} contentClassName="max-w-6xl space-y-4 pb-24">
+      {/* Back button */}
+      <div className="px-4 sm:px-5 pt-4 pb-2">
+        <button onClick={goBack} className="flex items-center gap-2 text-zinc-500 hover:text-white transition-colors text-sm">
+          ← Back
+        </button>
+      </div>
+      {/* Hero header */}
+      <div className="px-4 sm:px-5 pb-4">
+        <div className="rounded-2xl border border-zinc-800 bg-zinc-900/80 p-4 sm:p-5 shadow-lg shadow-black/10">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="text-[10px] uppercase tracking-[0.24em] text-zinc-500">Settings</p>
+              <h1 className="text-white text-xl sm:text-2xl font-semibold tracking-tight">Opening Stock</h1>
+              <p className="mt-1 text-zinc-400 text-xs sm:text-sm">
+                {instantBusiness?.name} · Step {step} of 4
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              {canViewAll ? <BranchSelector value={effectiveBranchId || "all"} /> : null}
+              <button onClick={() => signOut()} className="text-zinc-400 hover:text-red-400 transition-colors text-sm">
+                Sign out
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="px-4 sm:px-5">
       <div className="grid gap-4 lg:grid-cols-[1.3fr_0.7fr]">
         <div className="space-y-4">
           {error && (
@@ -403,32 +325,8 @@ export default function OpeningStock() {
                 <ToggleBtn active={!isNewProduct} onClick={() => setIsNewProduct(false)}>Existing product</ToggleBtn>
               </div>
 
-              {/* Branch Selection */}
-              {canViewAll && (
-                <div className="mb-5">
-                  <label className="text-zinc-400 text-xs mb-2 block">Branch</label>
-                  <select
-                    value={localBranchId || activeBranch?.id || ""}
-                    onChange={(e) => {
-                      if (e.target.value === "all") {
-                        setLocalBranchId(null)
-                        setViewMode('all')
-                      } else {
-                        setLocalBranchId(e.target.value)
-                        setViewMode('branch')
-                      }
-                    }}
-                    className="w-full bg-zinc-900 border border-zinc-800 text-white rounded-xl px-4 py-3 text-sm outline-none focus:border-emerald-500 transition-colors"
-                  >
-                    <option value="">Select branch</option>
-                    {availableBranches.map(branch => (
-                      <option key={branch.id} value={branch.id}>
-                        {branch.name} {branch.code ? `(${branch.code})` : ""}
-                      </option>
-                    ))}
-                  </select>
-                  <p className="text-zinc-600 text-xs mt-1.5">This branch will be associated with SKU</p>
-                </div>
+              {canViewAll && !resolvedBranchId && (
+                <p className="text-amber-400 text-xs mb-3">Select a branch from the header before continuing.</p>
               )}
 
               {isNewProduct ? (
@@ -672,6 +570,7 @@ export default function OpeningStock() {
             ))}
           </UiCard>
         </div>
+      </div>
       </div>
     </AppShell>
   )

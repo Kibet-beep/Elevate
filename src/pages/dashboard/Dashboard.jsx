@@ -1,497 +1,40 @@
 // src/pages/dashboard/Dashboard.jsx
-import { useState, useEffect, useMemo } from "react"
-import { supabase } from "../../lib/supabase"
-import { useNavigate } from "react-router-dom"
+import { useMemo } from "react"
 import FloatingBottomNav from "../../components/layout/FloatingBottomNav"
 import { AppShell, UiButton } from "../../components/ui"
-import { useUser, useIsOwnerOrManager, useIsCashier } from "../../hooks/useRole"
-import { usePreloadData } from "../../hooks/useCache"
 import { useInstantNavigation } from "../../hooks/useInstantNavigation"
-import { useInstantAuth } from "../../hooks/useInstantAuth"
-import { useBranchContext } from "../../hooks/useBranchContext"
+import { useBranchContext } from "../../context/BranchContext"
 import { BranchSelector } from "../../components/BranchSelector"
+import { useDashboardContext } from "../../features/dashboard/hooks/useDashboardContext"
+import { useTodayActivity } from "../../features/dashboard/hooks/useTodayActivity"
+import { useProducts } from "../../hooks/useProducts"
 
-const WEEK_DAYS = ["All", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
-const OWNER_PERIODS = ["Week", "Month"]
-const EAT_OFFSET_MS = 3 * 60 * 60 * 1000
+function KpiCard({ label, value, tone = "neutral", subtext }) {
+  const toneClass = {
+    neutral: "border-zinc-800 bg-zinc-900/70",
+    positive: "border-emerald-500/20 bg-emerald-500/5",
+    warning: "border-amber-500/20 bg-amber-500/5",
+    danger: "border-red-500/20 bg-red-500/5",
+  }[tone]
 
-export default function Dashboard() {
-  const navigate = useNavigate()
-  const { user: authUser } = useUser()
-  const { user: instantUser, business: instantBusiness } = useInstantAuth()
-  const { navigateInstant } = useInstantNavigation()
-  const { preloadTransactions, preloadProducts, preloadEmployees, preloadBusiness } = usePreloadData()
-  const isOwnerOrManager = useIsOwnerOrManager()
-  const isCashier = useIsCashier()
-  const { canViewAll, availableBranches, loading: branchLoading, activeBranch, viewMode } = useBranchContext()
-  const [business, setBusiness] = useState(null)
-  const [stats, setStats] = useState({
-    todaySales: 0,
-    totalRevenue: 0,
-    transactions: 0,
-    lowStock: 0,
-  })
-  const [period, setPeriod] = useState("Week")
-  const [selectedDay, setSelectedDay] = useState("All")
-  const [periodTransactions, setPeriodTransactions] = useState([])
-  const [todayTransactions, setTodayTransactions] = useState([])
-  const [localBranchId, setLocalBranchId] = useState(null)
-  const [periodSummary, setPeriodSummary] = useState({
-    totalSales: 0, totalExpenses: 0, net: 0, cash: 0, mpesa: 0, bank: 0,
-  })
-  const [todaySummary, setTodaySummary] = useState({
-    totalSales: 0, totalExpenses: 0, net: 0, cash: 0, mpesa: 0,
-  })
-  const [lowStockItems, setLowStockItems] = useState([])
-  const [loading, setLoading] = useState(true)
-  const [periodLoading, setPeriodLoading] = useState(false)
-  const [accessIssue, setAccessIssue] = useState("")
-  
-  // Clear today's activity immediately when branch changes
-  useEffect(() => {
-    setTodayTransactions([])
-    setTodaySummary({ totalSales: 0, totalExpenses: 0, net: 0, cash: 0, mpesa: 0 })
-  }, [localBranchId])
+  const valueClass = {
+    neutral: "text-white",
+    positive: "text-emerald-400",
+    warning: "text-amber-400",
+    danger: "text-red-400",
+  }[tone]
 
-  const setBusinessFromProfile = (profile, fallbackBusiness) => {
-    const resolvedBusiness = fallbackBusiness || profile?.businesses || null
-    if (!resolvedBusiness) return null
-
-    const nextBusiness = {
-      ...resolvedBusiness,
-      userName: profile?.full_name || resolvedBusiness.userName || "",
-    }
-    setBusiness(nextBusiness)
-
-    return nextBusiness
-  }
-
-  // Use instant auth data if available
-  useEffect(() => {
-    if (instantUser && instantBusiness) {
-      setBusiness({ ...instantBusiness, userName: instantUser.full_name })
-      setLoading(false)
-      
-      // Preload related data
-      preloadTransactions(instantBusiness.id)
-      preloadProducts(instantBusiness.id)
-      preloadEmployees(instantBusiness.id)
-      preloadBusiness(instantBusiness.id)
-      fetchDashboardData()
-    } else if (authUser) {
-      fetchDashboardData()
-    }
-  }, [instantUser, instantBusiness, authUser])
-
-  useEffect(() => { if (business && !branchLoading) fetchPeriodData() }, [period, selectedDay, business, localBranchId, branchLoading])
-  useEffect(() => { if (business && !branchLoading) fetchTodayData() }, [business, localBranchId, branchLoading])
-  useEffect(() => { if (business && !branchLoading) fetchDashboardData() }, [business?.id, localBranchId, branchLoading])
-
-  const getEATNow = () => new Date(Date.now() + EAT_OFFSET_MS)
-
-  const toUtcIsoFromEAT = (eatDate) => new Date(eatDate.getTime() - EAT_OFFSET_MS).toISOString()
-
-  const getTodayStartUtcIsoEAT = () => {
-    const start = getEATNow()
-    start.setUTCHours(0, 0, 0, 0)
-    return toUtcIsoFromEAT(start)
-  }
-
-  const getWeekRange = () => {
-    const nowEAT = getEATNow()
-    const day = nowEAT.getUTCDay()
-    const daysSinceMonday = (day + 6) % 7
-    const start = new Date(nowEAT)
-    start.setUTCDate(nowEAT.getUTCDate() - daysSinceMonday)
-    start.setUTCHours(0, 0, 0, 0)
-    return { start: toUtcIsoFromEAT(start), end: new Date().toISOString() }
-  }
-
-  const getSelectedDayRange = () => {
-    const nowEAT = getEATNow()
-    const day = nowEAT.getUTCDay()
-    const daysSinceMonday = (day + 6) % 7
-    const weekStart = new Date(nowEAT)
-    weekStart.setUTCDate(nowEAT.getUTCDate() - daysSinceMonday)
-    weekStart.setUTCHours(0, 0, 0, 0)
-
-    const dayIndex = WEEK_DAYS.indexOf(selectedDay) - 1
-    const start = new Date(weekStart)
-    start.setUTCDate(weekStart.getUTCDate() + dayIndex)
-    start.setUTCHours(0, 0, 0, 0)
-    const end = new Date(start)
-    end.setUTCHours(23, 59, 59, 999)
-    return { start: toUtcIsoFromEAT(start), end: toUtcIsoFromEAT(end) }
-  }
-
-  const getPeriodRange = () => {
-    const now = new Date()
-    const start = getEATNow()
-    start.setUTCHours(0, 0, 0, 0)
-
-    if (period === "Week") {
-      if (selectedDay !== "All") return getSelectedDayRange()
-      return getWeekRange()
-    } else if (period === "Month") {
-      start.setUTCDate(1)
-      start.setUTCHours(0, 0, 0, 0)
-    }
-    return { start: toUtcIsoFromEAT(start), end: now.toISOString() }
-  }
-
-  const fetchDashboardData = async () => {
-    if (!authUser) {
-      setLoading(false)
-      return
-    }
-
-    setAccessIssue("")
-
-    const { data: userData, error: userError } = await supabase
-      .from("users")
-      .select("business_id, full_name, businesses(*)")
-      .eq("id", authUser.id)
-      .maybeSingle()
-
-    if (userError || !userData) {
-      setAccessIssue("Your account is signed in, but profile setup is incomplete. Please sign out and sign in again.")
-      setLoading(false)
-      return
-    }
-
-    const resolvedBusiness = setBusinessFromProfile(userData, userData.businesses)
-    if (!resolvedBusiness) {
-      setAccessIssue("Your business profile is missing. Please contact support or complete onboarding.")
-      setLoading(false)
-      return
-    }
-
-    const todayStart = getTodayStartUtcIsoEAT()
-    const businessId = userData.business_id
-    const branchFilter = localBranchId
-
-    const todayTxnsQuery = supabase
-      .from("transactions")
-      .select("id, branch_id, date, sale_items(total_amount)")
-      .eq("business_id", businessId)
-      .eq("type", "sale")
-      .gte("date", todayStart)
-
-    const allTxnsQuery = supabase
-      .from("transactions")
-      .select("id, branch_id, sale_items(total_amount)")
-      .eq("business_id", businessId)
-      .eq("type", "sale")
-
-    const lowStockQuery = supabase
-      .from("products")
-      .select("id, branch_id, name, current_quantity, reorder_point")
-      .eq("business_id", businessId)
-      .eq("is_active", true)
-      .limit(100)
-
-    // Apply branch filtering if a specific branch is selected
-    if (branchFilter) {
-      todayTxnsQuery.eq("branch_id", branchFilter)
-      allTxnsQuery.eq("branch_id", branchFilter)
-      lowStockQuery.eq("branch_id", branchFilter)
-    }
-
-    const [todayTxnsResult, allTxnsResult, lowStockResult] = await Promise.all([
-      todayTxnsQuery,
-      allTxnsQuery,
-      lowStockQuery,
-    ])
-
-    const todayTxns = todayTxnsResult?.data || []
-    const allTxns = allTxnsResult?.data || []
-    const lowStock = lowStockResult?.data || []
-
-    const todaySales = todayTxns.reduce((sum, t) =>
-      sum + (t.sale_items?.reduce((s, i) => s + i.total_amount, 0) || 0), 0) || 0
-
-    const totalRevenue = allTxns.reduce((sum, t) =>
-      sum + (t.sale_items?.reduce((s, i) => s + i.total_amount, 0) || 0), 0) || 0
-
-    const filteredLowStock = (lowStock || [])
-      .filter(p => p.current_quantity <= p.reorder_point)
-      .slice(0, 5)
-
-    setLowStockItems(filteredLowStock)
-    setStats({
-      todaySales,
-      totalRevenue,
-      transactions: todayTxns.length || 0,
-      lowStock: filteredLowStock.length,
-    })
-
-    setLoading(false)
-  }
-
-  const fetchTodayData = async () => {
-    if (!business?.id) return
-
-    const todayStart = getTodayStartUtcIsoEAT()
-    const businessId = business.id
-
-    // Build base queries
-    const baseTxnQuery = supabase
-      .from("transactions")
-      .select(`id, type, payment_account, date,
-        sale_items(total_amount, quantity, unit_price, products(name)),
-        expenses(amount, category)`)
-      .eq("business_id", businessId)
-      .gte("date", todayStart)
-      .order("date", { ascending: true })
-
-    const baseAllTxnQuery = supabase
-      .from("transactions")
-      .select("type, payment_account, sale_items(total_amount), expenses(amount)")
-      .eq("business_id", businessId)
-
-    // Apply branch filtering if a specific branch is selected
-    if (localBranchId) {
-      baseTxnQuery.eq("branch_id", localBranchId)
-      baseAllTxnQuery.eq("branch_id", localBranchId)
-    }
-
-    const [txnsResult, floatResult, allTxnsResult, transfersResult] = await Promise.all([
-      baseTxnQuery,
-      supabase
-        .from("float_baseline")
-        .select("*")
-        .eq("business_id", businessId)
-        .maybeSingle(),
-      baseAllTxnQuery,
-      supabase
-        .from("transfers")
-        .select("*")
-        .eq("business_id", businessId),
-    ])
-
-    const txns = txnsResult?.data || []
-    const floatData = floatResult?.data || null
-    const allTxns = allTxnsResult?.data || []
-    const transfers = transfersResult?.data || []
-
-    const enriched = txns.map(t => {
-      if (t.type === "sale") {
-        const amount = t.sale_items?.reduce((s, i) => s + i.total_amount, 0) || 0
-        const name = t.sale_items?.length > 1
-          ? `${t.sale_items[0].products?.name} +${t.sale_items.length - 1} more`
-          : t.sale_items?.[0]?.products?.name || "Sale"
-        return { ...t, amount, display_name: name }
-      } else {
-        const amount = t.expenses?.reduce((s, e) => s + e.amount, 0) || 0
-        const name = t.expenses?.[0]?.category || "Expense"
-        return { ...t, amount, display_name: name }
-      }
-    })
-
-    setTodayTransactions(enriched)
-
-    const todaySales = enriched.filter(t => t.type === "sale").reduce((s, t) => s + t.amount, 0)
-    const todayExpenses = enriched.filter(t => t.type === "expense").reduce((s, t) => s + t.amount, 0)
-
-    const calc = (account) => {
-      const opening = floatData?.[`${account}_opening`] || 0
-      const salesIn = (allTxns || [])
-        .filter(t => t.type === "sale" && t.payment_account === account)
-        .reduce((s, t) => s + (t.sale_items?.reduce((a, i) => a + i.total_amount, 0) || 0), 0)
-      const expOut = (allTxns || [])
-        .filter(t => t.type === "expense" && t.payment_account === account)
-        .reduce((s, t) => s + (t.expenses?.reduce((a, e) => a + e.amount, 0) || 0), 0)
-      const transferOut = (transfers || [])
-        .filter(t => t.from_account === account)
-        .reduce((s, t) => s + t.amount + t.transaction_cost, 0)
-      const transferIn = (transfers || [])
-        .filter(t => t.to_account === account)
-        .reduce((s, t) => s + t.amount, 0)
-      return opening + salesIn - expOut - transferOut + transferIn
-    }
-
-    setTodaySummary({
-      totalSales: todaySales,
-      totalExpenses: todayExpenses,
-      net: todaySales - todayExpenses,
-      cash: calc("cash"),
-      mpesa: calc("mpesa"),
-    })
-  }
-
-  const fetchPeriodData = async () => {
-    if (!business?.id) return
-
-    setPeriodLoading(true)
-    const businessId = business.id
-    const { start, end } = getPeriodRange()
-
-    const [txnsResult, floatResult, allTxnsResult, transfersResult] = await Promise.all([
-      supabase
-        .from("transactions")
-        .select(`id, type, payment_account, date,
-          sale_items(total_amount, products(name)),
-          expenses(amount, category)`)
-        .eq("business_id", businessId)
-        .gte("date", start)
-        .lte("date", end)
-        .order("date", { ascending: false }),
-      supabase
-        .from("float_baseline")
-        .select("*")
-        .eq("business_id", businessId)
-        .maybeSingle(),
-      supabase
-        .from("transactions")
-        .select("type, payment_account, sale_items(total_amount), expenses(amount)")
-        .eq("business_id", businessId),
-      supabase
-        .from("transfers")
-        .select("*")
-        .eq("business_id", businessId),
-    ])
-
-    const txns = txnsResult?.data || []
-    const floatData = floatResult?.data || null
-    const allTxns = allTxnsResult?.data || []
-    const transfers = transfersResult?.data || []
-
-    const enriched = txns.map(t => {
-      if (t.type === "sale") {
-        const amount = t.sale_items?.reduce((s, i) => s + i.total_amount, 0) || 0
-        const name = t.sale_items?.length > 1
-          ? `${t.sale_items[0].products?.name} +${t.sale_items.length - 1} more`
-          : t.sale_items?.[0]?.products?.name || "Sale"
-        return { ...t, amount, display_name: name }
-      } else {
-        const amount = t.expenses?.reduce((s, e) => s + e.amount, 0) || 0
-        const name = t.expenses?.[0]?.category || "Expense"
-        return { ...t, amount, display_name: name }
-      }
-    })
-
-    setPeriodTransactions(enriched)
-
-    const totalSales = enriched.filter(t => t.type === "sale").reduce((s, t) => s + t.amount, 0)
-    const totalExpenses = enriched.filter(t => t.type === "expense").reduce((s, t) => s + t.amount, 0)
-
-    const calc = (account) => {
-      const opening = floatData?.[`${account}_opening`] || 0
-      const salesIn = (allTxns || [])
-        .filter(t => t.type === "sale" && t.payment_account === account)
-        .reduce((s, t) => s + (t.sale_items?.reduce((a, i) => a + i.total_amount, 0) || 0), 0)
-      const expOut = (allTxns || [])
-        .filter(t => t.type === "expense" && t.payment_account === account)
-        .reduce((s, t) => s + (t.expenses?.reduce((a, e) => a + e.amount, 0) || 0), 0)
-      const transferOut = (transfers || [])
-        .filter(t => t.from_account === account)
-        .reduce((s, t) => s + t.amount + t.transaction_cost, 0)
-      const transferIn = (transfers || [])
-        .filter(t => t.to_account === account)
-        .reduce((s, t) => s + t.amount, 0)
-      return opening + salesIn - expOut - transferOut + transferIn
-    }
-
-    setPeriodSummary({
-      totalSales,
-      totalExpenses,
-      net: totalSales - totalExpenses,
-      cash: calc("cash"),
-      mpesa: calc("mpesa"),
-      bank: calc("bank"),
-    })
-
-    setPeriodLoading(false)
-  }
-
-  const handleSignOut = async () => {
-    await supabase.auth.signOut()
-    navigateInstant("/")
-  }
-
-  const pageHeader = (
-    <div className="rounded-2xl border border-zinc-800 bg-zinc-900/80 p-4 sm:p-5 shadow-lg shadow-black/10">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <p className="text-[10px] uppercase tracking-[0.24em] text-zinc-500">Store</p>
-          <h1 className="text-white text-xl sm:text-2xl font-semibold tracking-tight">Dashboard</h1>
-          <div className="mt-1 flex flex-wrap items-center gap-2">
-            <p className="text-zinc-400 text-xs sm:text-sm">
-              {business?.name}
-            </p>
-            {activeBranch && (
-              <span className="inline-flex items-center px-2 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-[10px] font-medium">
-                {activeBranch.name}
-              </span>
-            )}
-            {!isOwnerOrManager && viewMode === 'all' && !activeBranch && (
-              <span className="inline-flex items-center px-2 py-1 rounded-full bg-amber-500/10 border border-amber-500/20 text-amber-400 text-[10px] font-medium">
-                No branch assigned
-              </span>
-            )}
-            {isOwnerOrManager && viewMode === 'all' && !activeBranch && (
-              <span className="inline-flex items-center px-2 py-1 rounded-full bg-zinc-800 border border-zinc-700 text-zinc-400 text-[10px] font-medium">
-                All branches
-              </span>
-            )}
-          </div>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          {canViewAll ? (
-            <BranchSelector 
-              onChange={(value) => setLocalBranchId(value === 'all' ? null : value)}
-              value={localBranchId || 'all'}
-            />
-          ) : null}
-          <UiButton variant="tertiary" size="sm" onClick={handleSignOut} className="text-zinc-400 hover:text-red-400">
-            Sign out
-          </UiButton>
-        </div>
-      </div>
+  return (
+    <div className={`rounded-2xl border p-4 shadow-lg shadow-black/10 ${toneClass}`}>
+      <p className="text-[10px] uppercase tracking-[0.24em] text-zinc-500">{label}</p>
+      <p className={`mt-2 text-lg sm:text-xl font-semibold tracking-tight ${valueClass}`}>{value}</p>
+      {subtext ? <p className="mt-1 text-xs text-zinc-500">{subtext}</p> : null}
     </div>
   )
+}
 
-  const fmt = (n) => `KES ${Number(n).toLocaleString("en-KE", { minimumFractionDigits: 2 })}`
-
-  const pendingActions = useMemo(() => {
-    const actions = []
-
-    if (stats.lowStock > 0) {
-      actions.push({
-        title: "Low stock",
-        detail: `${stats.lowStock} item${stats.lowStock === 1 ? "" : "s"} need review`,
-        tone: "red",
-      })
-    }
-
-    if (todaySummary.totalSales === 0) {
-      actions.push({
-        title: "No sales yet",
-        detail: "Record the first sale of the day",
-        tone: "amber",
-      })
-    }
-
-    if (todaySummary.totalExpenses > todaySummary.totalSales) {
-      actions.push({
-        title: "Expenses ahead of sales",
-        detail: `${Number(todaySummary.totalExpenses - todaySummary.totalSales).toLocaleString("en-KE", { minimumFractionDigits: 2 })} gap today`,
-        tone: "amber",
-      })
-    }
-
-    if (stats.totalRevenue === 0) {
-      actions.push({
-        title: "Setup still incomplete",
-        detail: "Add products to start tracking revenue",
-        tone: "zinc",
-      })
-    }
-
-    return actions.slice(0, 3)
-  }, [stats.lowStock, stats.totalRevenue, todaySummary.totalExpenses, todaySummary.totalSales])
-
-  const QuickActions = () => (
+function QuickActions({ isOwnerOrManager, navigateInstant }) {
+  return (
     <div className="flex flex-wrap gap-2">
       <UiButton variant="primary" size="sm" onClick={() => navigateInstant("/transactions/add-sale")}>
         + Sale
@@ -503,33 +46,26 @@ export default function Dashboard() {
       )}
     </div>
   )
+}
 
-  if (loading) return (
-    <div className="min-h-screen bg-zinc-950 flex items-center justify-center">
-      <p className="text-zinc-500 text-sm">Loading...</p>
-    </div>
-  )
-
-  if (accessIssue) {
-    return (
-      <div className="min-h-screen bg-zinc-950 flex items-center justify-center px-5">
-        <div className="w-full max-w-md bg-zinc-900 border border-zinc-800 rounded-2xl p-6 space-y-5">
-          <div>
-            <h2 className="text-white text-xl font-semibold">Account setup required</h2>
-            <p className="text-zinc-400 text-sm mt-2">{accessIssue}</p>
-          </div>
-          <UiButton variant="primary" className="w-full" onClick={handleSignOut}>
-            Sign out
-          </UiButton>
+function TodayReport({ todayTransactions, todaySummary, fmt }) {
+  return (
+    <div className="bg-zinc-900/80 border border-zinc-800 rounded-2xl p-4 space-y-3 shadow-lg shadow-black/10">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <h3 className="text-white font-semibold text-sm">Today's activity</h3>
+          <p className="text-zinc-500 text-xs mt-1">Sales and expenses recorded today</p>
         </div>
+        <span className="inline-flex items-center rounded-full border border-zinc-700 bg-zinc-950 px-2 py-1 text-[10px] font-medium text-zinc-400">
+          Live
+        </span>
       </div>
-    )
-  }
-
-  // ── SHARED TODAY COMPONENT ──
-  const TodayReport = () => (
-    <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4 space-y-3">
-      <h3 className="text-white font-semibold text-sm">Today's activity</h3>
+      {todayTransactions.length === 0 ? (
+        <div className="rounded-xl border border-dashed border-zinc-800 bg-zinc-950/60 px-4 py-6 text-center">
+          <p className="text-white text-sm font-medium">No activity yet today</p>
+          <p className="text-zinc-500 text-xs mt-1">New sales and expenses will appear here as they are recorded.</p>
+        </div>
+      ) : null}
       {todayTransactions.map((t, i) => (
         <div key={i} className="py-2 border-b border-zinc-800 last:border-0">
           <div className="flex items-center justify-between mb-1">
@@ -545,303 +81,336 @@ export default function Dashboard() {
                     <td className="text-white text-xs py-0.5">{item.products?.name}</td>
                     <td className="text-zinc-500 text-xs py-0.5 text-right font-mono">{fmt(item.unit_price)}</td>
                     <td className="text-zinc-500 text-xs py-0.5 text-right px-2">×{item.quantity}</td>
-                    <td className="text-emerald-400 text-xs py-0.5 text-right font-mono">{fmt(item.total_amount)}</td>
+                    <td className="text-zinc-400 text-xs py-0.5 text-right font-mono">{fmt(item.total_amount)}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
-          ) : (
-            <p className="text-white text-sm">{t.display_name}</p>
-          )}
+          ) : t.type === "expense" && (t.expense || t.expenses) ? (
+            <div className="space-y-1">
+              <div className="flex items-center justify-between">
+                <p className="text-zinc-400 text-xs">
+                  {t.expense?.category || t.expenses?.[0]?.category || "Expense"}
+                </p>
+                <p className="text-zinc-300 text-xs font-mono">
+                  {fmt(t.expense?.amount || t.expenses?.[0]?.amount || 0)}
+                </p>
+              </div>
+            </div>
+          ) : null}
         </div>
       ))}
-
-      <div className="border-t border-zinc-800 pt-3 space-y-2">
-        <div className="flex justify-between">
-          <p className="text-zinc-400 text-sm">Today's sales</p>
-          <p className="text-emerald-400 text-sm font-mono">{fmt(todaySummary.totalSales)}</p>
+      <div className="pt-2 border-t border-zinc-800 space-y-1">
+        <div className="flex items-center justify-between">
+          <p className="text-zinc-500 text-xs">Sales</p>
+          <p className="text-emerald-400 text-xs font-mono">{fmt(todaySummary?.totalSales || 0)}</p>
         </div>
-        <div className="flex justify-between">
-          <p className="text-zinc-400 text-sm">Today's expenses</p>
-          <p className="text-red-400 text-sm font-mono">-{fmt(todaySummary.totalExpenses)}</p>
+        <div className="flex items-center justify-between">
+          <p className="text-zinc-500 text-xs">Expenses</p>
+          <p className="text-red-400 text-xs font-mono">{fmt(todaySummary?.totalExpenses || 0)}</p>
         </div>
-        <div className="flex justify-between border-t border-zinc-800 pt-2">
-          <p className="text-white font-semibold text-sm">Net today</p>
-          <p className={`text-sm font-mono font-bold ${todaySummary.net >= 0 ? "text-white" : "text-red-400"}`}>
-            {fmt(todaySummary.net)}
+        <div className="flex items-center justify-between pt-1 border-t border-zinc-800">
+          <p className="text-zinc-400 text-xs font-semibold">Net</p>
+          <p className={`text-xs font-mono font-semibold ${(todaySummary?.net || 0) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+            {fmt(todaySummary?.net || 0)}
           </p>
-        </div>
-      </div>
-
-      <div className="border-t border-zinc-800 pt-3 space-y-3">
-        <p className="text-zinc-500 text-xs">Business pulse</p>
-        <div className="grid grid-cols-2 gap-2">
-          <div className="rounded-xl bg-zinc-800 px-4 py-3">
-            <p className="text-zinc-500 text-[11px] mb-1">Transactions today</p>
-            <p className="text-white text-sm font-semibold">{stats.transactions}</p>
-          </div>
-          <div className="rounded-xl bg-zinc-800 px-4 py-3">
-            <p className="text-zinc-500 text-[11px] mb-1">Low stock alerts</p>
-            <p className={`text-sm font-semibold ${stats.lowStock > 0 ? "text-red-400" : "text-emerald-400"}`}>
-              {stats.lowStock}
-            </p>
-          </div>
-        </div>
-        <div className="rounded-xl bg-zinc-800 px-4 py-3 border border-zinc-700">
-          <p className="text-zinc-500 text-[11px] mb-1">Pending actions</p>
-          {pendingActions.length > 0 ? (
-            <div className="space-y-2">
-              {pendingActions.map((action, index) => (
-                <div key={index} className="flex items-start justify-between gap-3 rounded-lg bg-zinc-900/80 px-3 py-2">
-                  <div className="min-w-0">
-                    <p className="text-sm font-medium text-white">{action.title}</p>
-                    <p className="text-[11px] text-zinc-500">{action.detail}</p>
-                  </div>
-                  <span className={`shrink-0 rounded-full px-2 py-1 text-[10px] font-medium uppercase tracking-wider ${
-                    action.tone === "red"
-                      ? "bg-red-500/10 text-red-400"
-                      : action.tone === "amber"
-                      ? "bg-amber-500/10 text-amber-400"
-                      : "bg-zinc-700 text-zinc-300"
-                  }`}>
-                    {action.tone === "red" ? "Now" : action.tone === "amber" ? "Soon" : "Info"}
-                  </span>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <p className="text-emerald-400 text-sm">All caught up</p>
-          )}
         </div>
       </div>
     </div>
   )
+}
 
-  // ── CASHIER VIEW ──
-  if (isCashier) {
-    return (
-      <AppShell
-        className="pb-28"
-        showHeader={false}
-        contentClassName="max-w-lg space-y-4"
-      >
-          {pageHeader}
-
-          <div>
-            <h2 className="text-white text-xl font-bold">Good {getGreeting()}, {business?.userName?.split(" ")[0]}</h2>
-            <p className="text-zinc-500 text-sm mt-1">
-              {new Date().toLocaleDateString("en-KE", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}
-            </p>
-          </div>
-          <QuickActions />
-          <TodayReport />
-
-        <FloatingBottomNav
-          activePath="/dashboard"
-          itemClassName="px-6 py-2.5"
-          items={[
-            { label: "Dashboard", path: "/dashboard" },
-            { label: "Transactions", path: "/transactions" },
-          ]}
-        />
-      </AppShell>
-    )
-  }
-
-  // ── OWNER / MANAGER VIEW ──
+function BusinessInsights({ lowStockProducts, topSeller, attentionLabel, fmt }) {
   return (
-    <AppShell
-      className="pb-28"
-      showHeader={false}
-      contentClassName="max-w-5xl space-y-6"
-    >
-
-        {pageHeader}
-
+    <div className="bg-zinc-900/80 border border-zinc-800 rounded-2xl p-4 space-y-3 shadow-lg shadow-black/10">
+      <div className="flex items-center justify-between gap-3">
         <div>
-          <h2 className="text-white text-2xl font-bold">Good {getGreeting()}, {business?.userName?.split(" ")[0]}</h2>
-          <p className="text-zinc-500 text-sm mt-1">
-            {new Date().toLocaleDateString("en-KE", { weekday: "long", year: "numeric", month: "long", day: "numeric" })}
-          </p>
+          <h3 className="text-white font-semibold text-sm">Action needed</h3>
+          <p className="text-zinc-500 text-xs mt-1">Quick signals that need attention</p>
         </div>
-        <QuickActions />
+        <span className="inline-flex items-center rounded-full border border-zinc-700 bg-zinc-950 px-2 py-1 text-[10px] font-medium text-zinc-400">
+          Action needed
+        </span>
+      </div>
 
-        {stats.totalRevenue === 0 && stats.lowStock === 0 && (
-          <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-2xl p-4 flex items-center justify-between">
+      <div className="space-y-2">
+        <div className="rounded-xl border border-zinc-800 bg-zinc-950/80 px-3 py-3">
+          <div className="flex items-start justify-between gap-3">
             <div>
-              <p className="text-emerald-400 font-medium text-sm">Set up your inventory</p>
-              <p className="text-zinc-400 text-xs mt-0.5">Add your products to start tracking stock and sales</p>
+              <p className="text-zinc-400 text-xs uppercase tracking-wide">Low stock</p>
+              <p className="text-white text-sm font-medium mt-1">
+                {lowStockProducts.length > 0
+                  ? `${lowStockProducts.length} item${lowStockProducts.length === 1 ? "" : "s"} below threshold`
+                  : "No low stock alerts"}
+              </p>
             </div>
-            <button
-              onClick={() => navigateInstant("/inventory")}
-              className="bg-emerald-500 hover:bg-emerald-400 text-black text-xs font-semibold px-4 py-2 rounded-xl transition-colors"
-            >
-              Go to Inventory
-            </button>
+            <span className={`text-xs font-mono ${lowStockProducts.length > 0 ? "text-amber-400" : "text-emerald-400"}`}>
+              {lowStockProducts.length > 0 ? "Check" : "OK"}
+            </span>
           </div>
-        )}
-
-        {/* Stat cards */}
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-          {[
-            { label: "Today's sales", value: fmt(stats.todaySales), accent: "emerald" },
-            { label: "Total revenue", value: fmt(stats.totalRevenue), accent: "emerald" },
-            { label: "Transactions today", value: stats.transactions, accent: "blue" },
-            { label: "Low stock alerts", value: stats.lowStock, accent: stats.lowStock > 0 ? "red" : "zinc" },
-          ].map((s, i) => (
-            <div key={i} className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4">
-              <p className="text-zinc-500 text-xs mb-2">{s.label}</p>
-              <p className={`text-xl font-bold font-mono ${
-                s.accent === "emerald" ? "text-emerald-400" :
-                s.accent === "blue" ? "text-blue-400" :
-                s.accent === "red" ? "text-red-400" : "text-white"
-              }`}>{s.value}</p>
-            </div>
-          ))}
+          {lowStockProducts.length > 0 ? (
+            <p className="text-zinc-500 text-xs mt-2">
+              {lowStockProducts
+                .slice(0, 2)
+                .map((product) => `${product.name} (${product.current_quantity || 0})`)
+                .join(", ")}
+            </p>
+          ) : null}
         </div>
 
-        {/* Today report */}
-        <TodayReport />
-
-        {/* Period filter */}
-        <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4 space-y-4">
-          <div className="flex items-center justify-between">
-            <h3 className="text-white font-semibold text-sm">Activity</h3>
-            <div className="flex gap-1">
-              {OWNER_PERIODS.map(p => (
-                <button key={p} onClick={() => { setPeriod(p); setSelectedDay("All") }}
-                  className={`px-3 py-1.5 rounded-xl text-xs font-medium transition-colors ${
-                    period === p ? "bg-emerald-500 text-black" : "bg-zinc-800 text-zinc-400 hover:text-white"
-                  }`}>
-                  {p}
-                </button>
-              ))}
+        <div className="rounded-xl border border-zinc-800 bg-zinc-950/80 px-3 py-3">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-zinc-400 text-xs uppercase tracking-wide">Top seller</p>
+              <p className="text-white text-sm font-medium mt-1">
+                {topSeller ? topSeller.name : "No sales yet"}
+              </p>
             </div>
+            <span className="text-xs font-mono text-emerald-400">
+              {topSeller ? `${topSeller.qty} sold` : "—"}
+            </span>
           </div>
-
-          {/* Week day drill-down */}
-          {period === "Week" && (
-            <div className="flex gap-1 overflow-x-auto pb-1">
-              {WEEK_DAYS.map(d => (
-                <button key={d} onClick={() => setSelectedDay(d)}
-                  className={`flex-shrink-0 px-3 py-1.5 rounded-xl text-xs font-medium transition-colors ${
-                    selectedDay === d ? "bg-zinc-600 text-white" : "bg-zinc-800 text-zinc-500 hover:text-white"
-                  }`}>
-                  {d}
-                </button>
-              ))}
-            </div>
-          )}
-
-          {periodLoading ? (
-            <p className="text-zinc-600 text-sm text-center py-6">Loading...</p>
-          ) : (
-            <>
-              {periodTransactions.length === 0 ? (
-                <p className="text-zinc-600 text-sm text-center py-6">No activity for this period</p>
-              ) : (
-                <div className="space-y-2 max-h-72 overflow-y-auto">
-                  {periodTransactions.map((t, i) => (
-                    <div key={i} className="flex items-center justify-between py-2 border-b border-zinc-800 last:border-0">
-                      <div className="flex items-center gap-3">
-                        <div className={`w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 ${
-                          t.type === "sale" ? "bg-emerald-500/10" : "bg-red-400/10"
-                        }`}>
-                          <span className="text-xs">{t.type === "sale" ? "↑" : "↓"}</span>
-                        </div>
-                        <div>
-                          <p className="text-white text-sm">{t.display_name}</p>
-                          <p className="text-zinc-500 text-xs">
-                            {new Date(t.date).toLocaleDateString("en-KE", { weekday: "short", month: "short", day: "numeric" })} · {new Date(t.date).toLocaleTimeString("en-KE", { hour: "2-digit", minute: "2-digit" })} · {t.payment_account === "mpesa" ? "M-Pesa" : t.payment_account}
-                          </p>
-                        </div>
-                      </div>
-                      <p className={`text-sm font-mono font-medium ${
-                        t.type === "sale" ? "text-emerald-400" : "text-red-400"
-                      }`}>
-                        {t.type === "sale" ? "+" : "-"}{fmt(t.amount)}
-                      </p>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              <div className="border-t border-zinc-800 pt-4 space-y-2">
-                <div className="flex justify-between">
-                  <p className="text-zinc-400 text-sm">Total sales</p>
-                  <p className="text-emerald-400 text-sm font-mono">{fmt(periodSummary.totalSales)}</p>
-                </div>
-                <div className="flex justify-between">
-                  <p className="text-zinc-400 text-sm">Total expenses</p>
-                  <p className="text-red-400 text-sm font-mono">-{fmt(periodSummary.totalExpenses)}</p>
-                </div>
-                <div className="flex justify-between border-t border-zinc-800 pt-2">
-                  <p className="text-white font-semibold text-sm">Net</p>
-                  <p className={`text-sm font-mono font-bold ${periodSummary.net >= 0 ? "text-white" : "text-red-400"}`}>
-                    {fmt(periodSummary.net)}
-                  </p>
-                </div>
-              </div>
-
-              <div className="border-t border-zinc-800 pt-4">
-                <p className="text-zinc-500 text-xs mb-3">Account balances</p>
-                <div className="grid grid-cols-3 gap-2">
-                  {[
-                    { label: "Cash", value: periodSummary.cash, icon: "💵" },
-                    { label: "M-Pesa", value: periodSummary.mpesa, icon: "📱" },
-                    { label: "Bank", value: periodSummary.bank, icon: "🏦" },
-                  ].map((acc, i) => (
-                    <div key={i} className="bg-zinc-800 rounded-xl p-3">
-                      <div className="flex items-center gap-1 mb-1">
-                        <span className="text-xs">{acc.icon}</span>
-                        <p className="text-zinc-500 text-xs">{acc.label}</p>
-                      </div>
-                      <p className={`text-sm font-mono font-bold ${acc.value >= 0 ? "text-white" : "text-red-400"}`}>
-                        {fmt(acc.value)}
-                      </p>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </>
-          )}
+          {topSeller ? (
+            <p className="text-zinc-500 text-xs mt-2">
+              {fmt(topSeller.value)} value today
+            </p>
+          ) : null}
         </div>
 
-        {/* Low stock */}
-        <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4">
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-white font-semibold text-sm">Low stock alerts</h3>
-            <button onClick={() => navigateInstant("/inventory")} className="text-xs text-emerald-500 hover:text-emerald-400">
-              View all
-            </button>
-          </div>
-          {lowStockItems.length === 0 ? (
-            <p className="text-zinc-600 text-sm text-center py-4">All stock levels are healthy</p>
-          ) : (
-            <div className="space-y-3">
-              {lowStockItems.map((p, i) => (
-                <div key={i} className="flex items-center justify-between">
-                  <div>
-                    <p className="text-white text-sm">{p.name}</p>
-                    <p className="text-zinc-500 text-xs">Reorder point: {p.reorder_point}</p>
-                  </div>
-                  <p className="text-red-400 text-sm font-mono">{p.current_quantity} left</p>
-                </div>
-              ))}
+        <div className="rounded-xl border border-zinc-800 bg-zinc-950/80 px-3 py-3">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-zinc-400 text-xs uppercase tracking-wide">Pending issue</p>
+              <p className="text-white text-sm font-medium mt-1">
+                {attentionLabel}
+              </p>
             </div>
-          )}
+            <span className="text-xs font-mono text-zinc-400">Now</span>
+          </div>
         </div>
+      </div>
+    </div>
+  )
+}
 
-        <div className="h-28" />
-
-      <FloatingBottomNav activePath="/dashboard" />
+function DashboardLoading() {
+  return (
+    <AppShell>
+      <div className="flex items-center justify-center min-h-[400px]">
+        <p className="text-zinc-400">Loading dashboard...</p>
+      </div>
     </AppShell>
   )
 }
 
-function getGreeting() {
-  const h = new Date().getHours()
-  if (h < 12) return "morning"
-  if (h < 17) return "afternoon"
-  return "evening"
+function DashboardAccessIssue({ issue }) {
+  return (
+    <AppShell>
+      <div className="flex items-center justify-center min-h-[400px]">
+        <div className="text-center">
+          <p className="text-zinc-400 mb-2">Dashboard access issue</p>
+          <p className="text-zinc-500 text-sm">{issue}</p>
+        </div>
+      </div>
+    </AppShell>
+  )
+}
+
+export default function Dashboard() {
+  const { navigateInstant } = useInstantNavigation()
+  const { canViewAll, activeBranch, viewMode, effectiveBranchId } = useBranchContext()
+  
+  // Single source of truth for auth/business/branch state
+  const { business, loading, accessIssue } = useDashboardContext()
+
+  const { products, loading: productsLoading } = useProducts(
+    canViewAll ? null : effectiveBranchId,
+    canViewAll
+  )
+  
+  // Domain-specific hooks - pass dashboard context to prevent duplicate subscriptions
+  const { todayTransactions, todaySummary, error: todayError } = useTodayActivity({ business, branchId: effectiveBranchId })
+
+  const lowStockProducts = useMemo(() => {
+    const threshold = Number(business?.low_stock_threshold ?? 10)
+
+    return (products || [])
+      .filter((product) => Number(product.current_quantity || 0) <= threshold)
+      .sort((a, b) => Number(a.current_quantity || 0) - Number(b.current_quantity || 0))
+      .slice(0, 3)
+  }, [business?.low_stock_threshold, products])
+
+  const topSeller = useMemo(() => {
+    const sales = new Map()
+
+    todayTransactions.forEach((transaction) => {
+      if (transaction.type !== "sale") return
+
+      transaction.sale_items?.forEach((item) => {
+        const name = item.products?.name || item.product_name || "Product"
+        const quantity = Number(item.quantity || 0)
+        const value = Number(item.total_amount || item.unit_price || 0)
+        const current = sales.get(name) || { name, qty: 0, value: 0 }
+
+        current.qty += quantity
+        current.value += value
+        sales.set(name, current)
+      })
+    })
+
+    return [...sales.values()].sort((a, b) => b.qty - a.qty || b.value - a.value)[0] || null
+  }, [todayTransactions])
+
+  const attentionLabel = useMemo(() => {
+    if (productsLoading) {
+      return "Checking stock levels..."
+    }
+
+    if (lowStockProducts.length > 0) {
+      return `${lowStockProducts.length} product${lowStockProducts.length === 1 ? "" : "s"} need restocking`
+    }
+
+    if ((todaySummary?.net || 0) < 0) {
+      return "Net is negative today"
+    }
+
+    if (todayTransactions.length === 0) {
+      return "No activity recorded yet"
+    }
+
+    return "No urgent issues"
+  }, [lowStockProducts.length, productsLoading, todaySummary?.net, todayTransactions.length])
+
+  const fmt = (num) => {
+    if (num === null || num === undefined) return "0.00"
+    return Number(num || 0).toLocaleString("en-KE", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  }
+
+  const kpis = [
+    {
+      label: "Today sales",
+      value: fmt(todaySummary?.totalSales || 0),
+      tone: "positive",
+      subtext: todayTransactions.length ? `${todayTransactions.length} transaction${todayTransactions.length === 1 ? "" : "s"}` : "No activity yet",
+    },
+    {
+      label: "Today expenses",
+      value: fmt(todaySummary?.totalExpenses || 0),
+      tone: Number(todaySummary?.totalExpenses || 0) > 0 ? "danger" : "neutral",
+      subtext: Number(todaySummary?.totalExpenses || 0) > 0 ? "Money out today" : "No expenses recorded",
+    },
+    {
+      label: "Net position",
+      value: fmt(todaySummary?.net || 0),
+      tone: Number(todaySummary?.net || 0) >= 0 ? "positive" : "danger",
+      subtext: Number(todaySummary?.net || 0) >= 0 ? "Positive day" : "Needs attention",
+    },
+    {
+      label: "Low stock",
+      value: String(lowStockProducts.length),
+      tone: lowStockProducts.length > 0 ? "warning" : "neutral",
+      subtext: lowStockProducts.length > 0 ? "Items below threshold" : "Stock levels look fine",
+    },
+  ]
+
+  // Loading and access states
+  if (loading) return <DashboardLoading />
+  if (accessIssue) return <DashboardAccessIssue issue={accessIssue} />
+  
+  // Error states
+  const dashboardError = todayError
+  if (dashboardError) {
+    return (
+      <AppShell>
+        <div className="flex items-center justify-center min-h-[400px]">
+          <div className="text-center">
+            <p className="text-zinc-400 mb-2">Failed to load dashboard data</p>
+            <p className="text-zinc-500 text-sm">{dashboardError.message || 'Unknown error'}</p>
+          </div>
+        </div>
+      </AppShell>
+    )
+  }
+
+  const isOwnerOrManager = canViewAll
+
+  return (
+    <AppShell>
+      <div className="space-y-4">
+        <div className="rounded-3xl border border-zinc-800 bg-gradient-to-br from-zinc-900/95 via-zinc-900/85 to-zinc-950 p-4 sm:p-5 shadow-lg shadow-black/10">
+          <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+            <div className="max-w-2xl">
+              <p className="text-[10px] uppercase tracking-[0.24em] text-zinc-500">Store</p>
+              <h1 className="mt-1 text-white text-2xl sm:text-3xl font-semibold tracking-tight">Dashboard</h1>
+              <p className="mt-2 text-zinc-400 text-sm sm:text-base">{business?.name}</p>
+
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                {activeBranch && (
+                  <span className="inline-flex items-center rounded-full bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-1 text-[10px] font-medium text-emerald-400">
+                    {activeBranch.name}
+                  </span>
+                )}
+                {!isOwnerOrManager && viewMode === "all" && !activeBranch && (
+                  <span className="inline-flex items-center rounded-full bg-amber-500/10 border border-amber-500/20 px-2.5 py-1 text-[10px] font-medium text-amber-400">
+                    No branch assigned
+                  </span>
+                )}
+                {isOwnerOrManager && viewMode === "all" && !activeBranch && (
+                  <span className="inline-flex items-center rounded-full bg-zinc-800 border border-zinc-700 px-2.5 py-1 text-[10px] font-medium text-zinc-400">
+                    All branches
+                  </span>
+                )}
+              </div>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2 xl:justify-end">
+              {canViewAll ? <BranchSelector /> : null}
+            </div>
+          </div>
+
+          <div className="mt-4 rounded-2xl border border-zinc-800/80 bg-zinc-950/50 p-3 sm:p-4">
+            <div className="flex items-center justify-between gap-3 mb-3">
+              <div>
+                <p className="text-[10px] uppercase tracking-[0.24em] text-zinc-500">Quick actions</p>
+                <p className="text-xs text-zinc-500 mt-1">Common tasks for this branch</p>
+              </div>
+            </div>
+            <QuickActions isOwnerOrManager={isOwnerOrManager} navigateInstant={navigateInstant} />
+          </div>
+        </div>
+
+        <div className="rounded-3xl border border-zinc-800 bg-zinc-900/70 p-4 sm:p-5 shadow-lg shadow-black/10">
+          <div className="flex items-end justify-between gap-3 mb-4">
+            <div>
+              <p className="text-[10px] uppercase tracking-[0.24em] text-zinc-500">At a glance</p>
+              <h2 className="mt-1 text-white text-sm font-semibold">Today’s snapshot</h2>
+            </div>
+            <p className="text-zinc-500 text-xs">Updated in real time</p>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            {kpis.map((kpi) => (
+              <KpiCard key={kpi.label} {...kpi} />
+            ))}
+          </div>
+        </div>
+
+        <div className="grid gap-4 xl:grid-cols-[1.15fr_0.85fr]">
+          <TodayReport
+            todayTransactions={todayTransactions}
+            todaySummary={todaySummary}
+            fmt={fmt}
+          />
+
+          <BusinessInsights
+            lowStockProducts={lowStockProducts}
+            topSeller={topSeller}
+            attentionLabel={attentionLabel}
+            fmt={fmt}
+          />
+        </div>
+      </div>
+
+      <FloatingBottomNav />
+    </AppShell>
+  )
 }

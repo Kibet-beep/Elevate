@@ -19,8 +19,12 @@ export default function ResetPassword() {
     const refreshToken = searchParams.get('refresh_token')
     
     if (!accessToken || !refreshToken) {
-      setError("Invalid or expired reset link. Please request a new password reset.")
-      setTimeout(() => navigate("/forgot-password"), 3000)
+      const timer = window.setTimeout(() => {
+        setError("Invalid or expired reset link. Please request a new password reset.")
+        setTimeout(() => navigate("/forgot-password"), 3000)
+      }, 0)
+
+      return () => window.clearTimeout(timer)
     }
   }, [searchParams, navigate])
 
@@ -56,7 +60,7 @@ export default function ResetPassword() {
       
       // Redirect to sign in after 2 seconds
       setTimeout(() => navigate("/"), 2000)
-    } catch (err) {
+    } catch {
       setError("Something went wrong. Please try again.")
       setLoading(false)
     }

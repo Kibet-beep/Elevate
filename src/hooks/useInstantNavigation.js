@@ -1,7 +1,6 @@
 // src/hooks/useInstantNavigation.js
 import { useState, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { useCache } from './useCache'
 
 // Pre-loaded page components cache
 const componentCache = new Map()
@@ -109,31 +108,18 @@ export function useInstantNavigation() {
 
 // Hook for optimistic updates
 export function useOptimisticUpdate() {
-  const { get, set, invalidate } = useCache()
-  
-  const updateOptimistically = useCallback((cacheKey, updateFn) => {
-    const currentData = get(cacheKey) || []
-    const updatedData = updateFn(currentData)
-    set(cacheKey, updatedData)
-    return updatedData
-  }, [get, set])
+  const optimisticStoreRef = useRef(new Map())
 
-  const invalidateRelated = useCallback((action) => {
-    switch (action) {
-      case 'transaction_added':
-        invalidate('transactions')
-        break
-      case 'product_updated':
-        invalidate('products')
-        invalidate('transactions')
-        break
-      case 'employee_updated':
-        invalidate('employees')
-        break
-      default:
-        break
-    }
-  }, [invalidate])
+  const updateOptimistically = useCallback((cacheKey, updateFn) => {
+    const currentData = optimisticStoreRef.current.get(cacheKey) || []
+    const updatedData = updateFn(currentData)
+    optimisticStoreRef.current.set(cacheKey, updatedData)
+    return updatedData
+  }, [])
+
+  const invalidateRelated = useCallback(() => {
+    // No-op: RxDB observers now drive UI freshness.
+  }, [])
 
   return {
     updateOptimistically,

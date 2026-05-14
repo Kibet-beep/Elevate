@@ -1,6 +1,6 @@
 import { ChevronDown } from "lucide-react"
 import { memo, useMemo } from "react"
-import { useBranchContext } from "../hooks/useBranchContext"
+import { useBranchContext } from "../context/BranchContext"
 
 function BranchSelectorComponent({ className = "", onChange = null, value = null, viewMode = null }) {
   const { 
@@ -20,6 +20,7 @@ function BranchSelectorComponent({ className = "", onChange = null, value = null
   const currentViewMode = viewMode !== null ? viewMode : globalViewMode
   const currentValue = value !== null ? value : (currentViewMode === 'all' ? 'all' : activeBranch?.id || '')
   const hasLocalControl = onChange !== null
+  const canSwitch = isOwner || isManager
 
   // Memoize expensive calculations
   const allBranchesLabel = useMemo(() => {
@@ -32,13 +33,11 @@ function BranchSelectorComponent({ className = "", onChange = null, value = null
     if (loading) {
       return [<option key="loading" value="">Loading branches...</option>]
     }
-    if (!canViewAll) {
-      return [<option key="no-access" value="">No branch access</option>]
+    const options = []
+
+    if (canViewAll) {
+      options.push(<option key="all" value="all">{allBranchesLabel}</option>)
     }
-    
-    const options = [
-      <option key="all" value="all">{allBranchesLabel}</option>
-    ]
     
     availableBranches.forEach(branch => {
       options.push(
@@ -66,14 +65,17 @@ function BranchSelectorComponent({ className = "", onChange = null, value = null
     }
   }
 
+  // Don't render the selector at all for single-branch users
+  if (!canViewAll && availableBranches.length <= 1) return null
+
   return (
     <div className={`relative ${className}`}>
       <select
         value={currentValue}
         onChange={handleChange}
-        disabled={loading || !canViewAll}
+        disabled={loading || !canSwitch}
         className={`appearance-none bg-zinc-800 border border-zinc-700 text-white rounded-lg px-3 py-2 pr-8 text-sm focus:outline-none focus:border-emerald-500 transition-colors ${
-          loading || !canViewAll ? 'cursor-not-allowed opacity-50' : 'cursor-pointer hover:bg-zinc-700'
+          loading || !canSwitch ? 'cursor-not-allowed opacity-50' : 'cursor-pointer hover:bg-zinc-700'
         }`}
       >
         {branchOptions}

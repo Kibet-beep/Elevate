@@ -1,167 +1,29 @@
 // src/pages/inventory/Inventory.jsx
-import { useState, useEffect, useMemo, useCallback, useRef } from "react"
-import { supabase } from "../../lib/supabase"
+import { useState, useMemo } from "react"
 import { useNavigate } from "react-router-dom"
 import FloatingBottomNav from "../../components/layout/FloatingBottomNav"
-import { AppShell, UiButton } from "../../components/ui"
-import { useIsOwner, useIsOwnerOrManager, useUser } from "../../hooks/useRole"
-import { useCache } from "../../hooks/useCache"
-import { usePersistentStorage } from "../../hooks/usePersistentStorage"
+import { AppShell, UiButton, UiCard } from "../../components/ui"
 import { useInstantAuth } from "../../hooks/useInstantAuth"
-import { useBranchContext } from "../../hooks/useBranchContext"
+import { useBranchContext } from "../../context/BranchContext"
 import { BranchSelector } from "../../components/BranchSelector"
-import { CacheKeys } from "../../lib/cacheKeys"
-import { createCacheManager } from "../../lib/cacheManager"
-import { useDataInitializer } from "../../lib/dataInitializer"
+import { useProducts } from "../../hooks/useProducts"
 
 export default function Inventory() {
   const navigate = useNavigate()
-  const { business: instantBusiness, initialized, signOut } = useInstantAuth()
-  const { get, set } = useCache()
-  const { get: getPersistent, set: setPersistent } = usePersistentStorage()
-  
-  // Create unified cache manager
-  const cacheManager = useMemo(() => createCacheManager({ get, set }, { get: getPersistent, set: setPersistent }), [get, set, getPersistent, setPersistent])
-  
-  // Create data initializer with auth dependencies
-  const dataInitializer = useDataInitializer(cacheManager, { business: instantBusiness, initialized })
-  const { user } = useUser()
-  const isOwner = useIsOwner()
-  const isOwnerOrManager = useIsOwnerOrManager()
-  const { canViewAll, availableBranches, activeBranch, loading: branchLoading } = useBranchContext()
-  const [products, setProducts] = useState([])
-  const [filtered, setFiltered] = useState([])
+  const { business: instantBusiness, signOut } = useInstantAuth()
+  const { canViewAll, effectiveBranchId, activeBranch, availableBranches } = useBranchContext()
+
+  const { products, loading } = useProducts(
+    effectiveBranchId,
+    canViewAll,
+  )
   const [search, setSearch] = useState("")
   const [categoryFilter, setCategoryFilter] = useState("all")
   const [riskFilter, setRiskFilter] = useState("all")
   const [mobileFilterOpen, setMobileFilterOpen] = useState(false)
-  const [selectedProduct, setSelectedProduct] = useState(null)
-  const [categories, setCategories] = useState([])
-  const [localBranchId, setLocalBranchId] = useState(null)
-  const prevBranchId = useRef(undefined)
+    const categories = useMemo(() => [...new Set(products.map((product) => product.category).filter(Boolean))], [products])
 
-  // For cashiers, always use their assigned branch
-  const effectiveBranchId = isOwnerOrManager ? localBranchId : (user?.default_branch_id || activeBranch?.id)
-
-  // Use standardized cache keys from CacheKeys utility
-
-  // Define fetchProducts function before hydrate
-  const fetchProducts = useCallback(async (businessId, active = true) => {
-    if (!businessId) {
-      setProducts([])
-      setFiltered([])
-      setCategories([])
-      return []
-    }
-
-    try {
-      let query = supabase
-        .from("products")
-        .select("id, name, sku_id, category, current_quantity, reorder_point, buying_price, selling_price, unit_of_measure, branch_id")
-        .not("is_active", "eq", false)
-        .eq("business_id", businessId)
-        .order("name")
-
-      // Apply branch filtering if a specific branch is selected
-      if (effectiveBranchId) {
-        query = query.eq("branch_id", effectiveBranchId)
-      }
-
-      const { data } = await query
-
-      if (!active) return
-
-      const nextProducts = data || []
-      
-      // Update state immediately
-      setProducts(nextProducts)
-      setFiltered(nextProducts)
-
-      const cats = [...new Set(nextProducts.map((p) => p.category).filter(Boolean))]
-      setCategories(cats)
-      
-      // Update cache in background (don't block)
-      try {
-        cacheManager.setProducts(businessId, nextProducts, effectiveBranchId)
-      } catch (cacheError) {
-        console.warn('Cache update failed:', cacheError)
-      }
-      
-      console.log(`Loaded ${nextProducts.length} products from database`)
-      return nextProducts
-    } catch (error) {
-      console.error("Failed to load inventory products:", error)
-      throw error
-    }
-  }, [effectiveBranchId, localBranchId])
-
-  const hydrate = useCallback(async () => {
-    let active = true
-
-    const runHydrate = async () => {
-      const businessId = instantBusiness?.id
-      if (!businessId) return
-
-      if (!branchLoading) {
-        try {
-          const result = await cacheManager.hydrateProducts(
-            businessId,
-            effectiveBranchId,
-            () => fetchProducts(businessId, active)
-          )
-
-          if (!active) {
-            return
-          }
-
-          const nextProducts = result.data || []
-          setProducts(nextProducts)
-          setFiltered(nextProducts)
-          setCategories([...new Set(nextProducts.map((p) => p.category).filter(Boolean))])
-          
-          console.log(`Inventory loaded from ${result.source}`)
-        } catch (error) {
-          console.error('Inventory hydration failed:', error)
-          if (active) {
-            setProducts([])
-            setFiltered([])
-            setCategories([])
-          }
-        }
-        return
-      }
-
-      if (initialized && active) {
-        setProducts([])
-        setFiltered([])
-        setCategories([])
-      }
-    }
-
-    await runHydrate()
-    return () => {
-      active = false
-    }
-  }, [instantBusiness?.id, initialized, effectiveBranchId, branchLoading, cacheManager, fetchProducts])
-
-  useEffect(() => {
-    hydrate()
-  }, [hydrate])
-
-  useEffect(() => {
-    if (prevBranchId.current === undefined) {
-      prevBranchId.current = localBranchId
-      return // skip on first mount
-    }
-    if (prevBranchId.current !== localBranchId) {
-      prevBranchId.current = localBranchId
-      setProducts([])
-      setFiltered([])
-      setCategories([])
-    }
-  }, [localBranchId])
-
-  const filteredProducts = useMemo(() => {
+  const filtered = useMemo(() => {
     let result = products
     if (search) {
       result = result.filter(p =>
@@ -188,11 +50,11 @@ export default function Inventory() {
     return result
   }, [search, categoryFilter, riskFilter, products])
 
-  useEffect(() => {
-    setFiltered(filteredProducts)
-  }, [filteredProducts])
-
   const isLowStock = (p) => Number(p.current_quantity || 0) <= Number(p.reorder_point || 0)
+
+  const handleSignOut = async () => {
+    await signOut()
+  }
 
   const fmt = (n) => `KES ${Number(n).toLocaleString("en-KE", { minimumFractionDigits: 2 })}`
 
@@ -214,6 +76,8 @@ export default function Inventory() {
     }
   }, [products])
 
+  const isOwnerOrManager = canViewAll
+
   return (
     <AppShell showHeader={false} className="pb-24" contentClassName="max-w-6xl space-y-4">
       <div className="rounded-2xl border border-zinc-800 bg-zinc-900/80 p-4 sm:p-5 shadow-lg shadow-black/10">
@@ -222,17 +86,12 @@ export default function Inventory() {
           <p className="text-[10px] uppercase tracking-[0.24em] text-zinc-500">Store</p>
           <h1 className="text-white font-semibold text-xl sm:text-2xl tracking-tight">Inventory</h1>
           <p className="mt-1 text-zinc-400 text-xs sm:text-sm">
-            {instantBusiness?.name}{localBranchId ? ` • ${availableBranches.find(b => b.id === localBranchId)?.name}` : ''} · Live inventory balances
+            {instantBusiness?.name}{effectiveBranchId ? ` • ${availableBranches.find(b => b.id === effectiveBranchId)?.name}` : ''} · Live inventory balances
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          {canViewAll && (
-            <BranchSelector 
-              onChange={(value) => setLocalBranchId(value === 'all' ? null : value)}
-              value={localBranchId || 'all'}
-            />
-          )}
-          <UiButton variant="tertiary" size="sm" onClick={signOut} className="text-zinc-400 hover:text-red-400">
+          {canViewAll ? <BranchSelector /> : null}
+          <UiButton variant="tertiary" size="sm" onClick={handleSignOut} className="text-zinc-400 hover:text-red-400">
             Sign out
           </UiButton>
         </div>
@@ -304,7 +163,16 @@ export default function Inventory() {
             </div>
           </div>
 
-          {filtered.length === 0 ? (
+          {loading ? (
+            <UiCard>
+              <div className="flex items-center justify-center py-12">
+                <div className="text-center">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-emerald-500 mx-auto mb-4"></div>
+                  <p className="text-zinc-400">Loading products...</p>
+                </div>
+              </div>
+            </UiCard>
+          ) : filtered.length === 0 ? (
             <div className="text-center py-16 px-4">
               <p className="text-zinc-600 text-sm">No products found</p>
             </div>
@@ -364,7 +232,7 @@ export default function Inventory() {
                       <th className="py-3 px-4 font-medium">Status</th>
                       <th className="py-3 px-4 font-medium text-right">Buying</th>
                       <th className="py-3 px-4 font-medium text-right">Selling</th>
-                      {isOwner && <th className="py-3 px-4 font-medium text-right">Value</th>}
+                      {canViewAll && <th className="py-3 px-4 font-medium text-right">Value</th>}
                       <th className="py-3 px-4 font-medium text-right">Action</th>
                     </tr>
                   </thead>
@@ -399,7 +267,7 @@ export default function Inventory() {
                           </td>
                           <td className="py-3 px-4 text-xs text-right font-mono text-zinc-300">{fmt(p.buying_price || 0)}</td>
                           <td className="py-3 px-4 text-xs text-right font-mono text-emerald-400">{fmt(p.selling_price || 0)}</td>
-                          {isOwner && <td className="py-3 px-4 text-xs text-right font-mono text-zinc-200">{fmt(value)}</td>}
+                          {canViewAll && <td className="py-3 px-4 text-xs text-right font-mono text-zinc-200">{fmt(value)}</td>}
                           <td className="py-3 px-4 text-right">
                             <button
                               onClick={(e) => {
@@ -484,57 +352,7 @@ export default function Inventory() {
         </div>
       )}
 
-      {selectedProduct && (
-        <div className="md:hidden fixed inset-0 z-[60] bg-black/60" onClick={() => setSelectedProduct(null)}>
-          <div
-            className="absolute bottom-0 left-0 right-0 bg-zinc-900 border-t border-zinc-800 rounded-t-3xl p-5"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="w-12 h-1 bg-zinc-700 rounded-full mx-auto mb-4" />
-            <p className="text-white text-base font-semibold">{selectedProduct.name}</p>
-            <p className="text-zinc-500 text-xs mt-1">SKU {selectedProduct.sku_id}</p>
-
-            <div className="mt-4 space-y-3 text-sm">
-              <div className="flex items-center justify-between">
-                <p className="text-zinc-500">Category</p>
-                <p className="text-zinc-300">{selectedProduct.category || "-"}</p>
-              </div>
-              <div className="flex items-center justify-between">
-                <p className="text-zinc-500">Units</p>
-                <p className="text-zinc-200 font-mono">{Number(selectedProduct.current_quantity || 0)}</p>
-              </div>
-              <div className="flex items-center justify-between">
-                <p className="text-zinc-500">Reorder point</p>
-                <p className="text-zinc-300 font-mono">{Number(selectedProduct.reorder_point || 0)}</p>
-              </div>
-              <div className="flex items-center justify-between">
-                <p className="text-zinc-500">Buying</p>
-                <p className="text-zinc-300 font-mono">{fmt(selectedProduct.buying_price || 0)}</p>
-              </div>
-              <div className="flex items-center justify-between border-t border-zinc-800 pt-3">
-                <p className="text-zinc-500">Selling</p>
-                <p className="text-emerald-400 font-mono">{fmt(selectedProduct.selling_price || 0)}</p>
-              </div>
-            </div>
-
-            <div className="mt-5 grid grid-cols-2 gap-2">
-              <button
-                onClick={() => setSelectedProduct(null)}
-                className="bg-zinc-800 hover:bg-zinc-700 text-zinc-200 rounded-xl py-3 text-sm font-medium transition-colors"
-              >
-                Close
-              </button>
-              <button
-                onClick={() => navigate(`/inventory/product/${selectedProduct.id}`)}
-                className="bg-emerald-500 hover:bg-emerald-400 text-black rounded-xl py-3 text-sm font-semibold transition-colors"
-              >
-                View product
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-    </AppShell>
+          </AppShell>
   )
 }
 

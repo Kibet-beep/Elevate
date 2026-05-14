@@ -1,80 +1,37 @@
 // src/pages/inventory/Products.jsx
-import { useState, useEffect, useMemo } from "react"
-import { supabase } from "../../lib/supabase"
+import { useState, useEffect } from "react"
 import { useNavigate } from "react-router-dom"
 import { AppShell, UiButton } from "../../components/ui"
-import { useBranchContext } from "../../hooks/useBranchContext"
-import { useCache } from "../../hooks/useCache"
+import { useBranchContext } from "../../context/BranchContext"
 import { useInstantAuth } from "../../hooks/useInstantAuth"
-import { CacheKeys } from "../../lib/cacheKeys"
-import { createCacheManager } from "../../lib/cacheManager"
+import { useProducts } from "../../hooks/useProducts"
 
 export default function Products() {
   const navigate = useNavigate()
-  const { business: instantBusiness, initialized } = useInstantAuth()
-  const { get, set } = useCache()
-  const { canViewAll, availableBranches, loading: branchLoading } = useBranchContext()
+  const { business: instantBusiness, signOut } = useInstantAuth()
+  const { canViewAll, availableBranches, effectiveBranchId } = useBranchContext()
+  const [branchFilter, setBranchFilter] = useState("all")
   
-  // Create unified cache manager
-  const cacheManager = useMemo(() => createCacheManager({ get, set }, { get: () => null, set: () => {} }), [get, set])
+  const scopedBranchId =
+  canViewAll
+    ? (branchFilter === "all" ? null : branchFilter)
+    : effectiveBranchId
+
+  const { products: liveProducts } = useProducts(
+    scopedBranchId,
+    canViewAll,
+  )
+  
   const [products, setProducts] = useState([])
   const [filtered, setFiltered] = useState([])
   const [search, setSearch] = useState("")
   const [categoryFilter, setCategoryFilter] = useState("all")
-  const [branchFilter, setBranchFilter] = useState("all")
   const [statusFilter, setStatusFilter] = useState("all")
   const [categories, setCategories] = useState([])
-  const [localBranchId, setLocalBranchId] = useState(null)
 
   useEffect(() => {
-    let active = true
-
-    const hydrate = async () => {
-      const businessId = instantBusiness?.id
-      if (!businessId) return
-
-      if (!branchLoading) {
-        try {
-          const result = await cacheManager.hydrateProducts(
-            businessId,
-            null, // No branch filtering for Products page (shows all)
-            () => fetchProducts(businessId, active)
-          )
-
-          if (!active) {
-            return
-          }
-
-          const nextProducts = result.data || []
-          setProducts(nextProducts)
-          setFiltered(nextProducts)
-          setCategories([...new Set(nextProducts.map((p) => p.category).filter(Boolean))])
-          console.log(`Products loaded from ${result.source}`)
-        } catch (error) {
-          console.error('Products hydration failed:', error)
-          if (active) {
-            setProducts([])
-            setFiltered([])
-            setCategories([])
-          }
-        }
-
-        return
-      }
-
-      if (initialized && active) {
-        setProducts([])
-        setFiltered([])
-        setCategories([])
-      }
-    }
-
-    hydrate()
-
-    return () => {
-      active = false
-    }
-  }, [instantBusiness?.id, initialized, branchLoading, cacheManager])
+    setProducts(liveProducts)
+  }, [liveProducts])
 
   useEffect(() => {
     let result = products
@@ -87,10 +44,7 @@ export default function Products() {
     if (categoryFilter !== "all") {
       result = result.filter((p) => p.category === categoryFilter)
     }
-    if (branchFilter !== "all") {
-      result = result.filter((p) => p.branch_id === branchFilter)
-    }
-    if (statusFilter !== "all") {
+        if (statusFilter !== "all") {
       if (statusFilter === "active") {
         result = result.filter((p) => Number(p.current_quantity || 0) > 0)
       } else if (statusFilter === "low") {
@@ -101,49 +55,11 @@ export default function Products() {
     }
 
     setFiltered(result)
-  }, [search, categoryFilter, branchFilter, statusFilter, products])
+  }, [search, categoryFilter, branchFilter, statusFilter, products, canViewAll])
 
-  const fetchProducts = async (businessId, active = true) => {
-    if (!businessId) {
-      setProducts([])
-      setFiltered([])
-      setCategories([])
-      return []
-    }
-
-    try {
-      const { data } = await supabase
-        .from("products")
-        .select("id, name, sku_id, category, current_quantity, reorder_point, buying_price, selling_price, unit_of_measure, branch_id, branches!left(name, code)")
-        .not("is_active", "eq", false)
-        .eq("business_id", businessId)
-        .order("name")
-
-      if (!active) return
-
-      const nextProducts = data || []
-      
-      // Update state immediately
-      setProducts(nextProducts)
-      setFiltered(nextProducts)
-
-      const cats = [...new Set(nextProducts.map((p) => p.category).filter(Boolean))]
-      setCategories(cats)
-      
-      // Update cache in background (don't block)
-      try {
-        cacheManager.setProducts(businessId, nextProducts, null) // null for all products
-      } catch (cacheError) {
-        console.warn('Cache update failed:', cacheError)
-      }
-      
-      console.log(`Loaded ${nextProducts.length} products from database`)
-      return nextProducts
-    } catch (error) {
-      console.error("Failed to load products:", error)
-      throw error
-    }
-  }
+  useEffect(() => {
+    setCategories([...new Set(products.map((p) => p.category).filter(Boolean))])
+  }, [products])
 
   const fmt = (n) => `KES ${Number(n).toLocaleString("en-KE", { minimumFractionDigits: 2 })}`
 
@@ -153,12 +69,34 @@ export default function Products() {
   const outOfStockProducts = products.filter((p) => Number(p.current_quantity || 0) === 0).length
 
   return (
-    <AppShell
-      title="Products"
-      subtitle="Complete product catalog across all branches"
-      contentClassName="max-w-7xl"
-      right={<UiButton variant="secondary" size="sm" onClick={() => navigate("/inventory")}>← Back to Inventory</UiButton>}
-    >
+    <AppShell showHeader={false} contentClassName="max-w-7xl space-y-4 pb-24">
+      {/* Back button */}
+      <div className="px-4 sm:px-5 pt-4 pb-2">
+        <button onClick={() => navigate("/inventory")} className="flex items-center gap-2 text-zinc-500 hover:text-white transition-colors text-sm">
+          ← Back
+        </button>
+      </div>
+      {/* Hero header */}
+      <div className="px-4 sm:px-5 pb-4">
+        <div className="rounded-2xl border border-zinc-800 bg-zinc-900/80 p-4 sm:p-5 shadow-lg shadow-black/10">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="text-[10px] uppercase tracking-[0.24em] text-zinc-500">Inventory</p>
+              <h1 className="text-white text-xl sm:text-2xl font-semibold tracking-tight">All Products</h1>
+              <p className="mt-1 text-zinc-400 text-xs sm:text-sm">
+                {instantBusiness?.name} · {canViewAll ? "Complete catalog across all branches" : "Product catalog for your branch"}
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <button onClick={() => signOut()} className="text-zinc-400 hover:text-red-400 transition-colors text-sm">
+                Sign out
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="px-4 sm:px-5">
       <div className="space-y-4">
         {/* Metrics */}
         <div className="grid gap-3 grid-cols-2 md:grid-cols-4">
@@ -267,7 +205,17 @@ export default function Products() {
                         </td>
                         <td className="py-3 px-4 text-xs text-zinc-400">{p.category || "-"}</td>
                         <td className="py-3 px-4 text-xs text-zinc-400">
-                          {p.branches ? `${p.branches.name}${p.branches.code ? ` (${p.branches.code})` : ""}` : "-"}
+                          {(() => {
+                            if (!canViewAll) {
+                              // For non-owners/managers, don't show branch column
+                              return "-"
+                            }
+                            if (!availableBranches || availableBranches.length === 0) {
+                              return p.branch_id || "Loading..."
+                            }
+                            const branch = availableBranches.find(b => b.id === p.branch_id)
+                            return branch ? `${branch.name}${branch.code ? ` (${branch.code})` : ""}` : p.branch_id || "Unknown"
+                          })()}
                         </td>
                         <td className="py-3 px-4 text-xs text-right font-mono text-zinc-200">{quantity}</td>
                         <td className="py-3 px-4 text-xs text-right font-mono text-zinc-300">{fmt(buying)}</td>
@@ -303,6 +251,7 @@ export default function Products() {
             </div>
           )}
         </div>
+      </div>
       </div>
     </AppShell>
   )

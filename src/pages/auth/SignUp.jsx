@@ -1,7 +1,8 @@
 // src/pages/auth/SignUp.jsx
 import { useEffect, useState } from "react"
-import { Link, useNavigate } from "react-router-dom"
+import { useNavigate } from "react-router-dom"
 import { supabase } from "../../lib/supabase"
+import { getDb } from "../../lib/db"
 import { SessionShell, UiButton } from "../../components/ui"
 
 export default function SignUp() {
@@ -92,14 +93,31 @@ export default function SignUp() {
       return
     }
 
-    // Step 4: Create user row
-    const { error: userError } = await supabase.from("users").insert({
-      id: data.user.id,
-      full_name: fullName.trim(),
-      email: email.trim(),
-      role: "owner",
+    // Step 4: Create user row via RxDB
+    const db = await getDb()
+    const { error: userError } = await db.transactions.insert({
+      id: `user-${data.user.id}`,
       business_id: businessData.id,
-      is_active: true,
+      branch_id: businessData.id,
+      type: 'user_creation',
+      transaction_type_tag: 'system',
+      payment_account: 'system',
+      account_code: 'system',
+      date: new Date().toISOString(),
+      created_by: data.user.id,
+      lifecycle_state: 'completed',
+      amount: 0,
+      display_name: 'User Account Creation',
+      user_data: {
+        id: data.user.id,
+        full_name: fullName.trim(),
+        email: email.trim(),
+        role: "owner",
+        business_id: businessData.id,
+        is_active: true,
+      },
+      _modified: Date.now(),
+      _deleted: false,
     })
 
     if (userError) {

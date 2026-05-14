@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate, useLocation, useNavigate } from "react-router-dom"
 import { Suspense, lazy, useEffect } from "react"
 import { UserProvider } from "../context/UserContext"
+import { BranchProvider } from "../context/BranchContext"
 import { useInstantAuth } from "../hooks/useInstantAuth"
 import { useInstantNavigation } from "../hooks/useInstantNavigation"
 import AuthGuard from "./AuthGuard"
@@ -176,7 +177,7 @@ function AppRouterContent() {
         path="/inventory/new-stock"
         element={
           <AuthGuard>
-            <RoleGuard roles={[ROLES.OWNER, ROLES.MANAGER, ROLES.CASHIER]}>
+            <RoleGuard roles={[ROLES.OWNER, ROLES.MANAGER]}>
               <Suspense fallback={<InstantLoadingFallback />}>
                 <NewStock />
               </Suspense>
@@ -198,7 +199,7 @@ function AppRouterContent() {
         path="/inventory/stock-take"
         element={
           <AuthGuard>
-            <RoleGuard roles={[ROLES.OWNER, ROLES.MANAGER, ROLES.CASHIER]}>
+            <RoleGuard roles={[ROLES.OWNER, ROLES.MANAGER]}>
               <Suspense fallback={<InstantLoadingFallback />}>
                 <StockTake />
               </Suspense>
@@ -232,7 +233,7 @@ function AppRouterContent() {
         path="/transactions/add-expense"
         element={
           <AuthGuard>
-            <RoleGuard roles={[ROLES.OWNER, ROLES.MANAGER, ROLES.CASHIER]}>
+            <RoleGuard roles={[ROLES.OWNER, ROLES.MANAGER]}>
               <Suspense fallback={<InstantLoadingFallback />}>
                 <AddExpense />
               </Suspense>
@@ -445,7 +446,9 @@ export default function AppRouter() {
   return (
     <BrowserRouter>
       <UserProvider>
-        <AppRouterContent />
+        <BranchProvider>
+          <AppRouterContent />
+        </BranchProvider>
       </UserProvider>
     </BrowserRouter>
   )

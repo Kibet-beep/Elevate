@@ -1,9 +1,13 @@
 // src/pages/inventory/StockTake.jsx
-import { useState, useEffect } from "react"
-import { supabase } from "../../lib/supabase"
+import { useState, useEffect, useRef } from "react"
 import { useNavigate } from "react-router-dom"
 import { useCurrentBusiness } from "../../hooks/useRole"
 import { useInstantAuth } from "../../hooks/useInstantAuth"
+import { useBranchContext } from "../../context/BranchContext"
+import { getDb, startTransactionsReplication } from "../../lib/db"
+import { BranchSelector } from "../../components/BranchSelector"
+import { getAllProducts } from "../../repositories/productsRepository"
+import { startStockTake, submitStockTakeCounts, approveStockTake as approveStockTakeService } from "../../services/stockTakeService"
 
 function classifyABC(products) {
   if (!products.length) return {}
@@ -155,34 +159,67 @@ export default function StockTake() {
   const [error, setError] = useState("")
   const [pastStockTakes, setPastStockTakes] = useState([])
   const [selectedVarianceId, setSelectedVarianceId] = useState(null)
-  const { user } = useInstantAuth()
+  const replicationRef = useRef(null)
+  const { user, business: instantBusiness, signOut } = useInstantAuth()
   const { businessId } = useCurrentBusiness()
+  const { canViewAll, effectiveBranchId, readyToFetch, availableBranches } = useBranchContext()
+  const resolvedBranchId = effectiveBranchId
 
-  useEffect(() => { if (businessId && user?.id) fetchInitialData(businessId, user.id) }, [businessId, user?.id])
+  useEffect(() => {
+    let mounted = true
+
+    const ensureReplication = async () => {
+      if (!businessId) return
+      const db = await getDb()
+      if (!mounted) return
+
+      if (!replicationRef.current) {
+        replicationRef.current = startTransactionsReplication(db.transactions, businessId)
+      }
+    }
+
+    ensureReplication()
+
+    return () => {
+      mounted = false
+      replicationRef.current?.cancel?.()
+      replicationRef.current = null
+    }
+  }, [businessId])
+
+  useEffect(() => {
+    if (readyToFetch && businessId && user?.id) {
+      fetchInitialData(businessId, user.id)
+    }
+  }, [businessId, user?.id, readyToFetch, resolvedBranchId])
 
   const fetchInitialData = async (resolvedBusinessId, resolvedUserId) => {
     if (!resolvedBusinessId || !resolvedUserId) return
-    setUserId(resolvedUserId)
+    if (canViewAll && !resolvedBranchId) {
+      setError("Select a branch before running a stock take")
+      setAllProducts([])
+      setProducts([])
+      return
+    }
+    if (!resolvedBranchId) {
+      setError("Your branch is not assigned yet. Contact the owner.")
+      setAllProducts([])
+      setProducts([])
+      return
+    }
 
-    const [productsResult, pastResult] = await Promise.all([
-      supabase
-        .from("products")
-        .select("id, name, sku_id, current_quantity, unit_of_measure, category, buying_price")
-        .eq("business_id", resolvedBusinessId)
-        .eq("is_active", true)
-        .order("name"),
-      supabase
-        .from("stock_takes")
-        .select("*")
-        .eq("business_id", resolvedBusinessId)
-        .order("created_at", { ascending: false })
-        .limit(5),
+    setUserId(resolvedUserId)
+    setError("")
+
+    const [productsData, pastResult] = await Promise.all([
+      getAllProducts({ businessId: resolvedBusinessId, branchId: resolvedBranchId }),
+      Promise.resolve([]), // TODO: fetch past stock takes from repository when available
     ])
 
-    const prods = productsResult?.data || []
+    const prods = productsData.filter((p) => p.is_active) || []
     setAllProducts(prods)
     setAbcMap(classifyABC(prods))
-    setPastStockTakes(pastResult?.data || [])
+    setPastStockTakes(pastResult || [])
   }
 
   const getProductsForType = (t, spotId = null) => {
@@ -214,45 +251,77 @@ export default function StockTake() {
   }
 
   const startCount = async () => {
+    if (!resolvedBranchId) {
+      setError("Branch is required to start stock take")
+      return
+    }
+
     setLoading(true)
     setError("")
-    const { data, error } = await supabase
-      .from("stock_takes")
-      .insert({ business_id: businessId, type, start_date: new Date().toISOString(), status: "counting", counted_by: userId })
-      .select()
-      .single()
-    if (error) { setError(error.message); setLoading(false); return }
-    setStockTakeId(data.id)
-    setStep("counting")
-    setLoading(false)
+
+    try {
+      const newStockTakeId = await startStockTake({
+        businessId,
+        branchId: resolvedBranchId,
+        userId,
+        type,
+      })
+
+      setStockTakeId(newStockTakeId)
+      setStep("counting")
+    } catch (err) {
+      setError(err.message || "Failed to start stock take")
+    } finally {
+      setLoading(false)
+    }
   }
 
   const submitCounts = async () => {
     setLoading(true)
     setError("")
-    const items = products.map((p) => ({
-      stock_take_id: stockTakeId,
-      product_id: p.id,
-      expected_quantity: p.current_quantity,
-      actual_quantity: parseFloat(counts[p.id] ?? p.current_quantity),
-    }))
-    const { error: itemsError } = await supabase.from("stock_take_items").insert(items)
-    if (itemsError) { setError(itemsError.message); setLoading(false); return }
-    await supabase.from("stock_takes").update({ status: "variance_review" }).eq("id", stockTakeId)
-    setStep("review")
-    setLoading(false)
+
+    try {
+      const items = products.map((p) => ({
+        stock_take_id: stockTakeId,
+        product_id: p.id,
+        expected_quantity: p.current_quantity,
+        actual_quantity: parseFloat(counts[p.id] ?? p.current_quantity),
+      }))
+
+      await submitStockTakeCounts({
+        businessId,
+        branchId: resolvedBranchId,
+        userId,
+        stockTakeId,
+        items,
+      })
+
+      setStep("review")
+    } catch (err) {
+      setError(err.message || "Failed to submit counts")
+    } finally {
+      setLoading(false)
+    }
   }
 
   const approveStockTake = async () => {
     setLoading(true)
     setError("")
-    const { error } = await supabase
-      .from("stock_takes")
-      .update({ status: "approved", approved_by: userId, end_date: new Date().toISOString() })
-      .eq("id", stockTakeId)
-    if (error) { setError(error.message); setLoading(false); return }
-    setStep("done")
-    setLoading(false)
+
+    try {
+      await approveStockTakeService({
+        businessId,
+        branchId: resolvedBranchId,
+        userId,
+        stockTakeId,
+      })
+
+      setStep("done")
+    } catch (err) {
+      setError(err.message || "Failed to approve stock take")
+    } finally {
+      setLoading(false)
+    }
   }
 
   // ── STEP 1: SETUP ──
@@ -263,15 +332,37 @@ export default function StockTake() {
       { value: "spot_check", label: "Spot check", desc: "One specific product", count: 1 },
     ]
 
+    const handleSignOut = async () => {
+      await signOut()
+    }
+
     return (
       <div className="min-h-screen bg-zinc-950 pb-16">
-        {/* Header */}
-        <div className="px-5 pt-8 pb-6">
-          <button onClick={() => navigate("/inventory")} className="flex items-center gap-2 text-zinc-500 hover:text-white transition-colors text-sm mb-6">
+        {/* Back button */}
+        <div className="px-5 pt-4 pb-2">
+          <button onClick={() => navigate("/inventory")} className="flex items-center gap-2 text-zinc-500 hover:text-white transition-colors text-sm">
             ← Back
           </button>
-          <h1 className="text-white font-bold text-2xl tracking-tight">Stock Take</h1>
-          <p className="text-zinc-500 text-sm mt-1">Choose the type of count to run</p>
+        </div>
+        {/* Hero header */}
+        <div className="px-5 pb-4">
+          <div className="rounded-2xl border border-zinc-800 bg-zinc-900/80 p-4 sm:p-5 shadow-lg shadow-black/10">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="text-[10px] uppercase tracking-[0.24em] text-zinc-500">Inventory</p>
+                <h1 className="text-white text-xl sm:text-2xl font-semibold tracking-tight">Stock Take</h1>
+                <p className="mt-1 text-zinc-400 text-xs sm:text-sm">
+                  {instantBusiness?.name}{effectiveBranchId ? ` • ${availableBranches.find(b => b.id === effectiveBranchId)?.name}` : ''} · Choose the type of count to run
+                </p>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                {canViewAll ? <BranchSelector value={effectiveBranchId || "all"} /> : null}
+                <button onClick={handleSignOut} className="text-zinc-400 hover:text-red-400 transition-colors text-sm">
+                  Sign out
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
 
         <div className="px-5 max-w-2xl mx-auto space-y-4">
@@ -393,12 +484,20 @@ export default function StockTake() {
 
     return (
       <div className="min-h-screen bg-zinc-950 pb-16">
-        <div className="px-5 pt-8 pb-6">
-          <button onClick={() => setStep("setup")} className="flex items-center gap-2 text-zinc-500 hover:text-white transition-colors text-sm mb-6">
+        {/* Back button */}
+        <div className="px-5 pt-4 pb-2">
+          <button onClick={() => setStep("setup")} className="flex items-center gap-2 text-zinc-500 hover:text-white transition-colors text-sm">
             ← Back
           </button>
-          <h1 className="text-white font-bold text-2xl tracking-tight">{typeLabel}</h1>
-          <p className="text-zinc-500 text-sm mt-1">{products.length} product{products.length !== 1 ? "s" : ""} to count</p>
+        </div>
+        <div className="px-5 pb-4">
+          <div className="rounded-2xl border border-zinc-800 bg-zinc-900/80 p-4 sm:p-5 shadow-lg shadow-black/10">
+            <div>
+              <p className="text-[10px] uppercase tracking-[0.24em] text-zinc-500">Stock take</p>
+              <h1 className="text-white text-xl sm:text-2xl font-semibold tracking-tight">{typeLabel}</h1>
+              <p className="mt-1 text-zinc-400 text-xs sm:text-sm">{products.length} product{products.length !== 1 ? "s" : ""} to count</p>
+            </div>
+          </div>
         </div>
 
         <div className="px-5 max-w-2xl mx-auto space-y-4">
@@ -474,21 +573,32 @@ export default function StockTake() {
 
     return (
       <div className="min-h-screen bg-zinc-950 pb-28">
-        {/* Header */}
-        <div className="px-5 pt-8 pb-5 border-b border-zinc-800">
-          <div className="flex items-center justify-between mb-1">
-            <h1 className="text-white font-bold text-2xl tracking-tight">Counting</h1>
-            <span className="text-[10px] font-mono px-2.5 py-1 rounded-full bg-amber-400/10 text-amber-400">
-              In progress
-            </span>
-          </div>
-          <p className="text-zinc-500 text-sm">{type.replace("_", " ")} · {products.length} products</p>
+        {/* Back button */}
+        <div className="px-5 pt-4 pb-2">
+          <button onClick={() => setStep("brief")} className="flex items-center gap-2 text-zinc-500 hover:text-white transition-colors text-sm">
+            ← Back
+          </button>
+        </div>
+        {/* Hero header */}
+        <div className="px-5 pb-4">
+          <div className="rounded-2xl border border-zinc-800 bg-zinc-900/80 p-4 sm:p-5 shadow-lg shadow-black/10">
+            <div className="flex items-start justify-between gap-3 mb-3">
+              <div>
+                <p className="text-[10px] uppercase tracking-[0.24em] text-zinc-500">Stock take</p>
+                <h1 className="text-white text-xl sm:text-2xl font-semibold tracking-tight">Counting</h1>
+                <p className="mt-1 text-zinc-400 text-xs sm:text-sm">{type.replace("_", " ")} · {products.length} products</p>
+              </div>
+              <span className="text-[10px] font-mono px-2.5 py-1 rounded-full bg-amber-400/10 text-amber-400 whitespace-nowrap shrink-0">
+                In progress
+              </span>
+            </div>
 
-          {/* Progress strip */}
-          <div className="mt-4 grid grid-cols-3 gap-2">
-            <StatPill label="Total" value={products.length} />
-            <StatPill label="Variances" value={countedWithVariance} amber={countedWithVariance > 0} accent={countedWithVariance === 0} />
-            <StatPill label="KES impact" value={fmt(Math.abs(totalKesVariance()))} red={totalKesVariance() < 0} accent={totalKesVariance() >= 0 && countedWithVariance > 0} />
+            {/* Progress strip */}
+            <div className="grid grid-cols-3 gap-2">
+              <StatPill label="Total" value={products.length} />
+              <StatPill label="Variances" value={countedWithVariance} amber={countedWithVariance > 0} accent={countedWithVariance === 0} />
+              <StatPill label="KES impact" value={fmt(Math.abs(totalKesVariance()))} red={totalKesVariance() < 0} accent={totalKesVariance() >= 0 && countedWithVariance > 0} />
+            </div>
           </div>
         </div>
 
@@ -599,11 +709,22 @@ export default function StockTake() {
 
     return (
       <div className="min-h-screen bg-zinc-950 pb-28">
-        <div className="px-5 pt-8 pb-6">
-          <h1 className="text-white font-bold text-2xl tracking-tight">Variance Review</h1>
-          <p className="text-zinc-500 text-sm mt-1">
-            {variances.length} item{variances.length !== 1 ? "s" : ""} with variance · review before approving
-          </p>
+        {/* Back button */}
+        <div className="px-5 pt-4 pb-2">
+          <button onClick={() => setStep("counting")} className="flex items-center gap-2 text-zinc-500 hover:text-white transition-colors text-sm">
+            ← Back
+          </button>
+        </div>
+        <div className="px-5 pb-4">
+          <div className="rounded-2xl border border-zinc-800 bg-zinc-900/80 p-4 sm:p-5 shadow-lg shadow-black/10">
+            <div>
+              <p className="text-[10px] uppercase tracking-[0.24em] text-zinc-500">Stock take</p>
+              <h1 className="text-white text-xl sm:text-2xl font-semibold tracking-tight">Variance Review</h1>
+              <p className="mt-1 text-zinc-400 text-xs sm:text-sm">
+                {variances.length} item{variances.length !== 1 ? "s" : ""} with variance · review before approving
+              </p>
+            </div>
+          </div>
         </div>
 
         <div className="px-5 max-w-2xl mx-auto space-y-4">

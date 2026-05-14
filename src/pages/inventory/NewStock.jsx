@@ -1,31 +1,27 @@
 // src/pages/inventory/NewStock.jsx
 import { useState, useEffect, useMemo } from "react"
-import { supabase } from "../../lib/supabase"
 import { useNavigate } from "react-router-dom"
 import { useUser, useIsOwnerOrManager, useCurrentBusiness } from "../../hooks/useRole"
-import { useBranchContext } from "../../hooks/useBranchContext"
-import { useCache } from "../../hooks/useCache"
-import { usePersistentStorage } from "../../hooks/usePersistentStorage"
+import { useInstantAuth } from "../../hooks/useInstantAuth"
+import { useBranchContext } from "../../context/BranchContext"
 import { AppShell, UiButton, UiCard, UiSectionTitle, CategorySelect } from "../../components/ui"
-import { createCacheManager } from "../../lib/cacheManager"
+import { BranchSelector } from "../../components/BranchSelector"
+import { getSupplierOptions } from "../../services/supplierService"
+import { getAllProducts } from "../../repositories/productsRepository"
+import { recordStockReceipt } from "../../services/stockEntriesService"
 
 export default function NewStock() {
   const navigate = useNavigate()
+  const { business: instantBusiness, signOut } = useInstantAuth()
   const { user: authUser } = useUser()
   const isOwnerOrManager = useIsOwnerOrManager()
   const { businessId } = useCurrentBusiness()
-  const { canViewAll, availableBranches, activeBranch, setActiveBranch, showAllBranches, loading: branchLoading } = useBranchContext()
-  const { get, set, invalidate } = useCache()
-  const { get: getPersistent, set: setPersistent } = usePersistentStorage()
-  
-  // Create unified cache manager
-  const cacheManager = useMemo(() => createCacheManager({ get, set, invalidate }, { get: getPersistent, set: setPersistent }), [get, set, invalidate, getPersistent, setPersistent])
+  const { canViewAll, effectiveBranchId, readyToFetch, availableBranches } = useBranchContext()
   const [userId, setUserId] = useState(null)
   const [suppliers, setSuppliers] = useState([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState("")
   const [success, setSuccess] = useState(false)
-  const [localBranchId, setLocalBranchId] = useState(null)
 
   // Product
   const [isNewProduct, setIsNewProduct] = useState(true)
@@ -47,45 +43,43 @@ export default function NewStock() {
   // Pricing
   const [sellingPrice, setSellingPrice] = useState("")
   const [composerStep, setComposerStep] = useState(1)
-  const defaultUnit = "pcs"
 
   const categoryOptions = useMemo(() => {
     return Array.from(new Set(existingProducts.map((product) => product.category).filter(Boolean))).sort((a, b) => String(a).localeCompare(String(b)))
   }, [existingProducts])
 
   useEffect(() => {
-    if (businessId && authUser) {
+    if (businessId && authUser && readyToFetch) {
       fetchInitialData()
     }
-  }, [businessId, authUser])
+  }, [businessId, authUser, readyToFetch, effectiveBranchId, canViewAll])
 
   const fetchInitialData = async () => {
+    if (canViewAll && !effectiveBranchId) {
+      setExistingProducts([])
+      setError("Select a branch before receiving stock")
+      return
+    }
+    if (!effectiveBranchId) {
+      setExistingProducts([])
+      setError("Your branch is not assigned yet. Contact the owner.")
+      return
+    }
+
+    setError("")
     setUserId(authUser.id)
 
-    const { data: suppliersData } = await supabase
-      .from("suppliers")
-      .select("id, name")
-      .eq("business_id", businessId)
-      .eq("is_active", true)
+    const suppliersData = await getSupplierOptions(businessId)
+    setSuppliers(suppliersData)
 
-    setSuppliers(suppliersData || [])
-
-    const { data: productsData } = await supabase
-      .from("products")
-      .select("id, name, sku_id, selling_price, unit_of_measure, branch_id, branches!left(name, code)")
-      .eq("business_id", businessId)
-      .eq("is_active", true)
-      .order("name")
-
-    setExistingProducts(productsData || [])
+    const productsData = await getAllProducts({ businessId, branchId: effectiveBranchId })
+    const activeProducts = productsData.filter((p) => p.is_active)
+    setExistingProducts(activeProducts)
   }
 
-  const generateSKU = (productName) => {
-    const words = productName.trim().toUpperCase().split(" ")
-    const base = words.map(w => w.slice(0, 3)).join("-")
-    const suffix = Math.floor(Math.random() * 900 + 100)
-    return `${base}-${suffix}`
-  }
+  const categoryOptions = useMemo(() => {
+    return Array.from(new Set(existingProducts.map((product) => product.category).filter(Boolean))).sort((a, b) => String(a).localeCompare(String(b)))
+  }, [existingProducts])
 
   // ── CALCULATIONS ──
   const qty = parseFloat(quantity) || 0
@@ -138,89 +132,36 @@ export default function NewStock() {
     if (!isNewProduct && !selectedProduct) { setError("Please select an existing product"); return }
     if (!sellingPrice) { setError("Selling price is required"); return }
 
+    if (canViewAll && !effectiveBranchId) { setError("Select a branch before receiving stock"); return }
+    if (!effectiveBranchId) { setError("Your branch is not assigned yet. Contact the owner."); return }
+
     setLoading(true)
-    let productId = selectedProduct?.id
 
-    if (isNewProduct) {
-      const sku = generateSKU(name)
-      const branchId = localBranchId || activeBranch?.id || null
-      const { data: newProduct, error: productError } = await supabase
-        .from("products")
-        .insert({
-          business_id: businessId,
-          branch_id: branchId,
-          sku_id: sku,
-          name,
-          category: category || null,
-          unit_of_measure: defaultUnit,
-          buying_price: landedCostPerUnit,
-          selling_price: parseFloat(sellingPrice),
-          vat_type: vatType,
-          current_quantity: 0,
-        })
-        .select()
-        .single()
-
-      if (productError) { setError(productError.message); setLoading(false); return }
-      productId = newProduct.id
-      setExistingProducts((current) => [...current, newProduct])
-    } else {
-      await supabase
-        .from("products")
-        .update({ buying_price: landedCostPerUnit, selling_price: parseFloat(sellingPrice), vat_type: vatType })
-        .eq("id", productId)
-    }
-
-    const { error: entryError } = await supabase
-      .from("stock_entries")
-      .insert({
-        business_id: businessId,
-        product_id: productId,
-        supplier_id: supplierId || null,
+    try {
+      await recordStockReceipt({
+        businessId,
+        branchId: effectiveBranchId,
+        userId,
+        isNewProduct,
+        productId: !isNewProduct ? selectedProduct?.id : undefined,
+        productName: isNewProduct ? name : undefined,
+        category,
+        supplierId: supplierId || undefined,
         quantity: qty,
-        buying_price: unitCost,
-        freight_cost: shippingClearing,
-        import_duty: importDuty,
-        idf,
-        rdl,
-        vat_on_import: vatOnImport,
-        insurance: 0,
-        additional_costs: additionalCosts,
-        total_cost: totalLandedCost,
-        created_by: userId,
+        totalPurchaseCost: totalPurchase,
+        shippingClearingCost: shippingClearing,
+        vatType,
+        sourcingType,
+        additionalCosts,
+        sellingPrice: sp,
       })
 
-    if (entryError) { setError(entryError.message); setLoading(false); return }
-
-    // Update product current_quantity
-    const { data: currentProduct } = await supabase
-      .from("products")
-      .select("current_quantity")
-      .eq("id", productId)
-      .single()
-
-    const newQuantity = (currentProduct?.current_quantity || 0) + qty
-    
-    const { error: updateError } = await supabase
-      .from("products")
-      .update({ current_quantity: newQuantity })
-      .eq("id", productId)
-
-    if (updateError) { 
-      console.error("Failed to update product quantity:", updateError)
-      setError("Stock entry saved but failed to update quantity. Please refresh.")
-      setLoading(false); 
-      return 
+      setSuccess(true)
+    } catch (submitError) {
+      setError(submitError.message || "Failed to receive stock")
+    } finally {
+      setLoading(false)
     }
-
-    // Use unified cache invalidation
-    cacheManager.invalidateAfterStockEntry(businessId, localBranchId)
-
-    // Save to persistent storage for offline access
-    cacheManager.setProducts(businessId, existingProducts, localBranchId)
-
-    setSuccess(true)
-    setLoading(false)
   }
 
   const resetForm = () => {
@@ -258,46 +199,76 @@ export default function NewStock() {
     )
   }
 
+  const handleSignOut = async () => {
+    await signOut()
+  }
+
   return (
-    <AppShell
-      title="Receive Stock"
-      subtitle={`Step ${composerStep} of 4 · Product → Sourcing → Pricing → Review`}
-      contentClassName="max-w-6xl"
-      right={<UiButton variant="tertiary" size="sm" onClick={() => navigate("/inventory")}>← Back</UiButton>}
-    >
-      <div className="grid gap-4 lg:grid-cols-[1.3fr_0.7fr]">
+    <AppShell showHeader={false} contentClassName="max-w-6xl space-y-4 pb-24">
+      {/* Back button */}
+      <div className="px-4 sm:px-5 pt-4 pb-2">
+        <button onClick={() => navigate("/inventory")} className="flex items-center gap-2 text-zinc-500 hover:text-white transition-colors text-sm">
+          ← Back
+        </button>
+      </div>
+      {/* Hero header */}
+      <div className="px-4 sm:px-5 pb-4">
+        <div className="rounded-2xl border border-zinc-800 bg-zinc-900/80 p-4 sm:p-5 shadow-lg shadow-black/10">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="text-[10px] uppercase tracking-[0.24em] text-zinc-500">Inventory</p>
+              <h1 className="text-white text-xl sm:text-2xl font-semibold tracking-tight">Receive Stock</h1>
+              <p className="mt-1 text-zinc-400 text-xs sm:text-sm">
+                {instantBusiness?.name}{effectiveBranchId ? ` • ${availableBranches.find(b => b.id === effectiveBranchId)?.name}` : ''} · Step {composerStep} of 4
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              {canViewAll ? <BranchSelector value={effectiveBranchId || "all"} /> : null}
+              <button onClick={handleSignOut} className="text-zinc-400 hover:text-red-400 transition-colors text-sm">
+                Sign out
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Step indicator buttons */}
+      <div className="px-4 sm:px-5">
+        <div className="grid grid-cols-4 gap-2 mb-4">
+          {[
+            { n: 1, label: "Identity" },
+            { n: 2, label: "Sourcing" },
+            { n: 3, label: "Pricing" },
+            { n: 4, label: "Review" },
+          ].map((s) => (
+            <button
+              key={s.n}
+              onClick={() => {
+                if (s.n === 1) setComposerStep(1)
+                if (s.n === 2 && canProceedStep1) setComposerStep(2)
+                if (s.n === 3 && canProceedStep1 && canProceedStep2) setComposerStep(3)
+                if (s.n === 4 && canSubmit) setComposerStep(4)
+              }}
+              className={`rounded-xl px-3 py-2 text-xs font-medium transition-colors ${
+                composerStep === s.n
+                  ? "bg-emerald-500 text-black"
+                  : "bg-zinc-900 border border-zinc-800 text-zinc-500"
+              }`}
+            >
+              {s.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="px-4 sm:px-5">
+        <div className="grid gap-4 lg:grid-cols-[1.3fr_0.7fr]">
         <div className="space-y-4">
           {error && (
             <div className="bg-red-400/10 border border-red-400/20 rounded-xl px-4 py-3">
               <p className="text-red-400 text-sm">{error}</p>
             </div>
           )}
-
-          <div className="grid grid-cols-4 gap-2">
-            {[
-              { n: 1, label: "Identity" },
-              { n: 2, label: "Sourcing" },
-              { n: 3, label: "Pricing" },
-              { n: 4, label: "Review" },
-            ].map((s) => (
-              <button
-                key={s.n}
-                onClick={() => {
-                  if (s.n === 1) setComposerStep(1)
-                  if (s.n === 2 && canProceedStep1) setComposerStep(2)
-                  if (s.n === 3 && canProceedStep1 && canProceedStep2) setComposerStep(3)
-                  if (s.n === 4 && canSubmit) setComposerStep(4)
-                }}
-                className={`rounded-xl px-3 py-2 text-xs font-medium transition-colors ${
-                  composerStep === s.n
-                    ? "bg-emerald-500 text-black"
-                    : "bg-zinc-900 border border-zinc-800 text-zinc-500"
-                }`}
-              >
-                {s.label}
-              </button>
-            ))}
-          </div>
 
           {composerStep === 1 && (
             <Section label="01 — Product Identity">
@@ -307,30 +278,8 @@ export default function NewStock() {
                 <ToggleBtn active={!isNewProduct} onClick={() => setIsNewProduct(false)}>Existing product</ToggleBtn>
               </div>
 
-              {/* Branch Selection */}
-              {canViewAll && (
-                <div className="mb-5">
-                  <label className="text-zinc-400 text-xs mb-2 block">Branch</label>
-                  <select
-                    value={localBranchId || activeBranch?.id || ""}
-                    onChange={(e) => {
-                      if (e.target.value === "all") {
-                        setLocalBranchId(null)
-                      } else {
-                        setLocalBranchId(e.target.value)
-                      }
-                    }}
-                    className="w-full bg-zinc-900 border border-zinc-800 text-white rounded-xl px-4 py-3 text-sm outline-none focus:border-emerald-500 transition-colors"
-                  >
-                    <option value="">Select branch</option>
-                    {availableBranches.map(branch => (
-                      <option key={branch.id} value={branch.id}>
-                        {branch.name} {branch.code ? `(${branch.code})` : ""}
-                      </option>
-                    ))}
-                  </select>
-                  <p className="text-zinc-600 text-xs mt-1.5">This branch will be associated with the SKU</p>
-                </div>
+              {canViewAll && !effectiveBranchId && (
+                <p className="text-amber-400 text-xs mb-3">Select a branch from the header before continuing.</p>
               )}
 
               {isNewProduct ? (
@@ -577,6 +526,7 @@ export default function NewStock() {
             ))}
           </UiCard>
         </div>
+      </div>
       </div>
     </AppShell>
   )

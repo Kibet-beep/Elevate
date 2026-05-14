@@ -1,19 +1,26 @@
-import { useState, useEffect } from "react"
-import { supabase } from "../../lib/supabase"
+import { useState, useEffect, useRef } from "react"
 import { useLocation, useNavigate } from "react-router-dom"
 import { useUser, useCurrentBusiness, useIsOwner, useIsManager } from "../../hooks/useRole"
-import { useBranchContext } from "../../hooks/useBranchContext"
+import { useInstantAuth } from "../../hooks/useInstantAuth"
+import { useBranchContext } from "../../context/BranchContext"
 import { AppShell, UiButton, UiCard } from "../../components/ui"
+import { BranchSelector } from "../../components/BranchSelector"
+import {
+  addBranchEmployee,
+  loadBranchEmployees,
+  toggleBranchEmployeeActive,
+} from "../../services/branchEmployeesService"
 
 export default function BranchEmployees() {
   const navigate = useNavigate()
   const location = useLocation()
   const { user: authUser } = useUser()
   const { businessId } = useCurrentBusiness()
-  const { activeBranch, viewMode, canViewAll, availableBranches, loading: branchLoading, setActiveBranch, setViewMode } = useBranchContext()
+  const { business: instantBusiness, signOut } = useInstantAuth()
+  const { activeBranch, viewMode, canViewAll, availableBranches, readyToFetch, setActiveBranch, setViewMode, effectiveBranchId } = useBranchContext()
   const isOwner = useIsOwner()
   const isManager = useIsManager()
-  
+
   const [employees, setEmployees] = useState([])
   const [adding, setAdding] = useState(false)
   const [fullName, setFullName] = useState("")
@@ -21,70 +28,77 @@ export default function BranchEmployees() {
   const [password, setPassword] = useState("")
   const [role, setRole] = useState("cashier")
   const [targetBranchId, setTargetBranchId] = useState("")
-  const [loading, setLoading] = useState(false)
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
   const [error, setError] = useState("")
   const [success, setSuccess] = useState(false)
   const [successMessage, setSuccessMessage] = useState("")
-
   const branchIdFromNavigation = location.state?.branchId || null
   const branchNameFromNavigation = location.state?.branchName || null
   const currentBranchName = branchNameFromNavigation || activeBranch?.name || "All branches"
+  const resolvedTargetBranchId = viewMode === 'branch'
+    ? activeBranch?.id
+    : (targetBranchId || (canViewAll && availableBranches.length === 1 ? availableBranches[0].id : ""))
 
-  // Only allow access if user has branch access
   useEffect(() => {
-    if (branchLoading) return
+    if (!readyToFetch) return
 
     if (branchIdFromNavigation) {
       const branch = availableBranches.find((item) => item.id === branchIdFromNavigation)
       if (branch) {
         setActiveBranch(branch)
         setViewMode("branch")
-        setTargetBranchId(branch.id)
       }
-    }
-
-    if (!branchIdFromNavigation && canViewAll && !targetBranchId && availableBranches.length === 1) {
-      setTargetBranchId(availableBranches[0].id)
     }
 
     if (availableBranches.length === 0) {
       navigate("/settings")
     }
-  }, [availableBranches, branchIdFromNavigation, branchLoading, canViewAll, navigate, setActiveBranch, setTargetBranchId, setViewMode, targetBranchId])
+  }, [availableBranches, branchIdFromNavigation, readyToFetch, navigate, setActiveBranch, setViewMode])
 
-  useEffect(() => { 
-    if (businessId && (activeBranch || canViewAll)) {
-      fetchEmployees() 
-    } 
-  }, [businessId, activeBranch, viewMode])
+  useEffect(() => {
+    if (!businessId || !readyToFetch) return
 
-  const fetchEmployees = async () => {
-    let query = supabase
-      .from("users")
-      .select("*")
-      .eq("business_id", businessId)
-      .order("created_at")
+    let active = true
 
-    // If in branch mode, filter by branch assignments
-    if (viewMode === 'branch' && activeBranch) {
-      const { data: assignments } = await supabase
-        .from("user_branch_assignments")
-        .select("user_id")
-        .eq("branch_id", activeBranch.id)
-        .eq("is_active", true)
+    const loadEmployees = async () => {
+      setLoading(true)
 
-      const userIds = assignments?.map(a => a.user_id) || []
-      if (userIds.length > 0) {
-        query = query.in("id", userIds)
-      } else {
-        setEmployees([])
-        return
+      try {
+        const branchIds = viewMode === 'branch'
+          ? [activeBranch?.id || effectiveBranchId].filter(Boolean)
+          : canViewAll
+            ? availableBranches.map((branch) => branch.id)
+            : [effectiveBranchId].filter(Boolean)
+
+        if (branchIds.length === 0) {
+          if (active) setEmployees([])
+          return
+        }
+
+        if (active) {
+          setEmployees(await loadBranchEmployees({ businessId, branchIds }))
+        }
+      } catch (fetchError) {
+        console.error('Failed to fetch employees:', fetchError)
+        if (active) {
+          setError(fetchError.message || 'Failed to load employees')
+          setEmployees([])
+        }
+      } finally {
+        if (active) setLoading(false)
       }
     }
 
-    const { data } = await query
-    setEmployees(data || [])
-  }
+    const timer = window.setTimeout(() => {
+      void loadEmployees()
+    }, 0)
+
+    return () => {
+      active = false
+      window.clearTimeout(timer)
+    }
+  }, [activeBranch?.id, availableBranches, businessId, canViewAll, effectiveBranchId, readyToFetch, viewMode])
 
   const handleAddEmployee = async () => {
     setError("")
@@ -94,7 +108,6 @@ export default function BranchEmployees() {
       return
     }
 
-    // Email validation
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
     if (!emailRegex.test(email)) {
       setError("Invalid email format")
@@ -111,86 +124,81 @@ export default function BranchEmployees() {
       return
     }
 
-    const branchId = viewMode === 'branch' ? activeBranch?.id : (targetBranchId || null)
-
-    if (!branchId) {
-      setError("Please select a branch first.")
+    if (!resolvedTargetBranchId) {
+      setError("Select a branch before adding the employee")
       return
     }
 
-    setLoading(true)
+    const validBranchIds = new Set((availableBranches || []).map((branch) => branch.id))
+    const localCandidateBranchId = validBranchIds.has(resolvedTargetBranchId)
+      ? resolvedTargetBranchId
+      : (validBranchIds.has(effectiveBranchId) ? effectiveBranchId : null)
 
-    const { data: { session } } = await supabase.auth.getSession()
-
-    if (!session?.access_token) {
-      setError("Your session has expired. Please sign in again.")
-      setLoading(false)
+    if (!localCandidateBranchId) {
+      setError("Selected branch is not in your current business scope. Refresh branches and try again.")
       return
     }
 
-    const requestBody = {
-      email,
-      password,
-      fullName,
-      role,
-      businessId,
-      branchId,
-    }
-    console.log("Sending create-employee request with:", requestBody)
+    setSaving(true)
 
-    const response = await fetch(
-      `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/create-employee`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${session.access_token}`,
-        },
-        body: JSON.stringify(requestBody),
-      }
-    )
-
-    let result
     try {
-      result = await response.json()
-    } catch (e) {
-      setError(`Server error: ${response.status} ${response.statusText}`)
-      setLoading(false)
-      return
-    }
-
-    if (!response.ok) {
-      const errorMessage = result.error || `Request failed with status ${response.status}`
-      setError(errorMessage)
-      console.error("Employee creation failed:", { 
-        status: response.status, 
-        error: result,
-        sent: requestBody
+      const data = await addBranchEmployee({
+        businessId,
+        branchId: localCandidateBranchId,
+        fullName,
+        email,
+        password,
+        role,
       })
-      setLoading(false)
-      return
-    }
 
-    if (result.error) {
-      setError(result.error)
-    } else {
-      setSuccessMessage(`${fullName} has been added to the team`)
+      setSuccessMessage(data?.message || `${fullName} has been added to the team`)
       setSuccess(true)
+      if (data?.user) {
+        setEmployees((prev) => [{
+          id: data.user.id,
+          full_name: data.user.fullName,
+          email: data.user.email,
+          role: data.user.role,
+          business_id: businessId,
+          default_branch_id: data.user.branchId,
+          is_active: true,
+          branch_ids: [data.user.branchId],
+        }, ...prev])
+      }
       setFullName("")
       setEmail("")
       setPassword("")
       setRole("cashier")
       setAdding(false)
-      fetchEmployees()
-      setTimeout(() => setSuccess(false), 3000)
+      setTargetBranchId("")
+      window.setTimeout(() => setSuccess(false), 3000)
+    } catch (addError) {
+      console.error('Add employee error:', addError)
+      setError(addError.message || 'Failed to add employee')
+    } finally {
+      setSaving(false)
     }
-
-    setLoading(false)
   }
 
   const toggleActive = async (emp) => {
-    await supabase.from("users").update({ is_active: !emp.is_active }).eq("id", emp.id)
-    fetchEmployees()
+    try {
+      setSaving(true)
+      const nextActive = !emp.is_active
+
+      await toggleBranchEmployeeActive({
+        businessId,
+        employeeId: emp.id,
+        nextActive,
+      })
+
+      setEmployees((prev) => prev.map((item) =>
+        item.id === emp.id ? { ...item, is_active: nextActive } : item
+      ))
+    } catch (toggleError) {
+      setError(toggleError.message || 'Failed to update employee')
+    } finally {
+      setSaving(false)
+    }
   }
 
   const goBack = () => {
@@ -218,21 +226,51 @@ export default function BranchEmployees() {
 
   return (
     <AppShell
-      title="Employees"
-      subtitle={`Manage your team and access roles${getBranchContext()}`}
-      showHeader={true}
-      right={(
-        <div className="flex w-full flex-wrap items-stretch gap-1.5 sm:w-auto sm:items-center sm:gap-3 max-w-[calc(100vw-2rem)] sm:max-w-none">
-          <UiButton variant="secondary" size="sm" onClick={goBack} className="flex-1 text-xs px-2 sm:flex-none sm:px-3" aria-label="Back">←</UiButton>
-          <UiButton variant="primary" size="sm" onClick={() => setAdding(!adding)} className="flex-1 text-xs px-2 sm:flex-none sm:px-3">{adding ? "Cancel" : "+ Add"}</UiButton>
-        </div>
-      )}
+      showHeader={false}
     >
-      <div className="space-y-4">
+      <div className="space-y-4 px-4 sm:px-5">
+        <button
+          type="button"
+          onClick={goBack}
+          className="flex items-center gap-2 text-zinc-500 hover:text-zinc-300 text-xs"
+        >
+          <span aria-hidden="true">←</span>
+          <span>Back to settings</span>
+        </button>
+
+        <div className="rounded-2xl border border-zinc-800 bg-zinc-900/80 p-4 sm:p-5 shadow-lg shadow-black/10">
+          <div className="flex w-full flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+            <div>
+              <p className="text-[10px] font-medium uppercase tracking-[0.22em] text-zinc-500">Settings</p>
+              <h1 className="mt-2 text-xl sm:text-2xl font-semibold tracking-tight text-white">Branch Employees</h1>
+              <p className="mt-1 text-xs sm:text-sm text-zinc-400">
+                {instantBusiness?.name || "Your business"} • Manage your team and access roles{getBranchContext()}.
+              </p>
+            </div>
+
+            <div className="flex w-full flex-wrap items-stretch gap-2 sm:w-auto sm:items-center">
+              {canViewAll ? <BranchSelector /> : null}
+              <UiButton variant="primary" size="sm" onClick={() => setAdding(!adding)}>
+                {adding ? "Cancel" : "+ Add"}
+              </UiButton>
+              <UiButton
+                variant="ghost"
+                size="sm"
+                type="button"
+                onClick={() => {
+                  signOut?.()
+                }}
+              >
+                Sign out
+              </UiButton>
+            </div>
+          </div>
+        </div>
+
+        <div className="space-y-4">
         {error && <p className="text-red-400 text-sm bg-red-400/10 px-3 py-2 rounded-lg">{error}</p>}
         {success && <p className="text-emerald-400 text-sm bg-emerald-400/10 px-3 py-2 rounded-lg">{successMessage}</p>}
 
-        {/* Scope Badge */}
         <UiCard className="p-3 bg-zinc-800/50 border-zinc-700/50">
           <p className="text-zinc-500 text-xs uppercase tracking-wider">Current scope</p>
           <p className="text-white text-sm font-semibold mt-1">{currentBranchName}</p>
@@ -260,9 +298,13 @@ export default function BranchEmployees() {
             ].map((f, i) => (
               <div key={i}>
                 <label className="text-zinc-400 text-xs mb-1 block">{f.label} {f.label === "Email" && <span className="text-red-400">*</span>}</label>
-                <input type={f.type || "text"} value={f.value} onChange={e => f.setter(e.target.value)}
+                <input
+                  type={f.type || "text"}
+                  value={f.value}
+                  onChange={(event) => f.setter(event.target.value)}
                   placeholder={f.placeholder}
-                  className="w-full bg-zinc-800 border border-zinc-700 text-white rounded-xl px-4 py-3 text-sm outline-none focus:border-emerald-500 transition-colors placeholder:text-zinc-600" />
+                  className="w-full bg-zinc-800 border border-zinc-700 text-white rounded-xl px-4 py-3 text-sm outline-none focus:border-emerald-500 transition-colors placeholder:text-zinc-600"
+                />
                 {f.label === "Email" && email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) && 
                   <p className="text-red-400 text-xs mt-1">Invalid email format</p>
                 }
@@ -281,8 +323,11 @@ export default function BranchEmployees() {
             </div>
             <div>
               <label className="text-zinc-400 text-xs mb-1 block">Role</label>
-              <select value={role} onChange={e => setRole(e.target.value)}
-                className="w-full bg-zinc-800 border border-zinc-700 text-white rounded-xl px-4 py-3 text-sm outline-none focus:border-emerald-500 transition-colors">
+              <select
+                value={role}
+                onChange={e => setRole(e.target.value)}
+                className="w-full bg-zinc-800 border border-zinc-700 text-white rounded-xl px-4 py-3 text-sm outline-none focus:border-emerald-500 transition-colors"
+              >
                 <option value="cashier">Cashier</option>
                 <option value="manager">Manager</option>
               </select>
@@ -310,21 +355,29 @@ export default function BranchEmployees() {
                 </select>
               </div>
             )}
-            <UiButton 
-              variant="primary" 
-              className="w-full" 
-              onClick={handleAddEmployee} 
-              disabled={loading || !fullName || !email || !password || password.length < 6 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || !targetBranchId || (canViewAll && viewMode !== 'branch' && !targetBranchId)}
+            <UiButton
+              variant="primary"
+              className="w-full"
+              onClick={handleAddEmployee}
+              disabled={saving || !fullName || !email || !password || password.length < 6 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || !resolvedTargetBranchId}
             >
-              {loading ? "Adding..." : "Add employee"}
+              {saving ? "Adding..." : "Add employee"}
             </UiButton>
           </UiCard>
         )}
 
         <div className="space-y-2">
-          {employees.map((emp, i) => (
+          {loading ? (
+            <UiCard className="p-4">
+              <p className="text-zinc-500 text-sm">Loading employees...</p>
+            </UiCard>
+          ) : employees.length === 0 ? (
+            <UiCard className="p-4">
+              <p className="text-zinc-500 text-sm">No employees found for this scope.</p>
+            </UiCard>
+          ) : employees.map((emp) => (
             <div
-              key={i} 
+              key={emp.id}
               className="bg-zinc-900 border border-zinc-800 rounded-2xl px-4 py-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between hover:border-emerald-500/30 transition-colors cursor-pointer"
               onClick={() => navigate(`/settings/employees/${emp.id}`)}
             >
@@ -333,7 +386,8 @@ export default function BranchEmployees() {
                   <span className="text-white text-sm font-bold">{emp.full_name?.charAt(0)}</span>
                 </div>
                 <div className="min-w-0">
-                  <p className="text-white text-sm font-medium">{emp.full_name}
+                  <p className="text-white text-sm font-medium">
+                    {emp.full_name}
                     {emp.id === authUser.id && <span className="text-zinc-500 text-xs ml-1">(you)</span>}
                   </p>
                   <p className="text-zinc-500 text-xs capitalize break-words">{emp.role} · {emp.email}</p>
@@ -349,20 +403,22 @@ export default function BranchEmployees() {
                   {emp.role}
                 </span>
                 {emp.id !== authUser.id && (
-                  <button 
+                  <button
                     onClick={(e) => {
                       e.stopPropagation()
-                      toggleActive(emp)
+                      void toggleActive(emp)
                     }}
                     className={`text-xs px-3 py-1.5 rounded-xl transition-colors flex-shrink-0 ${
                       emp.is_active ? "bg-zinc-800 text-zinc-400 hover:text-red-400" : "bg-emerald-500/10 text-emerald-400"
-                    }`}>
+                    }`}
+                  >
                     {emp.is_active ? "Deactivate" : "Activate"}
                   </button>
                 )}
               </div>
             </div>
           ))}
+        </div>
         </div>
       </div>
     </AppShell>

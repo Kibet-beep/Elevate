@@ -1,15 +1,4 @@
 // supabase/functions/create-employee/index.ts
-//
-// SETUP INSTRUCTIONS:
-// 1. Install Supabase CLI:  winget install Supabase.CLI
-// 2. Login:                 supabase login
-// 3. Link your project:     supabase link --project-ref YOUR_PROJECT_REF
-// 4. Deploy this function:  supabase functions deploy create-employee
-// 5. In Supabase dashboard → Edge Functions → create-employee → add secret:
-//      SUPABASE_SERVICE_ROLE_KEY = your service role key (from Project Settings → API)
-//
-// Your project ref is in your Supabase URL:
-// https://YOUR_PROJECT_REF.supabase.co
 
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
@@ -17,7 +6,6 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2"
 const supabaseUrl = Deno.env.get("SUPABASE_URL")!
 const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY")!
 const supabaseServiceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
-const siteUrl = Deno.env.get("SITE_URL") ?? "http://localhost:5173"
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -30,6 +18,7 @@ serve(async (req: Request) => {
   }
 
   try {
+    // ── 1. Verify caller is authenticated ──
     const authHeader = req.headers.get("Authorization")
     if (!authHeader) {
       return new Response(JSON.stringify({ error: "Unauthorized" }), {
@@ -44,7 +33,9 @@ serve(async (req: Request) => {
       { global: { headers: { Authorization: authHeader } } }
     )
 
+    console.log("[1] Fetching caller user...")
     const { data: { user: caller }, error: callerError } = await callerClient.auth.getUser()
+    console.log("[1] Caller fetched:", caller?.id)
     if (callerError || !caller) {
       return new Response(JSON.stringify({ error: "Unauthorized" }), {
         status: 401,
@@ -52,36 +43,48 @@ serve(async (req: Request) => {
       })
     }
 
+    // ── 2. Verify caller is owner or manager ──
+    console.log("[2] Fetching caller data from users table...")
     const { data: callerData, error: callerDataError } = await callerClient
       .from("users")
       .select("role, business_id")
       .eq("id", caller.id)
       .single()
+    console.log("[2] Caller data fetched:", callerData?.role)
 
-    if (callerDataError || !callerData || !["owner", "manager"].includes(callerData.role)) {
+    if (callerDataError || !callerData) {
+      return new Response(JSON.stringify({ error: "Could not verify caller identity" }), {
+        status: 403,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      })
+    }
+
+    if (!["owner", "manager"].includes(callerData.role)) {
       return new Response(JSON.stringify({ error: "Only owners and managers can create employees" }), {
         status: 403,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       })
     }
 
+    // ── 3. Parse and validate request body ──
     const { email, password, fullName, role, businessId, branchId } = await req.json()
 
-    console.log("=== CREATE-EMPLOYEE REQUEST DEBUG ===")
-    console.log("Request body:", { email, password, fullName, role, businessId })
-    console.log("Caller data:", callerData)
-    console.log("Caller business_id:", callerData.business_id)
-    console.log("Business ID match:", callerData.business_id === businessId)
-    console.log("=====================================")
+    console.log("=== CREATE-EMPLOYEE REQUEST ===")
+    console.log({ email, fullName, role, businessId, branchId })
+    console.log("Caller:", { id: caller.id, role: callerData.role, business_id: callerData.business_id })
+    console.log("==============================")
 
+    // Required fields
     if (!email || !password || !fullName || !role || !businessId) {
-      console.log("Missing required fields:", { email: !!email, password: !!password, fullName: !!fullName, role: !!role, businessId: !!businessId })
-      return new Response(JSON.stringify({ error: "email, password, fullName, role, and businessId are required" }), {
+      return new Response(JSON.stringify({ 
+        error: "email, password, fullName, role, and businessId are all required" 
+      }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       })
     }
 
+    // Role must be valid
     if (!["cashier", "manager"].includes(role)) {
       return new Response(JSON.stringify({ error: "Role must be cashier or manager" }), {
         status: 400,
@@ -89,6 +92,17 @@ serve(async (req: Request) => {
       })
     }
 
+    // Branch is required for cashiers and managers — no ghost users
+    if (!branchId) {
+      return new Response(JSON.stringify({ 
+        error: "A branch assignment is required when creating a cashier or manager" 
+      }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      })
+    }
+
+    // Caller must belong to the same business
     if (callerData.business_id !== businessId) {
       return new Response(JSON.stringify({ error: "Invalid business ID" }), {
         status: 403,
@@ -96,32 +110,72 @@ serve(async (req: Request) => {
       })
     }
 
+    // ── 4. Admin client for privileged operations ──
+    console.log("[3] Creating admin client...")
     const adminClient = createClient(
       supabaseUrl,
       supabaseServiceRoleKey,
       { auth: { autoRefreshToken: false, persistSession: false } }
     )
+    console.log("[3] Admin client created")
 
+    // ── 5. Verify the branch exists and belongs to this business ──
+    console.log("[4] Verifying branch...", { branchId, businessId })
+    const { data: branchData, error: branchError } = await adminClient
+      .from("branches")
+      .select("id, name, is_active")
+      .eq("id", branchId)
+      .eq("business_id", businessId)
+      .single()
+    console.log("[4] Branch verified:", branchData?.name)
+
+    if (branchError || !branchData) {
+      return new Response(JSON.stringify({ 
+        error: "Branch not found or does not belong to this business" 
+      }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      })
+    }
+
+    if (!branchData.is_active) {
+      return new Response(JSON.stringify({ 
+        error: `Branch "${branchData.name}" is inactive. Activate it before assigning employees.` 
+      }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      })
+    }
+
+    // ── 6. Check for duplicate email within this business ──
+    console.log("[5] Checking for duplicate email...", email)
     const { data: existingUser, error: existingError } = await adminClient
       .from("users")
       .select("id")
       .eq("email", email)
-      .eq("business_id", callerData.business_id)
-      .maybeSingle() // Use maybeSingle() to handle 0 rows gracefully
+      .eq("business_id", businessId)
+      .maybeSingle()
+    console.log("[5] Email check complete")
 
     if (existingError && existingError.code !== "PGRST116") {
-      console.log("Database error checking existing user:", existingError)
-      // Fallback: if we can't check for existing users, proceed with creation
-      console.log("Database error checking existing user, proceeding with user creation anyway")
-    } else if (existingUser) {
-      return new Response(JSON.stringify({ error: "This email is already registered in your business" }), {
+      console.error("Error checking for existing user:", existingError)
+      return new Response(JSON.stringify({ error: "Failed to validate email uniqueness" }), {
+        status: 500,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      })
+    }
+
+    if (existingUser) {
+      return new Response(JSON.stringify({ 
+        error: "This email is already registered in your business" 
+      }), {
         status: 409,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       })
     }
 
-    console.log("No existing user found, proceeding with user creation")
-
+    // ── 7. Create the auth user ──
+    console.log("[6] Creating auth user...", email)
     const { data: authData, error: authError } = await adminClient.auth.admin.createUser({
       email,
       password,
@@ -129,67 +183,100 @@ serve(async (req: Request) => {
       user_metadata: {
         full_name: fullName,
         role,
-        business_id: callerData.business_id,
+        business_id: businessId,
       },
     })
+    console.log("[6] Auth user created:", authData.user?.id)
 
     if (authError || !authData.user) {
-      console.log("Auth error:", JSON.stringify(authError))
-      return new Response(JSON.stringify({ error: authError?.message || "Failed to create user account" }), {
+      console.error("Auth user creation failed:", authError)
+      return new Response(JSON.stringify({ 
+        error: authError?.message || "Failed to create user account" 
+      }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       })
     }
 
+    const newUserId = authData.user.id
+
+    // ── 8. Insert into users table ──
+    console.log("[7] Inserting into users table...")
     const { error: insertError } = await adminClient.from("users").insert({
-      id: authData.user.id,
+      id: newUserId,
       full_name: fullName,
       email,
       role,
-      business_id: callerData.business_id,
-      default_branch_id: branchId || null,
+      business_id: businessId,
+      default_branch_id: branchId,  // always set — never null
       is_active: true,
     })
+    console.log("[7] Users table insert complete")
 
     if (insertError) {
-      return new Response(JSON.stringify({ error: insertError.message }), {
+      console.error("Users table insert failed:", insertError)
+      // Roll back auth user
+      await adminClient.auth.admin.deleteUser(newUserId)
+      return new Response(JSON.stringify({ 
+        error: "Failed to create user profile — account creation rolled back" 
+      }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       })
     }
 
-    // Create branch assignment if branchId is provided
-    if (branchId) {
-      const { error: assignmentError } = await adminClient.from("user_branch_assignments").insert({
-        user_id: authData.user.id,
-        branch_id: branchId,
-        role: role,
-        is_active: true,
-      })
+    // ── 9. Create branch assignment — must succeed or everything rolls back ──
+    console.log("[8] Creating branch assignment...")
+    const { error: assignmentError } = await adminClient.from("user_branch_assignments").insert({
+      user_id: newUserId,
+      branch_id: branchId,
+      role,
+      is_active: true,
+    })
+    console.log("[8] Branch assignment created")
 
-      if (assignmentError) {
-        console.log("Branch assignment error:", assignmentError)
-        // Don't fail the whole operation, but log the error
-      }
+    if (assignmentError) {
+      console.error("Branch assignment failed:", assignmentError)
+      // Roll back both the users row and the auth user
+      await adminClient.from("users").delete().eq("id", newUserId)
+      await adminClient.auth.admin.deleteUser(newUserId)
+      return new Response(JSON.stringify({ 
+        error: "Failed to assign branch — account creation rolled back" 
+      }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      })
     }
 
+    console.log(`[9] Employee created successfully: ${email} → ${branchData.name} (${role})`)
+
+    // ── 10. Return success ──
+    console.log("[10] Returning success response")
     return new Response(
       JSON.stringify({ 
         success: true, 
-        message: `Employee account created for ${email}`,
+        message: `${fullName} has been added to ${branchData.name}`,
         user: {
-          id: authData.user.id,
+          id: newUserId,
           email,
           fullName,
           role,
-          isActive: true
+          branchId,
+          branchName: branchData.name,
+          isActive: true,
         }
       }),
-      { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      { 
+        status: 200, 
+        headers: { ...corsHeaders, "Content-Type": "application/json" } 
+      }
     )
 
   } catch (err) {
-    return new Response(JSON.stringify({ error: (err as Error).message || "Internal server error" }), {
+    console.error("Unexpected error:", err)
+    return new Response(JSON.stringify({ 
+      error: (err as Error).message || "Internal server error" 
+    }), {
       status: 500,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     })
