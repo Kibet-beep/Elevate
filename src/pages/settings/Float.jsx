@@ -1,6 +1,5 @@
 // src/pages/settings/Float.jsx
 import { useState, useEffect } from "react"
-import { supabase } from "../../lib/supabase"
 import { getFloat, saveFloat } from "../../services/floatService"
 import { useNavigate } from "react-router-dom"
 import { useCurrentBusiness } from "../../hooks/useRole"
@@ -58,8 +57,7 @@ export default function Float() {
     setSaving(true)
     setError("")
     try {
-      const { data: { user } } = await supabase.auth.getUser()
-      await saveFloat(businessId, { cash, mpesa, bank }, user?.id)
+      await saveFloat(businessId, { cash, mpesa, bank }, null)
       setSaved(true)
       setLastSet(new Date().toISOString())
       setTimeout(() => setSaved(false), 2000)

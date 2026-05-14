@@ -1,186 +1,104 @@
 // src/features/dashboard/services/dashboard.service.js
-import { supabase } from '../../../lib/supabase'
-import { getTodayStartEAT } from '../utils/dashboard.time'
+import { getDb } from '../../../lib/db'
 
-export async function fetchDashboardStats(params) {
-  const { businessId, branchId } = params
-  
-  const today = getTodayStartEAT()
-  
-  const txnsQuery = supabase
-    .from('transactions')
-    .select('id, type, payment_account, date, sale_items(total_amount)')
-    .eq('business_id', businessId)
-    .eq('type', 'sale')
-    .gte('date', today)
-    .order('date', { ascending: false })
+export const DASHBOARD_CACHE_KEY = 'elevate:dashboard:cache'
 
-  const expensesQuery = supabase
-    .from('transactions')
-    .select('id, type, payment_account, date')
-    .eq('business_id', businessId)
-    .eq('type', 'expense')
-    .gte('date', today)
-    .order('date', { ascending: false })
+function toPlainDoc(doc) {
+  return typeof doc?.toJSON === 'function' ? doc.toJSON() : doc
+}
 
-  if (branchId) {
-    txnsQuery.eq('branch_id', branchId)
-    expensesQuery.eq('branch_id', branchId)
+function getTodayRange() {
+  const now = new Date()
+  const start = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+  start.setHours(0, 0, 0, 0)
+
+  const end = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+  end.setHours(23, 59, 59, 999)
+
+  return {
+    start: start.toISOString(),
+    end: end.toISOString(),
+  }
+}
+
+function buildSelector(businessId, branchId, start, end) {
+  const selector = {
+    business_id: businessId,
+    _deleted: { $ne: true },
+    date: {
+      $gte: start,
+      $lte: end,
+    },
   }
 
-  const [txnsResult, expensesResult] = await Promise.all([txnsQuery, expensesQuery])
-  
-  if (txnsResult.error) throw txnsResult.error
-  if (expensesResult.error) throw expensesResult.error
-  
-  const txns = txnsResult.data || []
-  const expensesByTxn = {}
-  
-  if (expensesResult.data?.length > 0) {
-    const txnIds = expensesResult.data.map(t => t.id)
-    const { data: expensesData, error: expensesError } = await supabase
-      .from('expenses')
-      .select('*')
-      .in('transaction_id', txnIds)
-    
-    if (expensesError) throw expensesError
-    
-    if (expensesData) {
-      expensesData.forEach(exp => {
-        if (!expensesByTxn[exp.transaction_id]) {
-          expensesByTxn[exp.transaction_id] = []
-        }
-        expensesByTxn[exp.transaction_id].push(exp)
+  if (branchId) {
+    selector.branch_id = branchId
+  }
+
+  return selector
+}
+
+async function loadTransactions({ businessId, branchId, start, end }) {
+  if (!businessId) {
+    return []
+  }
+
+  const db = await getDb()
+  const docs = await db.transactions
+    .find({
+      selector: buildSelector(businessId, branchId, start, end),
+      sort: [{ date: 'desc' }, { id: 'desc' }],
+    })
+    .exec()
+
+  return docs.map(toPlainDoc)
+}
+
+function splitTransactions(transactions) {
+  const sales = []
+  const expenses = []
+
+  for (const transaction of transactions) {
+    if (transaction.type === 'sale') {
+      sales.push(transaction)
+    }
+
+    if (transaction.type === 'expense') {
+      expenses.push({
+        ...transaction,
+        expenses: transaction.expense ? [transaction.expense] : [],
       })
     }
   }
-  
-  const enrichedExpenses = (expensesResult.data || []).map(txn => ({
-    ...txn,
-    expenses: expensesByTxn[txn.id] || []
-  }))
-  
-  return { txns, expenses: enrichedExpenses }
+
+  return { sales, expenses }
+}
+
+export async function fetchDashboardStats(params) {
+  const { businessId, branchId } = params
+
+  const { start, end } = getTodayRange()
+  const transactions = await loadTransactions({ businessId, branchId, start, end })
+  const { sales, expenses } = splitTransactions(transactions)
+
+  return { txns: sales, expenses }
 }
 
 export async function fetchTodayActivity(params) {
   const { businessId, branchId } = params
-  
-  const today = getTodayStartEAT()
-  
-  const query = supabase
-    .from('transactions')
-    .select('id, type, payment_account, date, sale_items(total_amount, products(name))')
-    .eq('business_id', businessId)
-    .eq('type', 'sale')
-    .gte('date', today)
-    .order('date', { ascending: false })
 
-  const expenseQuery = supabase
-    .from('transactions')
-    .select('id, type, payment_account, date')
-    .eq('business_id', businessId)
-    .eq('type', 'expense')
-    .gte('date', today)
-    .order('date', { ascending: false })
+  const { start, end } = getTodayRange()
+  const transactions = await loadTransactions({ businessId, branchId, start, end })
+  const { sales, expenses } = splitTransactions(transactions)
 
-  if (branchId) {
-    query.eq('branch_id', branchId)
-    expenseQuery.eq('branch_id', branchId)
-  }
-
-  const [txnResult, expenseResult] = await Promise.all([query, expenseQuery])
-  
-  if (txnResult.error) throw txnResult.error
-  if (expenseResult.error) throw expenseResult.error
-  
-  const txns = txnResult.data || []
-  const expensesByTxn = {}
-  
-  if (expenseResult.data?.length > 0) {
-    const txnIds = expenseResult.data.map(t => t.id)
-    const { data: expensesData, error: expensesError } = await supabase
-      .from('expenses')
-      .select('*')
-      .in('transaction_id', txnIds)
-    
-    if (expensesError) throw expensesError
-    
-    if (expensesData) {
-      expensesData.forEach(exp => {
-        if (!expensesByTxn[exp.transaction_id]) {
-          expensesByTxn[exp.transaction_id] = []
-        }
-        expensesByTxn[exp.transaction_id].push(exp)
-      })
-    }
-  }
-  
-  const enrichedExpenses = (expenseResult.data || []).map(txn => ({
-    ...txn,
-    expenses: expensesByTxn[txn.id] || []
-  }))
-  
-  return { transactions: [...txns, ...enrichedExpenses] }
+  return { transactions: [...sales, ...expenses] }
 }
 
 export async function fetchPeriodActivity(params) {
   const { businessId, branchId, start, end } = params
-  
-  const query = supabase
-    .from('transactions')
-    .select('id, type, payment_account, date, sale_items(total_amount, products(name))')
-    .eq('business_id', businessId)
-    .eq('type', 'sale')
-    .gte('date', start)
-    .lte('date', end)
-    .order('date', { ascending: false })
 
-  const expenseQuery = supabase
-    .from('transactions')
-    .select('id, type, payment_account, date')
-    .eq('business_id', businessId)
-    .eq('type', 'expense')
-    .gte('date', start)
-    .lte('date', end)
-    .order('date', { ascending: false })
+  const transactions = await loadTransactions({ businessId, branchId, start, end })
+  const { sales, expenses } = splitTransactions(transactions)
 
-  if (branchId) {
-    query.eq('branch_id', branchId)
-    expenseQuery.eq('branch_id', branchId)
-  }
-
-  const [txnResult, expenseResult] = await Promise.all([query, expenseQuery])
-  
-  if (txnResult.error) throw txnResult.error
-  if (expenseResult.error) throw expenseResult.error
-  
-  const txns = txnResult.data || []
-  const expensesByTxn = {}
-  
-  if (expenseResult.data?.length > 0) {
-    const txnIds = expenseResult.data.map(t => t.id)
-    const { data: expensesData, error: expensesError } = await supabase
-      .from('expenses')
-      .select('*')
-      .in('transaction_id', txnIds)
-    
-    if (expensesError) throw expensesError
-    
-    if (expensesData) {
-      expensesData.forEach(exp => {
-        if (!expensesByTxn[exp.transaction_id]) {
-          expensesByTxn[exp.transaction_id] = []
-        }
-        expensesByTxn[exp.transaction_id].push(exp)
-      })
-    }
-  }
-  
-  const enrichedExpenses = (expenseResult.data || []).map(txn => ({
-    ...txn,
-    expenses: expensesByTxn[txn.id] || []
-  }))
-  
-  return { transactions: [...txns, ...enrichedExpenses] }
+  return { transactions: [...sales, ...expenses] }
 }

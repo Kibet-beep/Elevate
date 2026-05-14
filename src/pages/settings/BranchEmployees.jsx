@@ -3,10 +3,13 @@ import { useLocation, useNavigate } from "react-router-dom"
 import { useUser, useCurrentBusiness, useIsOwner, useIsManager } from "../../hooks/useRole"
 import { useInstantAuth } from "../../hooks/useInstantAuth"
 import { useBranchContext } from "../../context/BranchContext"
-import { supabase } from "../../lib/supabase"
-import { getDb } from "../../lib/db"
 import { AppShell, UiButton, UiCard } from "../../components/ui"
 import { BranchSelector } from "../../components/BranchSelector"
+import {
+  addBranchEmployee,
+  loadBranchEmployees,
+  toggleBranchEmployeeActive,
+} from "../../services/branchEmployeesService"
 
 export default function BranchEmployees() {
   const navigate = useNavigate()
@@ -62,8 +65,6 @@ export default function BranchEmployees() {
       setLoading(true)
 
       try {
-        const db = await getDb()
-
         const branchIds = viewMode === 'branch'
           ? [activeBranch?.id || effectiveBranchId].filter(Boolean)
           : canViewAll
@@ -75,26 +76,8 @@ export default function BranchEmployees() {
           return
         }
 
-        const assignmentDocs = await db.branch_assignments.find({
-          selector: {
-            branch_id: { $in: branchIds },
-            _deleted: { $ne: true },
-          },
-        }).exec()
-
-        // Use assignments directly - no Supabase join needed
         if (active) {
-          setEmployees(
-            assignmentDocs.map((a) => ({
-              id: a.user_id,
-              full_name: a.full_name || "Unknown",
-              email: a.email || "",
-              role: a.role || "cashier",
-              is_active: a.is_active ?? true,
-              branch_ids: [a.branch_id],
-              business_id: businessId,
-            }))
-          )
+          setEmployees(await loadBranchEmployees({ businessId, branchIds }))
         }
       } catch (fetchError) {
         console.error('Failed to fetch employees:', fetchError)
@@ -159,118 +142,13 @@ export default function BranchEmployees() {
     setSaving(true)
 
     try {
-      // Check online status before calling edge function
-      const isOnline = typeof navigator !== 'undefined' ? navigator.onLine : true
-      if (!isOnline) {
-        setError('You are offline. Adding employees requires internet connection because account creation happens on Supabase.')
-        setSaving(false)
-        return
-      }
-
-      // Server preflight: ensure the branch exists on Supabase for this business.
-      const { data: serverBranches, error: serverBranchesError } = await supabase
-        .from('branches')
-        .select('id, name, is_active')
-        .eq('business_id', businessId)
-        .eq('is_active', true)
-
-      if (serverBranchesError) {
-        throw new Error(serverBranchesError.message || 'Failed to verify branches on server')
-      }
-
-      const activeServerBranches = serverBranches || []
-      if (activeServerBranches.length === 0) {
-        throw new Error('No active branches found on server for this business')
-      }
-
-      const selectedServerBranch = activeServerBranches.find((branch) => branch.id === localCandidateBranchId)
-      const serverBranchToUse = selectedServerBranch || activeServerBranches[0]
-
-      if (!selectedServerBranch) {
-        console.warn('Local branch not found on server, falling back to first active server branch', {
-          localCandidateBranchId,
-          fallbackBranchId: serverBranchToUse.id,
-        })
-      }
-
-      console.log('[CLIENT] BEFORE INVOKE')
-
-      const timeoutPromise = new Promise((_, reject) =>
-        setTimeout(() => reject(new Error('Edge function request timed out after 30 seconds')), 30000)
-      )
-
-      const invokePromise = supabase.functions.invoke('create-employee', {
-        body: {
-          email: email.trim().toLowerCase(),
-          password,
-          fullName: fullName.trim(),
-          role,
-          businessId,
-          branchId: serverBranchToUse.id,
-        },
-      })
-
-      const result = await Promise.race([invokePromise, timeoutPromise])
-      console.log('[CLIENT] AFTER INVOKE')
-      console.log('[CLIENT] Edge function response:', result)
-
-      const { data, error: invokeError } = result
-
-      if (invokeError) {
-        console.error('Edge function invoke error (full object):', invokeError)
-        console.error('invokeError.message:', invokeError.message)
-        console.error('invokeError.status:', invokeError.status)
-        console.error('invokeError.context:', invokeError.context)
-        
-        // Extract error details from FunctionsHttpError
-        let errorMessage = invokeError.message || 'Edge function failed'
-        
-        // invokeError.context is a Response object - try to read its body
-        if (invokeError.context && typeof invokeError.context.json === 'function') {
-          try {
-            const responseBody = await invokeError.context.json()
-            console.error('Edge function response body:', responseBody)
-            if (responseBody.error) {
-              errorMessage = responseBody.error
-            }
-          } catch (parseErr) {
-            console.error('Could not parse error response:', parseErr)
-          }
-        }
-        
-        // Try to parse data if available
-        if (data) {
-          console.error('Edge function data:', data)
-          if (data.error) {
-            errorMessage = data.error
-          }
-        }
-        
-        // Check if it's a network error
-        if (errorMessage.includes('Failed to fetch') || errorMessage.includes('fetch')) {
-          throw new Error('Network error: Could not reach the server. Please check your internet connection.')
-        }
-        if (errorMessage.includes('Branch not found or does not belong to this business')) {
-          throw new Error('The selected branch is not linked to your current business on the server. Open branch selector, reselect a branch, then try again.')
-        }
-        throw new Error(errorMessage)
-      }
-
-      if (data?.error) {
-        console.error('Edge function returned error:', data.error)
-        throw new Error(data.error)
-      }
-
-      // Write assignment to local RxDB
-      const db = await getDb()
-      await db.branch_assignments.upsert({
-        id: `${data.user.id}:${data.user.branchId}`,
-        user_id: data.user.id,
-        branch_id: data.user.branchId,
-        role: data.user.role,
-        is_active: true,
-        _modified: Date.now(),
-        _deleted: false,
+      const data = await addBranchEmployee({
+        businessId,
+        branchId: localCandidateBranchId,
+        fullName,
+        email,
+        password,
+        role,
       })
 
       setSuccessMessage(data?.message || `${fullName} has been added to the team`)
@@ -303,28 +181,15 @@ export default function BranchEmployees() {
   }
 
   const toggleActive = async (emp) => {
-    if (typeof navigator !== 'undefined' && !navigator.onLine) {
-      setError('Changing employee status requires internet')
-      return
-    }
-
     try {
       setSaving(true)
       const nextActive = !emp.is_active
-      const { error: updateError } = await supabase
-        .from('users')
-        .update({ is_active: nextActive })
-        .eq('id', emp.id)
-        .eq('business_id', businessId)
 
-      if (updateError) throw updateError
-
-      const { error: assignmentError } = await supabase
-        .from('user_branch_assignments')
-        .update({ is_active: nextActive })
-        .eq('user_id', emp.id)
-
-      if (assignmentError) throw assignmentError
+      await toggleBranchEmployeeActive({
+        businessId,
+        employeeId: emp.id,
+        nextActive,
+      })
 
       setEmployees((prev) => prev.map((item) =>
         item.id === emp.id ? { ...item, is_active: nextActive } : item

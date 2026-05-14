@@ -6,7 +6,7 @@
 |---|---|---|
 | Total pages audited | 33 | — |
 | Pages with direct Supabase calls | Still present on several pages; see remaining lists below | ⚠️ |
-| Pages following recommended pattern | 6 | ✅ |
+| Pages following recommended pattern | 17 | ✅ |
 | Service layer | Present | ✅ |
 | Repository layer | Present | ✅ |
 | RxDB integration | Present | ✅ |
@@ -20,10 +20,21 @@
 |---|---|---|
 | Support.jsx | ✅ | Static page, no data fetching |
 | Employees.jsx | ✅ | Navigation/routing only, no Supabase calls |
+| Dashboard.jsx | ✅ | Uses local RxDB-backed dashboard hooks and services |
 | Products.jsx | ✅ | Uses `useProducts()` backed by `src/services/productsService.js` |
 | Transactions.jsx | ✅ | Uses `useTransactions()` backed by `src/services/transactionsService.js` |
 | AddSale.jsx | ✅ | Uses `src/services/saleEntryService.ts` for sale creation |
 | AddExpense.jsx | ✅ | Uses `src/services/expenseService.ts` for expense creation |
+| Branches.jsx | ✅ | Uses `src/services/branchesService.js` over `src/repositories/branchesRepository.js` for branch CRUD |
+| BranchEmployees.jsx | ✅ | Uses `src/services/branchEmployeesService.js` for loading, create, status toggle, and delete flows |
+| EmployeeDetail.jsx | ✅ | Uses `src/services/employeeDetailService.js` for load, save, and delete flows |
+| OpeningStock.jsx | ✅ | Uses `src/services/inventoryService.ts` routed through repository-backed data access |
+| Business.jsx | ✅ | Uses `src/services/businessService.js` backed by `src/repositories/businessesRepository.js` |
+| BusinessSettings.jsx | ✅ | Uses `src/services/settingsService.js` backed by `src/repositories/businessesRepository.js` |
+| General.jsx | ✅ | Uses `src/services/settingsService.js` backed by `src/repositories/businessesRepository.js` |
+| Float.jsx | ✅ | Uses `src/services/floatService.js` backed by `src/repositories/floatRepository.js` |
+| Suppliers.jsx | ✅ | Uses `src/services/supplierService.js` backed by `src/repositories/suppliersRepository.js` |
+| BranchDetail.jsx | ✅ | Uses `src/services/branchDetailService.js` over `src/repositories/branchesRepository.js` and local branch assignment reads |
 
 ---
 
@@ -40,12 +51,6 @@
 | ResetPassword.jsx | supabase.auth.updateUser() | Auth called directly |
 | AuthCallback.jsx | supabase.auth.getSession(), users.select() | Callback logic mixed with component |
 
-### Dashboard (1 page)
-
-| Page | Direct Calls | Issue |
-|---|---|---|
-| Dashboard.jsx | transactions.select(), manual data aggregation | Multiple raw Supabase queries |
-
 ### Inventory Pages (4 pages remaining)
 
 | Page | Direct Calls | Issue |
@@ -61,22 +66,11 @@
 |---|---|---|
 | AddTransfer.jsx | users.select(), float_baseline, transactions, transfers | 4 table queries in one page |
 
-### Settings / Business Pages (14 pages)
+### Settings / Business Pages (2 pages)
 
 | Page | Direct Calls | Issue |
 |---|---|---|
-| Business.jsx | businesses.select(), .update() | CRUD directly in component |
-| BusinessSettings.jsx | businesses.select(), .update() | CRUD directly in component |
-| General.jsx | businesses.select(), .update() | Settings update in component |
-| Float.jsx | float_baseline.select(), .upsert() | Direct upsert logic in component |
-| Suppliers.jsx | suppliers.select(), .insert(), .update() | Full CRUD in component |
-| Branches.jsx | branches.select(), .insert(), .update() | Full CRUD in component |
-| BranchDetail.jsx | branches.select(), user_branch_assignments.select() | Multi-table reads |
-| BranchEmployees.jsx | Supabase import + direct calls | Employee management queries |
-| EmployeeDetail.jsx | users.select(), user_branch_assignments.select() | Employee edit in component |
-| EmployeeDetails.jsx | users.select() | Duplicate employee view doing same thing |
 | ChangePassword.jsx | supabase.auth.updateUser() | Auth called directly |
-| OpeningStock.jsx | products.select() | Cache manager present but bypassed |
 | HistoricalSales.jsx | float_baseline, products.select(), transactions.select() | 3 table queries |
 
 ### Reports Pages (2 pages)
@@ -105,7 +99,7 @@ React Component → Service → Repository → RxDB when available → Render im
                         (Sync to Supabase in background when online)
 ```
 
-The pages already on the recommended path are `Products.jsx`, `Transactions.jsx`, `AddSale.jsx`, and `AddExpense.jsx`, plus the two non-data pages `Support.jsx` and `Employees.jsx`.
+The pages already on the recommended path are `Products.jsx`, `Transactions.jsx`, `Dashboard.jsx`, `AddSale.jsx`, `AddExpense.jsx`, `Branches.jsx`, `BranchEmployees.jsx`, `EmployeeDetail.jsx`, `OpeningStock.jsx`, `Business.jsx`, `BusinessSettings.jsx`, and `General.jsx`, plus the two non-data pages `Support.jsx` and `Employees.jsx`.
 
 ### Problems the current pattern creates:
 - Offline doesn't work — no local database, app fails without internet
@@ -122,7 +116,7 @@ The pages already on the recommended path are `Products.jsx`, `Transactions.jsx`
 
 | Asset | What it does | Keep? |
 |---|---|---|
-| `src/repositories/` | Data access wrappers for products, transactions, stock entries, branches, users, suppliers | ✅ Yes |
+| `src/repositories/` | Data access wrappers for products, transactions, stock entries, branches, businesses, float baseline, users, suppliers | ✅ Yes |
 | `src/services/` | Business logic / mutation layer, including products, transactions, sales, expenses, inventory, dashboard, settings | ✅ Yes |
 | `src/lib/db.js` | RxDB setup, schemas, and replication entry points | ✅ Yes |
 | `src/lib/supabase-replication.js` | Supabase-backed RxDB replication implementation | ✅ Yes |
@@ -138,7 +132,6 @@ The pages already on the recommended path are `Products.jsx`, `Transactions.jsx`
 | Missing | Priority |
 |---|---|
 | Sync status UI (WhatsApp-style ticks) | 🟡 High |
-| Transfer flow service/repository wrapper | 🔴 High |
 | Remaining direct-call pages | 🔴 High |
 | Page-level tests or smoke checks for the new service path | 🟡 Medium |
 
@@ -175,9 +168,17 @@ The refactoring is internal only — no UI/UX changes visible to the user. The o
 - **Completed this step:** added [src/services/productsService.js](src/services/productsService.js) and routed [src/hooks/useProducts.js](src/hooks/useProducts.js) through the service layer for initial product loading.
 - **Completed this step:** cleaned up [src/pages/inventory/Products.jsx](src/pages/inventory/Products.jsx) to rely on the service-backed hook without the old debug logging.
 - **Completed this step:** added [src/services/transactionsService.js](src/services/transactionsService.js) and routed [src/hooks/useTransactions.js](src/hooks/useTransactions.js) through the service layer for initial transaction loading.
+- **Completed this step:** refactored the dashboard service layer to read from local RxDB instead of Supabase, keeping [src/pages/dashboard/Dashboard.jsx](src/pages/dashboard/Dashboard.jsx) on the recommended path.
 - **Completed this step:** added [src/services/saleEntryService.ts](src/services/saleEntryService.ts) and routed [src/pages/transactions/AddSale.jsx](src/pages/transactions/AddSale.jsx) through the service layer for sale creation.
 - **Completed this step:** added [src/services/expenseService.ts](src/services/expenseService.ts) and routed [src/pages/transactions/AddExpense.jsx](src/pages/transactions/AddExpense.jsx) through the service layer for expense creation.
 - **Completed this step:** added [src/services/transferService.ts](src/services/transferService.ts) and routed [src/pages/transactions/AddTransfer.jsx](src/pages/transactions/AddTransfer.jsx) through the service layer for transfer creation and cost tracking.
+- **Completed this step:** added [src/services/branchesService.js](src/services/branchesService.js) and routed [src/pages/settings/Branches.jsx](src/pages/settings/Branches.jsx) through the service layer for branch create, update, activate, and archive flows.
+- **Completed this step:** added [src/services/branchEmployeesService.js](src/services/branchEmployeesService.js) and routed [src/pages/settings/BranchEmployees.jsx](src/pages/settings/BranchEmployees.jsx) through the service layer for employee loading, branch assignment, and activation flows.
+- **Completed this step:** added [src/services/employeeDetailService.js](src/services/employeeDetailService.js) and routed [src/pages/settings/EmployeeDetail.jsx](src/pages/settings/EmployeeDetail.jsx) through the service layer for employee detail load, save, and delete flows.
+- **Completed this step:** refactored [src/services/inventoryService.ts](src/services/inventoryService.ts) to use repository-backed data access for opening baseline and inventory movement operations used by [src/pages/settings/OpeningStock.jsx](src/pages/settings/OpeningStock.jsx).
+- **Completed this step:** added [src/repositories/businessesRepository.js](src/repositories/businessesRepository.js) and routed [src/services/businessService.js](src/services/businessService.js), [src/services/settingsService.js](src/services/settingsService.js), and [src/pages/settings/BusinessSettings.jsx](src/pages/settings/BusinessSettings.jsx) through the repository-backed business settings path.
+- **Completed this step:** routed [src/services/supplierService.js](src/services/supplierService.js) through [src/repositories/suppliersRepository.js](src/repositories/suppliersRepository.js) so [src/pages/settings/Suppliers.jsx](src/pages/settings/Suppliers.jsx) now uses the repository-backed supplier path.
+- **Completed this step:** added [src/services/branchDetailService.js](src/services/branchDetailService.js) and routed [src/pages/settings/BranchDetail.jsx](src/pages/settings/BranchDetail.jsx) through the repository-backed branch detail path.
 
 ---
 
@@ -193,19 +194,18 @@ Migration queue (strict order):
 4. ~~`src/pages/inventory/ProductDetail.jsx`~~ — **✅ COMPLETED** — already uses `useProducts()` hook; refactored mutations to use `productDetailService` (update, deactivate, branch assign).
 5. ~~`src/pages/inventory/StockTake.jsx`~~ — **✅ COMPLETED** — uses `getAllProducts()` from repository and `stockTakeService` (start, submit counts, approve).
 6. Settings / Business pages (grouped, migrate in this order):
-    - `src/pages/settings/Business.jsx`
-    - `src/pages/settings/BusinessSettings.jsx`
-    - `src/pages/settings/General.jsx`
-    - `src/pages/settings/Float.jsx`
-    - `src/pages/settings/Suppliers.jsx`
-    - `src/pages/settings/Branches.jsx`
+    - ~~`src/pages/settings/Business.jsx`~~ — **✅ COMPLETED** — business details now flow through `businessService` backed by `businessesRepository`.
+    - ~~`src/pages/settings/BusinessSettings.jsx`~~ — **✅ COMPLETED** — business identity and operational settings now flow through `settingsService` backed by `businessesRepository`.
+    - ~~`src/pages/settings/General.jsx`~~ — **✅ COMPLETED** — general preferences now flow through `settingsService` backed by `businessesRepository`.
+    - ~~`src/pages/settings/Float.jsx`~~ — **✅ COMPLETED** — opening balances now flow through `floatService` backed by `floatRepository`.
+    - ~~`src/pages/settings/Suppliers.jsx`~~ — **✅ COMPLETED** — supplier CRUD now goes through `supplierService` backed by `suppliersRepository`.
+    - ~~`src/pages/settings/Branches.jsx`~~ — **✅ COMPLETED** — branch CRUD now goes through `branchesService` and `branchesRepository`.
 7. Employee & branch admin pages (grouped):
-    - `src/pages/settings/BranchDetail.jsx`
-    - `src/pages/settings/BranchEmployees.jsx`
-    - `src/pages/settings/EmployeeDetail.jsx`
-    - `src/pages/settings/EmployeeDetails.jsx`
+    - ~~`src/pages/settings/BranchDetail.jsx`~~ — **✅ COMPLETED** — branch profile and assignment reads now flow through `branchDetailService`.
+    - ~~`src/pages/settings/BranchEmployees.jsx`~~ — **✅ COMPLETED** — branch employee loading, add, and status flows now flow through `branchEmployeesService`.
+    - ~~`src/pages/settings/EmployeeDetail.jsx`~~ — **✅ COMPLETED** — employee detail load, save, and delete flows now flow through `employeeDetailService`.
 8. Stock baseline & reporting pages:
-    - `src/pages/settings/OpeningStock.jsx`
+    - ~~`src/pages/settings/OpeningStock.jsx`~~ — **✅ COMPLETED** — opening baseline flow now runs through repository-backed inventory service operations.
     - `src/pages/settings/HistoricalSales.jsx`
 9. Reports (read + auth calls):
     - `src/pages/settings/SalesReport.jsx`
@@ -228,6 +228,7 @@ Notes:
 - Added services: `productsService`, `transactionsService`, `transferService`, `saleEntryService`, `expenseService`, `stockEntriesService`, `productDetailService`, `stockTakeService`.
 - Migrated inventory pages: Inventory.jsx, NewStock.jsx, ProductDetail.jsx, StockTake.jsx — all now use service/repository layers.
 - Migrated transaction pages: AddTransfer.jsx, AddSale.jsx, AddExpense.jsx — all now use service/repository layers.
+- Migrated settings pages: Branches.jsx, Business.jsx, BusinessSettings.jsx, General.jsx — all now use repository-backed services.
 - Cleaned up debug logs and direct RxDB/Supabase calls.
 
 ### Remaining work

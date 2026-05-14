@@ -1,5 +1,6 @@
 // src/services/saleEntryService.ts
 import { getDb } from '../lib/db'
+import { createInventoryMovementsForSale } from './inventoryService'
 
 export interface SaleCartItem {
   product_id: string
@@ -74,6 +75,40 @@ export async function recordSale(params: RecordSaleParams) {
   }
 
   await db.transactions.insert(transaction)
+
+  const quantityByProduct = new Map<string, number>()
+  for (const item of cartItems) {
+    quantityByProduct.set(
+      item.product_id,
+      (quantityByProduct.get(item.product_id) || 0) + Number(item.quantity || 0),
+    )
+  }
+
+  for (const [productId, soldQuantity] of quantityByProduct.entries()) {
+    const productDoc = await db.products.findOne(productId).exec()
+
+    if (!productDoc) continue
+
+    const nextQuantity = Math.max(0, Number(productDoc.current_quantity || 0) - soldQuantity)
+
+    await productDoc.incrementalPatch({
+      current_quantity: nextQuantity,
+      _modified: Date.now(),
+    })
+  }
+
+  await createInventoryMovementsForSale(
+    businessId,
+    branchId,
+    transactionId,
+    cartItems.map((item) => ({
+      product_id: item.product_id,
+      quantity: item.quantity,
+      unit_price: item.unit_price,
+      total_amount: item.unit_price * item.quantity,
+    })),
+    userId,
+  )
 
   return {
     transaction,

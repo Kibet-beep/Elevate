@@ -1,11 +1,11 @@
 import { useState, useMemo } from "react"
-import { getDb } from "../../lib/db"
 import { useNavigate } from "react-router-dom"
 import { useCurrentBusiness } from "../../hooks/useRole"
 import { useInstantAuth } from "../../hooks/useInstantAuth"
 import { AppShell, UiButton, UiCard } from "../../components/ui"
 import { useBranchContext } from "../../context/BranchContext"
 import { useBranches } from "../../hooks/useBranches"
+import { archiveBranch, saveBranch, toggleBranchActive } from "../../services/branchesService"
 
 export default function Branches() {
   const navigate = useNavigate()
@@ -67,54 +67,28 @@ export default function Branches() {
 
   const handleSave = async () => {
     setError("")
-    
-    if (!name) {
-      setError("Branch name is required")
-      return
-    }
 
     setLoading(true)
 
     try {
-        const branchData = {
-        business_id: resolvedBusinessId,
+      const branch = await saveBranch({
+        branchId: editing?.id,
+        businessId: resolvedBusinessId,
         name,
-        code: code || null,
-        address: address || null,
-        phone: phone || null,
-        email: email || null,
+        code,
+        address,
+        phone,
+        email,
+      })
+
+      closeForm()
+      if (refreshBranches) refreshBranches()
+
+      if (!editing) {
+        navigate(`/settings/branches/${branch.id}`)
       }
-
-      if (!resolvedBusinessId) {
-        setError("Business is still loading. Please try again in a moment.")
-        return
-      }
-
-      const db = await getDb()
-
-      if (editing) {
-        const doc = await db.branches.findOne(editing.id).exec()
-        if (doc) {
-          await doc.incrementalPatch({ ...branchData, _modified: Date.now(), _deleted: false })
-        } else {
-          await db.branches.upsert({ id: editing.id, ...branchData, _modified: Date.now(), _deleted: false })
-        }
-
-        closeForm()
-        if (refreshBranches) refreshBranches()
-        return
-      } else {
-        const id = crypto.randomUUID?.() || `branch_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
-        await db.branches.insert({ id, ...branchData, is_active: true, status: 'active', _modified: Date.now(), _deleted: false })
-
-        closeForm()
-        if (refreshBranches) refreshBranches()
-        navigate(`/settings/branches/${id}`)
-        return
-      }
-
     } catch (error) {
-      setError(error.message)
+      setError(error.message || "Failed to save branch")
     } finally {
       setLoading(false)
     }
@@ -132,16 +106,10 @@ export default function Branches() {
 
   const toggleActive = async (branch) => {
     try {
-      const db = await getDb()
-      const doc = await db.branches.findOne(branch.id).exec()
-      if (doc) {
-        await doc.incrementalPatch({ is_active: !branch.is_active, _modified: Date.now() })
-      } else {
-        await db.branches.upsert({ ...branch, is_active: !branch.is_active, _modified: Date.now() })
-      }
+      await toggleBranchActive(branch)
       if (refreshBranches) refreshBranches()
     } catch (error) {
-      setError(error.message)
+      setError(error.message || "Failed to update branch status")
     }
   }
 
@@ -149,16 +117,10 @@ export default function Branches() {
     if (!confirm(`Are you sure you want to delete ${branch.name}? This action cannot be undone.`)) return
 
     try {
-      const db = await getDb()
-      const doc = await db.branches.findOne(branch.id).exec()
-      if (doc) {
-        await doc.incrementalPatch({ status: 'archived', _modified: Date.now() })
-      } else {
-        await db.branches.upsert({ ...branch, status: 'archived', _modified: Date.now() })
-      }
+      await archiveBranch(branch)
       if (refreshBranches) refreshBranches()
     } catch (error) {
-      setError(error.message)
+      setError(error.message || "Failed to archive branch")
     }
   }
 

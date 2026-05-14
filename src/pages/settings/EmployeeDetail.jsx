@@ -1,10 +1,13 @@
 import { useState, useEffect, useCallback } from "react"
-import { supabase } from "../../lib/supabase"
 import { useNavigate, useParams } from "react-router-dom"
 import { useCurrentBusiness, useIsOwner } from "../../hooks/useRole"
 import { useBranchContext } from "../../context/BranchContext"
-import { getDb, startBranchAssignmentsReplication } from "../../lib/db"
 import { AppShell, UiButton, UiCard } from "../../components/ui"
+import {
+  deleteEmployeeDetail,
+  loadEmployeeDetail,
+  saveEmployeeDetail,
+} from "../../services/employeeDetailService"
 
 export default function EmployeeDetail() {
   const navigate = useNavigate()
@@ -28,46 +31,24 @@ export default function EmployeeDetail() {
 
   const fetchEmployee = useCallback(async () => {
     try {
-      const db = await getDb()
-      try {
-        startBranchAssignmentsReplication(db.branch_assignments, businessId)
-      } catch (error) {
-        console.error("Failed to start branch assignments replication:", error)
+      const result = await loadEmployeeDetail({
+        businessId,
+        employeeId: id,
+        canViewAll,
+        effectiveBranchId,
+      })
+
+      if (result.employee) {
+        setEmployee(result.employee)
+        setFullName(result.employee.full_name || "")
+        setEmail(result.employee.email || "")
+        setRole(result.employee.role || "cashier")
+        setIsActive(result.employee.is_active !== false)
+        setSelectedBranches(result.selectedBranches)
       }
-
-      const { data: emp } = await supabase
-        .from("users")
-        .select("*")
-        .eq("id", id)
-        .eq("business_id", businessId)
-        .single()
-
-      if (emp) {
-        setEmployee(emp)
-        setFullName(emp.full_name || "")
-        setEmail(emp.email || "")
-        setRole(emp.role || "cashier")
-        setIsActive(emp.is_active !== false)
-        
-        const assignmentDocs = await db.branch_assignments.find({
-          selector: {
-            user_id: id,
-            is_active: true,
-            _deleted: { $ne: true },
-          },
-        }).exec()
-
-        const assignedBranches = assignmentDocs.map((doc) => doc.branch_id)
-        if (!canViewAll && effectiveBranchId && !assignedBranches.includes(effectiveBranchId)) {
-          setError("You do not have access to this employee.")
-          setEmployee(null)
-          return
-        }
-
-        setSelectedBranches(assignedBranches)
-      }
-    } catch {
-      setError("Failed to load employee")
+    } catch (error) {
+      setError(error.message || "Failed to load employee")
+      setEmployee(null)
     } finally {
       setLoading(false)
     }
@@ -88,69 +69,17 @@ export default function EmployeeDetail() {
     setSaving(true)
 
     try {
-      // Update employee basic info
-      const { error: updateError } = await supabase
-        .from("users")
-        .update({
-          full_name: fullName,
-          email,
-          role,
-          is_active: isActive,
-        })
-        .eq("id", id)
-        .eq("business_id", businessId)
-
-      if (updateError) throw updateError
-
-      // Update branch assignments
-      if (isOwner && availableBranches.length > 0) {
-        const db = await getDb()
-        const existingAssignments = await db.branch_assignments.find({
-          selector: {
-            user_id: id,
-            _deleted: { $ne: true },
-          },
-        }).exec()
-
-        const existingByBranch = new Map(existingAssignments.map((doc) => [doc.branch_id, doc]))
-        const selectedSet = new Set(selectedBranches)
-
-        await Promise.all(selectedBranches.map(async (branchId) => {
-          const assignmentId = `${id}:${branchId}`
-          const existing = existingByBranch.get(branchId)
-          const payload = {
-            id: assignmentId,
-            user_id: id,
-            branch_id: branchId,
-            role,
-            is_active: true,
-            _modified: Date.now(),
-            _deleted: false,
-          }
-
-          if (existing) {
-            await existing.incrementalPatch(payload)
-          } else {
-            if (db.branch_assignments && typeof db.branch_assignments.upsert === 'function') {
-              await db.branch_assignments.upsert(payload)
-            } else {
-              // Fallback: try server upsert if local collection is unavailable
-              console.warn('branch_assignments collection not available locally; falling back to server upsert')
-              const { error: upsertError } = await supabase
-                .from('user_branch_assignments')
-                .upsert({ user_id: id, branch_id: branchId, role, is_active: true })
-
-              if (upsertError) throw upsertError
-            }
-          }
-        }))
-
-        await Promise.all(
-          existingAssignments
-            .filter((doc) => !selectedSet.has(doc.branch_id))
-            .map((doc) => doc.incrementalPatch({ _deleted: true, _modified: Date.now() }))
-        )
-      }
+      await saveEmployeeDetail({
+        businessId,
+        employeeId: id,
+        fullName,
+        email,
+        role,
+        isActive,
+        selectedBranches,
+        isOwner,
+        availableBranches,
+      })
 
       setEditing(false)
       void fetchEmployee()
@@ -178,63 +107,10 @@ export default function EmployeeDetail() {
     setError("")
 
     try {
-      console.log("[DELETE] BEFORE INVOKE")
-
-      const timeoutPromise = new Promise((_, reject) =>
-        setTimeout(() => reject(new Error("Delete request timed out after 30 seconds")), 30000)
-      )
-
-      const invokePromise = supabase.functions.invoke('delete-employee', {
-        body: {
-          userId: id,
-          businessId
-        }
+      await deleteEmployeeDetail({
+        businessId,
+        employeeId: id,
       })
-
-      const result = await Promise.race([invokePromise, timeoutPromise])
-
-      console.log("[DELETE] AFTER INVOKE")
-      console.log("[DELETE] RESULT:", result)
-
-      const { data, error: authError } = result
-
-      if (authError) {
-        console.error("[DELETE] FUNCTION ERROR:", authError)
-
-        let errorMessage = authError.message || "Delete failed"
-
-        if (authError.context && typeof authError.context.json === "function") {
-          try {
-            const body = await authError.context.json()
-            console.log("[DELETE] ERROR BODY:", body)
-
-            if (body.error) {
-              errorMessage = body.error
-            }
-          } catch (e) {
-            console.error("[DELETE] FAILED TO PARSE ERROR:", e)
-          }
-        }
-
-        throw new Error(errorMessage)
-      }
-
-      console.log("[DELETE] SUCCESS DATA:", data)
-
-      const db = await getDb()
-
-      const assignmentDocs = await db.branch_assignments.find({
-        selector: { user_id: id }
-      }).exec()
-
-      await Promise.all(
-        assignmentDocs.map(doc =>
-          doc.incrementalPatch({
-            _deleted: true,
-            _modified: Date.now()
-          })
-        )
-      )
 
       navigate("/settings/branch-employees", { replace: true })
 

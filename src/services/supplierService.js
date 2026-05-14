@@ -1,56 +1,38 @@
 // src/services/supplierService.js
 // Repository + Service for the suppliers table.
-import { supabase } from '../lib/supabase'
+import { getAllSuppliers, upsertSupplier } from '../repositories/suppliersRepository'
 
 export async function getSuppliers(businessId) {
-  if (!businessId) return []
-
-  const { data, error } = await supabase
-    .from('suppliers')
-    .select('*')
-    .eq('business_id', businessId)
-    .order('name')
-
-  if (error) throw error
-  return data || []
+  return getAllSuppliers({ businessId })
 }
 
 export async function getSupplierOptions(businessId) {
-  if (!businessId) return []
-
-  const { data, error } = await supabase
-    .from('suppliers')
-    .select('id, name')
-    .eq('business_id', businessId)
-    .eq('is_active', true)
-
-  if (error) throw error
-  return data || []
+  const suppliers = await getAllSuppliers({ businessId })
+  return (suppliers || [])
+    .filter((supplier) => supplier.is_active)
+    .map((supplier) => ({ id: supplier.id, name: supplier.name }))
 }
 
 export async function createSupplier(businessId, { name, phone, email, address }) {
   if (!businessId) throw new Error('businessId required')
   if (!name) throw new Error('Supplier name required')
 
-  const { error } = await supabase
-    .from('suppliers')
-    .insert({
-      business_id: businessId,
-      name,
-      phone: phone || null,
-      email: email || null,
-      address: address || null,
-      is_active: true,
-    })
-
-  if (error) throw error
+  await upsertSupplier({
+    id: crypto.randomUUID?.() || `supplier_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`,
+    business_id: businessId,
+    name,
+    phone: phone || null,
+    email: email || null,
+    address: address || null,
+    is_active: true,
+  })
 }
 
 export async function toggleSupplierActive(supplierId, currentStatus) {
-  const { error } = await supabase
-    .from('suppliers')
-    .update({ is_active: !currentStatus })
-    .eq('id', supplierId)
+  if (!supplierId) throw new Error('supplierId required')
 
-  if (error) throw error
+  await upsertSupplier({
+    id: supplierId,
+    is_active: !currentStatus,
+  })
 }

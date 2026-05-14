@@ -1,5 +1,12 @@
 // src/services/inventoryService.ts
-import { supabase } from '../lib/supabase'
+import { getProductById, upsertProduct } from '../repositories/productsRepository'
+import { getFloatBaseline, upsertFloatBaseline } from '../repositories/floatRepository'
+import {
+  deleteOpeningStockMovements,
+  insertInventoryMovements,
+  listInventoryMovementsForBranch,
+  updateOpeningStockMovementReference,
+} from '../repositories/inventoryRepository'
 
 export interface OpeningBaselineItem {
   productId?: string
@@ -20,6 +27,14 @@ export interface CreateOpeningBaselineParams {
   items: OpeningBaselineItem[]
 }
 
+function generateId() {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID()
+  }
+
+  return `tmp-${Date.now()}-${Math.floor(Math.random() * 1000000)}`
+}
+
 export async function createOpeningBaseline(params: CreateOpeningBaselineParams) {
   const { businessId, branchId, openingDate, userId, items } = params
 
@@ -28,10 +43,11 @@ export async function createOpeningBaseline(params: CreateOpeningBaselineParams)
   let insertedProducts: any[] = []
 
   if (newProducts.length > 0) {
-    const { data, error } = await supabase
-      .from('products')
-      .insert(
-        newProducts.map(item => ({
+    insertedProducts = await Promise.all(
+      newProducts.map(async (item) => {
+        const id = generateId()
+        await upsertProduct({
+          id,
           business_id: businessId,
           branch_id: branchId,
           name: item.productName,
@@ -40,35 +56,44 @@ export async function createOpeningBaseline(params: CreateOpeningBaselineParams)
           buying_price: item.buyingPrice || item.unitCost,
           selling_price: item.sellingPrice || 0,
           is_active: true,
-        }))
-      )
-      .select('id, name')
+          current_quantity: 0,
+          _deleted: false,
+        })
 
-    if (error) throw error
-    insertedProducts = data || []
+        return { id, name: item.productName }
+      }),
+    )
   }
 
-  // Step 2: Delete existing opening_stock movements for this branch (idempotent behavior)
-  const { error: deleteError } = await supabase
-    .from('inventory_movements')
-    .delete()
-    .eq('business_id', businessId)
-    .eq('branch_id', branchId)
-    .eq('movement_type', 'opening_stock')
+  const insertedQueue = [...insertedProducts]
+  const resolvedItems = items.map((item) => {
+    if (item.productId) {
+      return {
+        ...item,
+        resolvedProductId: item.productId,
+      }
+    }
 
-  if (deleteError) throw deleteError
-
-  // Step 3: Create new opening_stock movement rows
-  const movementItems = items.map((item, index) => {
-    const productId = item.productId || insertedProducts[index]?.id
-    if (!productId) {
+    const inserted = insertedQueue.shift()
+    if (!inserted?.id) {
       throw new Error(`Failed to resolve product ID for ${item.productName}`)
     }
 
     return {
+      ...item,
+      resolvedProductId: inserted.id,
+    }
+  })
+
+  // Step 2: Delete existing opening_stock movements for this branch (idempotent behavior)
+  await deleteOpeningStockMovements(businessId, branchId)
+
+  // Step 3: Create new opening_stock movement rows
+  const movementItems = resolvedItems.map((item) => {
+    return {
       business_id: businessId,
       branch_id: branchId,
-      product_id: productId,
+      product_id: item.resolvedProductId,
       movement_type: 'opening_stock',
       quantity_delta: item.quantity,
       unit_cost: item.unitCost,
@@ -79,19 +104,15 @@ export async function createOpeningBaseline(params: CreateOpeningBaselineParams)
     }
   })
 
-  const { error: movementError } = await supabase
-    .from('inventory_movements')
-    .insert(movementItems)
-
-  if (movementError) throw movementError
+  await insertInventoryMovements(movementItems)
 
   // Step 3: Save float baseline snapshot
   const snapshot = {
     branchId,
     branchName: null, // Will be populated by caller
     stockTakeDate: openingDate,
-    products: items.map((item, index) => ({
-      productId: item.productId || insertedProducts[index]?.id,
+    products: resolvedItems.map((item) => ({
+      productId: item.resolvedProductId,
       productName: item.productName,
       quantity: item.quantity,
       unitCost: item.unitCost,
@@ -100,11 +121,7 @@ export async function createOpeningBaseline(params: CreateOpeningBaselineParams)
     createdAt: new Date().toISOString(),
   }
 
-  const { data: baseline } = await supabase
-    .from('float_baseline')
-    .select('opening_stock')
-    .eq('business_id', businessId)
-    .maybeSingle()
+  const baseline = await getFloatBaseline(businessId)
 
   const existingSnapshots = Array.isArray(baseline?.opening_stock) ? baseline.opening_stock : []
   const updatedSnapshots = [
@@ -112,26 +129,15 @@ export async function createOpeningBaseline(params: CreateOpeningBaselineParams)
     snapshot,
   ]
 
-  const { error: baselineError } = await supabase
-    .from('float_baseline')
-    .upsert({
-      business_id: businessId,
+  await upsertFloatBaseline(businessId, {
       opening_stock: updatedSnapshots,
       opening_stock_date: openingDate,
       updated_at: new Date().toISOString(),
-    }, { onConflict: 'business_id' })
-
-  if (baselineError) throw baselineError
+    })
 
   // Step 4: Update movement reference_id to link to baseline snapshot
   const baselineSnapshotId = snapshot.branchId // Use branchId as snapshot identifier
-  await supabase
-    .from('inventory_movements')
-    .update({ reference_id: baselineSnapshotId })
-    .eq('business_id', businessId)
-    .eq('branch_id', branchId)
-    .eq('movement_type', 'opening_stock')
-    .eq('reference_type', 'float_baseline')
+  await updateOpeningStockMovementReference(businessId, branchId, baselineSnapshotId)
 
   // Step 5: Recalculate branch inventory
   await recalculateBranchInventory(businessId, branchId)
@@ -141,13 +147,7 @@ export async function createOpeningBaseline(params: CreateOpeningBaselineParams)
 
 export async function recalculateBranchInventory(businessId: string, branchId: string) {
   // Aggregate movements by product
-  const { data: movements, error: movementError } = await supabase
-    .from('inventory_movements')
-    .select('product_id, quantity_delta')
-    .eq('business_id', businessId)
-    .eq('branch_id', branchId)
-
-  if (movementError) throw movementError
+  const movements = await listInventoryMovementsForBranch(businessId, branchId)
 
   // Calculate current quantities
   const inventoryByProduct = new Map<string, number>()
@@ -157,20 +157,21 @@ export async function recalculateBranchInventory(businessId: string, branchId: s
   })
 
   // Update products with calculated quantities
-  const updates = Array.from(inventoryByProduct.entries()).map(([productId, quantity]) =>
-    supabase
-      .from('products')
-      .update({ current_quantity: Math.max(0, quantity) })
-      .eq('id', productId)
-      .eq('business_id', businessId)
-      .eq('branch_id', branchId)
-  )
+  let updated = 0
+  for (const [productId, quantity] of inventoryByProduct.entries()) {
+    const existing = await getProductById(productId)
+    if (!existing) continue
 
-  const results = await Promise.all(updates)
-  const failedUpdate = results.find(result => result.error)
-  if (failedUpdate?.error) throw failedUpdate.error
+    await upsertProduct({
+      ...existing,
+      business_id: businessId,
+      branch_id: branchId,
+      current_quantity: Math.max(0, quantity),
+    })
+    updated += 1
+  }
 
-  return { updated: updates.length }
+  return { updated }
 }
 
 export async function createInventoryMovementsForSale(
@@ -198,11 +199,7 @@ export async function createInventoryMovementsForSale(
     created_at: new Date().toISOString(),
   }))
 
-  const { error } = await supabase
-    .from('inventory_movements')
-    .insert(movements)
-
-  if (error) throw error
+  await insertInventoryMovements(movements)
 
   // Recalculate inventory after sale
   await recalculateBranchInventory(businessId, branchId)
